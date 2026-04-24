@@ -140,23 +140,15 @@
           <label>
             <span>角色</span>
             <select name="role">
-              <option value="specialist">specialist</option>
               <option value="leader">leader</option>
-              <option value="custom">custom</option>
+              <option value="worker" selected>worker</option>
             </select>
           </label>
           <label>
             <span>描述</span>
             <textarea name="description" rows="2" placeholder="该 Agent 的职责"></textarea>
           </label>
-          <label>
-            <span>技能（逗号分隔）</span>
-            <input name="skills" placeholder="planning, summary">
-          </label>
-          <label>
-            <span>从已有 profile 克隆（可选）</span>
-            <input name="clone_from" placeholder="default">
-          </label>
+          <p class="form-hint">角色只支持 `leader` 和 `worker`，并且系统内只能存在一个 leader。</p>
           <p class="form-error" id="create-agent-error" hidden></p>
           <div class="modal__actions">
             <button type="button" class="filter-chip" data-close-modal>取消</button>

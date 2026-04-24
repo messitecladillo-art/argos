@@ -187,11 +187,6 @@ if (createAgentForm) {
       profile_name: formData.get("profile_name"),
       role: formData.get("role"),
       description: formData.get("description"),
-      skills: String(formData.get("skills") || "")
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean),
-      clone_from: formData.get("clone_from") || null,
     };
     const submitBtn = createAgentForm.querySelector('button[type="submit"]');
     if (submitBtn) submitBtn.disabled = true;

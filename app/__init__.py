@@ -1,6 +1,8 @@
 from flask import Flask
 
-from .routes import bp
+from .controllers import register_blueprints
+from .models.store import store
+from .services import registry
 
 
 def create_app() -> Flask:
@@ -9,5 +11,6 @@ def create_app() -> Flask:
         TEMPLATES_AUTO_RELOAD=True,
         SEND_FILE_MAX_AGE_DEFAULT=0,
     )
-    app.register_blueprint(bp)
+    registry.bootstrap(store)
+    register_blueprints(app)
     return app
