@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from ..config import PROFILE_NAME_RE, now_iso
+from ..config import MCP_BUS_URL, PROFILE_NAME_RE, now_iso
 from ..models.store import RuntimeStore
 from . import profiles, registry, soul
 
@@ -38,6 +38,11 @@ def create_agent(
         raise ValueError("only one leader can exist")
 
     profiles.create_hermes_profile(profile_name)
+
+    if role == "leader":
+        profiles.attach_mcp_server(
+            profile_name, name="agent_bus", url=MCP_BUS_URL
+        )
 
     created_at = now_iso()
     meta = {

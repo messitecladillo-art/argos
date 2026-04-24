@@ -1,6 +1,9 @@
+from a2wsgi import ASGIMiddleware
 from flask import Flask
+from werkzeug.middleware.dispatcher import DispatcherMiddleware
 
 from .controllers import register_blueprints
+from .mcp_server import mcp_asgi_app, start_session_manager
 from .models.store import store
 from .services import registry
 
@@ -13,4 +16,9 @@ def create_app() -> Flask:
     )
     registry.bootstrap(store)
     register_blueprints(app)
+    start_session_manager()
+
+    app.wsgi_app = DispatcherMiddleware(
+        app.wsgi_app, {"/mcp": ASGIMiddleware(mcp_asgi_app)}
+    )
     return app

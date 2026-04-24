@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import subprocess
 
-from ..config import PROFILE_NAME_RE
+import yaml
+
+from ..config import HERMES_HOME, PROFILE_NAME_RE
 
 
 class ProfileError(RuntimeError):
@@ -71,3 +73,26 @@ def delete_hermes_profile(profile_name: str) -> None:
     if "not found" in stderr.lower() or "does not exist" in stderr.lower():
         return
     raise ProfileError(stderr or "hermes profile delete failed")
+
+
+def attach_mcp_server(profile_name: str, *, name: str, url: str) -> None:
+    """Inject an HTTP MCP server entry into a profile's config.yaml.
+
+    Hermes reads `mcp_servers.<name> = {url, enabled}` from the profile config
+    (see hermes_cli/mcp_config.py). We merge in place so the rest of the file
+    (model, providers, …) is preserved.
+    """
+    cfg_path = HERMES_HOME / "profiles" / profile_name / "config.yaml"
+    if not cfg_path.exists():
+        raise ProfileError(f"profile config not found: {cfg_path}")
+
+    data = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+    servers = data.setdefault("mcp_servers", {})
+    if not isinstance(servers, dict):
+        servers = {}
+        data["mcp_servers"] = servers
+    servers[name] = {"url": url, "enabled": True}
+    cfg_path.write_text(
+        yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
+        encoding="utf-8",
+    )
