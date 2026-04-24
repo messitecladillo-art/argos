@@ -13,9 +13,19 @@ ROLE_HINTS = {
     "worker": "团队的执行专家（Specialist），只负责自己专业领域内的任务，任务完成后把结果回传给 Leader。",
 }
 
+LEADER_TOOL_HINT = (
+    "## 工具使用（必须写入 SOUL.md 的 Behavioral Guidelines 或专门一节）\n"
+    "- 团队内部派单只能通过 MCP server `agent_bus` 提供的工具：\n"
+    "  - `agent_bus.list_workers()` 查询当前可用的 worker（role=worker）列表，拿到它们的 agent_id / name / description\n"
+    "  - `agent_bus.delegate_task(to_agent_id, content, from_agent_id)` 把子任务派给指定 worker；from_agent_id 必须填你自己的 agent_id\n"
+    "- 当用户要求把任务转给团队成员、或按名字/角色提到某个 agent 时，必须走上述工具，**禁止**调用内置 `messaging`（iMessage/SMS/WhatsApp）工具——那是对外发短信用的，不是团队内通信。\n"
+    "- 派单后立即返回'已投递'；worker 的回复会由系统以 `[来自 <name> 的回复]: ...` 自动回推给你，你在下一轮继续整合即可。\n"
+)
+
 
 def _soul_prompt(name: str, role: str, description: str) -> str:
     role_hint = ROLE_HINTS.get(role, "")
+    extra = LEADER_TOOL_HINT if role == "leader" else ""
     return (
         "你是一名多代理 AI 系统的架构师。请根据用户提供的信息，为一个 Hermes Profile 生成"
         " SOUL.md 文件内容。SOUL.md 定义该 Agent 的身份、职责、行为准则和说话风格。\n\n"
@@ -25,6 +35,7 @@ def _soul_prompt(name: str, role: str, description: str) -> str:
         "`## Behavioral Guidelines`（含沟通风格 / 决策风格）、`## Constraints`、`## Success Metrics`。\n"
         "- 语气差异化：leader 结构化果断；worker 精确、专注。\n"
         "- 不要编造用户没说的项目细节，缺信息就写通用原则。\n\n"
+        f"{extra}"
         f"## Agent 信息\n- Name: {name}\n- Role: {role} — {role_hint}\n- Description: {description or '（未提供）'}\n"
     )
 

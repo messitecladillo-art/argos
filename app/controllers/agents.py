@@ -4,6 +4,7 @@ from flask import Blueprint, jsonify, request
 
 from ..models.store import store
 from ..services import agents as agents_service
+from ..services.acp import pool as acp_pool
 from ..services.profiles import ProfileError, list_hermes_profiles
 
 
@@ -47,3 +48,21 @@ def delete_agent(agent_id: str):
     except ProfileError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
     return jsonify({"ok": True, "agent": agent})
+
+
+@bp.post("/agents/<agent_id>/start")
+def start_agent(agent_id: str):
+    agent = store.find_agent(agent_id)
+    if agent is None:
+        return jsonify({"ok": False, "error": "agent not found"}), 404
+    ok = acp_pool.start(agent)
+    return jsonify({"ok": ok, "agent": store.find_agent(agent_id)})
+
+
+@bp.post("/agents/<agent_id>/stop")
+def stop_agent(agent_id: str):
+    agent = store.find_agent(agent_id)
+    if agent is None:
+        return jsonify({"ok": False, "error": "agent not found"}), 404
+    acp_pool.stop(agent_id)
+    return jsonify({"ok": True, "agent": store.find_agent(agent_id)})

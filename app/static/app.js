@@ -14,11 +14,16 @@ const createAgentForm = document.getElementById("create-agent-form");
 const createAgentError = document.getElementById("create-agent-error");
 
 function buildAgentRow(agent, isActive) {
-  const row = document.createElement("button");
-  row.type = "button";
+  const row = document.createElement("div");
+  row.setAttribute("role", "button");
+  row.tabIndex = 0;
   row.className = "agent-row" + (isActive ? " is-active" : "");
   row.dataset.agentId = agent.agent_id;
   row.dataset.agentName = agent.name;
+  const acpStatus = agent.acp_status || "stopped";
+  const btn = acpStatus === "running"
+    ? `<button class="acp-btn acp-btn--stop" type="button" data-acp-action="stop" data-agent-id="${agent.agent_id}">停止</button>`
+    : `<button class="acp-btn acp-btn--start" type="button" data-acp-action="start" data-agent-id="${agent.agent_id}">启动</button>`;
   row.innerHTML = `
     <div class="agent-row__top">
       <div>
@@ -33,6 +38,11 @@ function buildAgentRow(agent, isActive) {
         <div><dt>Task</dt><dd>${agent.current_task || "—"}</dd></div>
         <div><dt>Output</dt><dd>${agent.last_output || "—"}</dd></div>
       </dl>
+      <div class="agent-row__acp">
+        <span class="acp-dot acp-${acpStatus}"></span>
+        <span class="acp-label">ACP ${acpStatus}</span>
+        ${btn}
+      </div>
     </div>
   `;
   return row;
@@ -111,6 +121,17 @@ function setSelectedAgent(agentId, agentName) {
 
 if (agentList) {
   agentList.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-acp-action]");
+    if (btn) {
+      event.stopPropagation();
+      const action = btn.dataset.acpAction;
+      const agentId = btn.dataset.agentId;
+      btn.disabled = true;
+      fetch(`/api/agents/${agentId}/${action}`, { method: "POST" })
+        .catch(() => {})
+        .finally(() => { btn.disabled = false; });
+      return;
+    }
     const row = event.target.closest(".agent-row");
     if (!row) return;
     setSelectedAgent(row.dataset.agentId, row.dataset.agentName);

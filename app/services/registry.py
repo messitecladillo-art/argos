@@ -45,6 +45,7 @@ def _hydrate(profile_name: str, meta: dict) -> dict:
         "is_leader": bool(meta.get("is_leader")),
         "status": "idle",
         "current_task": "空闲",
+        "acp_status": "stopped",
         "load": 0,
         "last_input": "",
         "last_output": "",

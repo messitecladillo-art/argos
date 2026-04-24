@@ -86,16 +86,31 @@ class RuntimeStore:
         return removed
 
     # ------------------------------------------------------------------ messages
-    def record_message(self, content: str, to_agent_id: str) -> dict:
+    def record_message(
+        self,
+        content: str,
+        to_agent_id: str,
+        *,
+        from_agent_id: str | None = None,
+    ) -> dict:
         with self._lock:
             agent = next(
                 (a for a in self.agents if a["agent_id"] == to_agent_id), None
             )
             if agent is None:
                 raise ValueError("target agent not found")
+            from_name = "User"
+            if from_agent_id:
+                sender = next(
+                    (a for a in self.agents if a["agent_id"] == from_agent_id),
+                    None,
+                )
+                if sender is not None:
+                    from_name = sender["name"]
             message = {
                 "message_id": f"msg_{next(self._message_ids):04d}",
-                "from_name": "User",
+                "from_agent_id": from_agent_id,
+                "from_name": from_name,
                 "to_name": agent["name"],
                 "content": content,
                 "created_at": now_iso(),

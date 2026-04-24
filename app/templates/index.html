@@ -34,9 +34,10 @@
 
         <div class="agent-list" id="agent-list">
           {% for agent in agents %}
-          <button
+          <div
             class="agent-row {% if loop.first %}is-active{% endif %}"
-            type="button"
+            role="button"
+            tabindex="0"
             data-agent-id="{{ agent.agent_id }}"
             data-agent-name="{{ agent.name }}"
           >
@@ -61,8 +62,17 @@
                   <dd>{{ agent.last_output or '—' }}</dd>
                 </div>
               </dl>
+              <div class="agent-row__acp">
+                <span class="acp-dot acp-{{ agent.acp_status or 'stopped' }}"></span>
+                <span class="acp-label">ACP {{ agent.acp_status or 'stopped' }}</span>
+                {% if agent.acp_status == 'running' %}
+                <button class="acp-btn acp-btn--stop" type="button" data-acp-action="stop" data-agent-id="{{ agent.agent_id }}">停止</button>
+                {% else %}
+                <button class="acp-btn acp-btn--start" type="button" data-acp-action="start" data-agent-id="{{ agent.agent_id }}">启动</button>
+                {% endif %}
+              </div>
             </div>
-          </button>
+          </div>
           {% endfor %}
         </div>
         <p class="empty-hint" id="agent-empty" {% if agents %}hidden{% endif %}>

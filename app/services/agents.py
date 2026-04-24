@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from ..config import MCP_BUS_URL, PROFILE_NAME_RE, now_iso
 from ..models.store import RuntimeStore
-from . import profiles, registry, soul
+from . import acp, profiles, registry, soul
 
 
 VALID_ROLES = {"leader", "worker"}
@@ -82,6 +82,7 @@ def create_agent(
         description=description,
         profile_name=profile_name,
     )
+    acp.pool.start(agent)
     return agent
 
 
@@ -90,6 +91,7 @@ def delete_agent(store: RuntimeStore, agent_id: str) -> dict:
     if agent is None:
         raise ValueError("agent not found")
     profile_name = agent["profile_name"]
+    acp.pool.stop(agent_id)
     profiles.delete_hermes_profile(profile_name)
     registry.delete_team_meta(profile_name)  # no-op if the profile dir was already gone
     store.remove_agent(agent_id)

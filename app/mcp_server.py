@@ -27,6 +27,37 @@ def list_workers() -> list[dict]:
     ]
 
 
+@mcp.tool()
+def delegate_task(to_agent_id: str, content: str, from_agent_id: str) -> dict:
+    """leader 把子任务派给指定 worker。
+
+    立即返回"已投递"；worker 完成后，Flask 会自动把回复以
+    `[来自 <worker_name> 的回复]: ...` 的形式反向 prompt 回 leader。
+
+    参数：
+    - to_agent_id: 目标 worker 的 agent_id（从 list_workers 获取）
+    - content: 任务正文
+    - from_agent_id: 本 leader 自己的 agent_id，用于回推路由
+    """
+    from .services.messages import send_message
+
+    message = send_message(
+        store,
+        content=content,
+        to_agent_id=to_agent_id,
+        from_agent_id=from_agent_id,
+    )
+    return {"ok": True, "message_id": message["message_id"], "status": "dispatched"}
+    """列出当前注册的所有 worker agent（供 leader 进行任务分派时发现下属）。
+
+    返回的字段包含 agent_id / name / description / status / current_task / load，
+    不包含 leader 自身，避免 leader 把任务派给自己。
+    """
+    return [
+        a for a in store.snapshot()["agents"] if a.get("role") == "worker"
+    ]
+
+
 mcp_asgi_app = mcp.streamable_http_app()
 
 # a2wsgi does not dispatch ASGI lifespan events, so FastMCP's session manager
