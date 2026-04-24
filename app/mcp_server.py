@@ -16,12 +16,15 @@ mcp = FastMCP("hermes-agents", streamable_http_path="/")
 
 
 @mcp.tool()
-def list_agents(role: str | None = None) -> list[dict]:
-    """列出当前注册的 agent，可按 role 过滤（'leader' | 'worker'）。"""
-    agents = store.snapshot()["agents"]
-    if role:
-        agents = [a for a in agents if a.get("role") == role]
-    return agents
+def list_workers() -> list[dict]:
+    """列出当前注册的所有 worker agent（供 leader 进行任务分派时发现下属）。
+
+    返回的字段包含 agent_id / name / description / status / current_task / load，
+    不包含 leader 自身，避免 leader 把任务派给自己。
+    """
+    return [
+        a for a in store.snapshot()["agents"] if a.get("role") == "worker"
+    ]
 
 
 mcp_asgi_app = mcp.streamable_http_app()
