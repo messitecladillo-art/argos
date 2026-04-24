@@ -14,6 +14,12 @@ const terminalForm = document.getElementById("terminal-form");
 const terminalInput = document.getElementById("terminal-input");
 const selectionModal = document.getElementById("selection-modal");
 const selectionModalBody = document.getElementById("selection-modal-body");
+const resolvedInteractionIds = new Set();
+const submittingInteractionIds = new Set();
+
+function interactionKey(agentId, requestId) {
+  return `${agentId || ""}:${requestId || ""}`;
+}
 
 function escapeHtml(value) {
   return String(value || "")
@@ -78,7 +84,7 @@ function buildInteractionCard(agent) {
   const interaction = agent.pending_interaction;
   if (!interaction) return "";
   const isApproval = interaction.kind === "awaiting_approval";
-  if (interaction.kind === "awaiting_selection") return "";
+  if (getSelectionInteraction(agent)) return "";
   return `
     <article class="interaction-card">
       <div class="interaction-card__head">
@@ -109,10 +115,91 @@ function getSelectionPrompt(prompt) {
   return lines.find((line) => /[\u4e00-\u9fa5].*[？?]/.test(line)) || "Hermes 需要你选择一个选项后继续。";
 }
 
+function cleanChoiceLabel(label) {
+  return String(label || "")
+    .replace(/\s{2,}/g, " ")
+    .replace(/\s*\([0-9.]+s\)\s*$/, "")
+    .trim();
+}
+
+function parseSelectionFromPrompt(prompt) {
+  const lines = String(prompt || "")
+    .split("\n")
+    .map((line) => line.trim().replace(/^[│┃║▏▕▌▐]+|[│┃║▏▕▌▐]+$/g, "").trim());
+  const choicePattern = /\bagent_[\w-]+\b|Other \(type your answer\)/i;
+  const scannedChoices = [];
+  let scannedSelectedIndex = null;
+  for (const line of lines) {
+    if (!line) continue;
+    const selectedMatch = line.match(/^[›>❯]\s*(.+?)\s*$/);
+    const choiceLine = selectedMatch ? selectedMatch[1] : line;
+    if (!selectedMatch && !choicePattern.test(choiceLine)) continue;
+    const label = cleanChoiceLabel(choiceLine);
+    if (!label || scannedChoices.includes(label)) continue;
+    if (selectedMatch) scannedSelectedIndex = scannedChoices.length;
+    scannedChoices.push(label);
+  }
+  if (scannedSelectedIndex !== null && scannedChoices.length) {
+    return { choices: scannedChoices, selectedIndex: scannedSelectedIndex };
+  }
+
+  let selectedIndex = null;
+  const choices = [];
+  let collecting = false;
+
+  for (const line of lines) {
+    if (!line) {
+      if (collecting && choices.length) break;
+      continue;
+    }
+    if (/\b(to select|Enter to confirm)\b/i.test(line)) {
+      if (collecting && choices.length) break;
+      continue;
+    }
+
+    const selectedMatch = line.match(/^[›>❯]\s*(.+?)\s*$/);
+    if (selectedMatch) {
+      const label = cleanChoiceLabel(selectedMatch[1]);
+      if (label) {
+        selectedIndex = choices.length;
+        choices.push(label);
+        collecting = true;
+      }
+      continue;
+    }
+
+    if (collecting) {
+      if (line.startsWith("?") || line.startsWith("$")) break;
+      if (/^[┌└├╭╰─━═]+$/.test(line)) break;
+      if (line.length <= 140) choices.push(cleanChoiceLabel(line));
+    }
+  }
+
+  return selectedIndex === null || choices.length === 0 ? null : { choices, selectedIndex };
+}
+
+function getSelectionInteraction(agent) {
+  const interaction = agent.pending_interaction;
+  if (!interaction) return null;
+  if (interaction.kind === "awaiting_selection") return interaction;
+  const parsed = parseSelectionFromPrompt(interaction.prompt);
+  if (!parsed) return null;
+  return {
+    ...interaction,
+    kind: "awaiting_selection",
+    choices: parsed.choices,
+    selected_index: parsed.selectedIndex,
+  };
+}
+
 function renderSelectionModal(agents) {
   if (!selectionModal || !selectionModalBody) return;
-  const agent = agents.find((item) => item.pending_interaction?.kind === "awaiting_selection");
-  const interaction = agent?.pending_interaction;
+  const agent = agents.find((item) => {
+    const interaction = getSelectionInteraction(item);
+    if (!interaction) return false;
+    return !resolvedInteractionIds.has(interactionKey(item.agent_id, interaction.request_id));
+  });
+  const interaction = agent ? getSelectionInteraction(agent) : null;
   if (!agent || !interaction) {
     selectionModal.hidden = true;
     selectionModalBody.innerHTML = "";
@@ -121,8 +208,9 @@ function renderSelectionModal(agents) {
 
   const choices = Array.isArray(interaction.choices) ? interaction.choices : [];
   const selectedIndex = Number.isInteger(interaction.selected_index) ? interaction.selected_index : 0;
+  const isSubmitting = submittingInteractionIds.has(interactionKey(agent.agent_id, interaction.request_id));
   const choiceButtons = choices.map((choice, index) => `
-    <button class="choice-button${index === selectedIndex ? " is-selected" : ""}" type="button" data-interaction-response="${index}" data-agent-id="${agent.agent_id}" data-request-id="${interaction.request_id}">
+    <button class="choice-button${index === selectedIndex ? " is-selected" : ""}" type="button" data-interaction-response="${index}" data-agent-id="${agent.agent_id}" data-request-id="${interaction.request_id}" ${isSubmitting ? "disabled" : ""}>
       <span>${index === selectedIndex ? "当前" : "选择"}</span>
       <strong>${escapeHtml(choice)}</strong>
     </button>
@@ -135,7 +223,7 @@ function renderSelectionModal(agents) {
     </div>
     <p class="selection-modal__prompt">${escapeHtml(getSelectionPrompt(interaction.prompt))}</p>
     <div class="selection-modal__choices">${choiceButtons}</div>
-    <p class="form-hint">选择后会自动发送到 Hermes 终端继续执行。</p>
+    <p class="form-hint">${isSubmitting ? "已发送选择，等待 Hermes 继续执行…" : "选择后会自动发送到 Hermes 终端继续执行。"}</p>
   `;
   selectionModal.hidden = false;
 }
@@ -313,14 +401,28 @@ async function handleInteractionClick(event) {
   const btn = event.target.closest("[data-interaction-response]");
   if (!btn) return;
   event.preventDefault();
+  const key = interactionKey(btn.dataset.agentId, btn.dataset.requestId);
+  if (submittingInteractionIds.has(key) || resolvedInteractionIds.has(key)) return;
+
+  const isSelectionModal = selectionModal?.contains(btn);
+  submittingInteractionIds.add(key);
+  if (isSelectionModal) selectionModal.hidden = true;
   btn.disabled = true;
-  await postInteractionResponse(
-    btn.dataset.agentId,
-    btn.dataset.requestId,
-    btn.dataset.interactionResponse,
-  ).then((ok) => {
-    if (ok && selectionModal?.contains(btn)) selectionModal.hidden = true;
-  }).finally(() => { btn.disabled = false; });
+  try {
+    const ok = await postInteractionResponse(
+      btn.dataset.agentId,
+      btn.dataset.requestId,
+      btn.dataset.interactionResponse,
+    );
+    if (ok) {
+      resolvedInteractionIds.add(key);
+      return;
+    }
+    if (isSelectionModal) selectionModal.hidden = false;
+  } finally {
+    submittingInteractionIds.delete(key);
+    btn.disabled = false;
+  }
 }
 
 if (interactionList) {

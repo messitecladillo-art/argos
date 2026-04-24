@@ -37,7 +37,7 @@ INTERRUPT_HINT_PATTERN = re.compile(
 )
 APPROVAL_PATTERNS = (
     re.compile(r"\[(?:y/N|Y/n|yes/no)\]", re.IGNORECASE),
-    re.compile(r"\b(?:approve|approval|allow|confirm)\b", re.IGNORECASE),
+    re.compile(r"\b(?:approve|approval|allow)\b", re.IGNORECASE),
     re.compile(r"\bdo you want to run\b", re.IGNORECASE),
 )
 INPUT_PATTERNS = (
@@ -81,11 +81,37 @@ def _clean_selection_line(line: str) -> str:
     return line.strip().strip("│┃║▏▕▌▐").rstrip("│┃║▏▕▌▐").strip()
 
 
+def _clean_choice_label(label: str) -> str:
+    label = re.sub(r"\s{2,}", " ", label).strip()
+    label = re.sub(r"\s*\([0-9.]+s\)\s*$", "", label).strip()
+    return label
+
+
 def _extract_selection(text: str) -> dict[str, Any] | None:
     if not any(pattern.search(text) for pattern in SELECTION_PATTERNS):
         return None
 
     lines = [_clean_selection_line(line) for line in text.splitlines()]
+    choice_pattern = re.compile(r"(?:\bagent_[\w-]+\b|Other \(type your answer\))", re.IGNORECASE)
+    scanned_choices: list[str] = []
+    scanned_selected_index: int | None = None
+    for line in lines:
+        if not line:
+            continue
+        selected_match = re.match(r"^[›>❯]\s*(.+?)\s*$", line)
+        choice_line = selected_match.group(1) if selected_match else line
+        if not selected_match and not choice_pattern.search(choice_line):
+            continue
+        label = _clean_choice_label(choice_line)
+        if not label or label in scanned_choices:
+            continue
+        if selected_match:
+            scanned_selected_index = len(scanned_choices)
+        scanned_choices.append(label)
+
+    if scanned_selected_index is not None and scanned_choices:
+        return {"choices": scanned_choices, "selected_index": scanned_selected_index}
+
     selected_index: int | None = None
     choices: list[str] = []
     collecting = False
@@ -102,7 +128,7 @@ def _extract_selection(text: str) -> dict[str, Any] | None:
 
         selected_match = re.match(r"^[›>❯]\s*(.+?)\s*$", line)
         if selected_match:
-            label = selected_match.group(1).strip()
+            label = _clean_choice_label(selected_match.group(1))
             if label:
                 selected_index = len(choices)
                 choices.append(label)
@@ -114,8 +140,8 @@ def _extract_selection(text: str) -> dict[str, Any] | None:
                 break
             if re.match(r"^[┌└├╭╰─━═]+$", line):
                 break
-            if len(line) <= 120:
-                choices.append(line)
+            if len(line) <= 140:
+                choices.append(_clean_choice_label(line))
 
     if selected_index is None or not choices:
         return None
@@ -230,9 +256,6 @@ class HermesSession:
         )
 
     def _detect_interaction(self, text: str) -> bool:
-        if any(pattern.search(text) for pattern in APPROVAL_PATTERNS):
-            self._set_interaction("awaiting_approval", text)
-            return True
         selection = _extract_selection(text)
         if selection is not None:
             self._set_interaction(
@@ -241,6 +264,9 @@ class HermesSession:
                 choices=selection["choices"],
                 selected_index=selection["selected_index"],
             )
+            return True
+        if any(pattern.search(text) for pattern in APPROVAL_PATTERNS):
+            self._set_interaction("awaiting_approval", text)
             return True
         if any(pattern.search(text) for pattern in INPUT_PATTERNS):
             self._set_interaction("awaiting_input", text)
@@ -511,9 +537,10 @@ class HermesSession:
             raise ValueError("agent is not waiting for interaction")
         if pending["request_id"] != request_id:
             raise ValueError("interaction request_id mismatch")
-        if pending.get("kind") == "awaiting_selection":
-            choices = pending.get("choices") or []
-            selected_index = int(pending.get("selected_index") or 0)
+        pending_selection = _extract_selection(pending.get("prompt") or "")
+        if pending.get("kind") == "awaiting_selection" or pending_selection is not None:
+            choices = (pending_selection or {}).get("choices") or pending.get("choices") or []
+            selected_index = int((pending_selection or {}).get("selected_index") or pending.get("selected_index") or 0)
             try:
                 target_index = int(response)
             except ValueError:
