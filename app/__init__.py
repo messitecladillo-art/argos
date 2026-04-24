@@ -1,4 +1,5 @@
 import atexit
+import threading
 
 from a2wsgi import ASGIMiddleware
 from flask import Flask
@@ -21,8 +22,14 @@ def create_app() -> Flask:
     register_blueprints(app)
     start_session_manager()
 
-    for agent in list(store.agents):
-        acp_pool.start(agent)
+    # leader ACP sessions call back into our own /mcp endpoint to register
+    # tools, so we must wait until Flask is actually accepting connections
+    # before starting them. Fire after a short delay from a background thread.
+    def _deferred_start() -> None:
+        for agent in list(store.agents):
+            acp_pool.start(agent)
+
+    threading.Timer(2.0, _deferred_start).start()
     atexit.register(acp_pool.stop_all)
 
     app.wsgi_app = DispatcherMiddleware(

@@ -28,16 +28,19 @@ def list_workers() -> list[dict]:
 
 
 @mcp.tool()
-def delegate_task(to_agent_id: str, content: str, from_agent_id: str) -> dict:
-    """leader 把子任务派给指定 worker。
+def send_to_worker(to_agent_id: str, content: str, from_agent_id: str) -> dict:
+    """leader 把子任务派给指定 worker agent。
 
-    立即返回"已投递"；worker 完成后，Flask 会自动把回复以
+    ⚠️ 这是团队内通信专用工具，不同于 hermes-acp 内置的 `delegate_task`
+    （后者是在本进程内生成子代理，与团队路由无关）。团队协作**必须**用这个。
+
+    立即返回"已投递"；worker 的 ACP 进程完成后，Flask 会自动把回复以
     `[来自 <worker_name> 的回复]: ...` 的形式反向 prompt 回 leader。
 
     参数：
-    - to_agent_id: 目标 worker 的 agent_id（从 list_workers 获取）
+    - to_agent_id: 目标 worker 的 agent_id（先调 list_workers 获取）
     - content: 任务正文
-    - from_agent_id: 本 leader 自己的 agent_id，用于回推路由
+    - from_agent_id: 本 leader 自己的 agent_id，用于结果回推
     """
     from .services.messages import send_message
 

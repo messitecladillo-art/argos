@@ -96,3 +96,25 @@ def attach_mcp_server(profile_name: str, *, name: str, url: str) -> None:
         yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
         encoding="utf-8",
     )
+
+
+# Hermes built-in toolsets that conflict with our agent_bus-based team
+# delegation. When enabled on a leader profile they cause the LLM to route
+# "让 X 做 Y" 类指令到内部的子 agent（delegation）或者 iMessage/SMS 工具
+# （messaging），从而绕过 agent_bus.delegate_task，使 worker 不会真正收到消息。
+LEADER_CONFLICTING_TOOLSETS = ("delegation", "messaging")
+
+
+def disable_conflicting_toolsets(profile_name: str) -> None:
+    """Disable built-in toolsets on a profile that conflict with agent_bus."""
+    for toolset in LEADER_CONFLICTING_TOOLSETS:
+        try:
+            subprocess.run(
+                ["hermes", "-p", profile_name, "tools", "disable", toolset],
+                capture_output=True,
+                text=True,
+                timeout=15,
+            )
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            # Best-effort: SOUL.md guidance still steers the LLM.
+            pass

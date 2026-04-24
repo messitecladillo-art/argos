@@ -14,6 +14,7 @@ import subprocess
 import threading
 from typing import Callable
 
+from ..config import MCP_BUS_URL
 from ..models.store import store
 
 
@@ -26,10 +27,13 @@ class ACPClient:
         profile_name: str,
         agent_id: str,
         on_final: Callable[[str, str], None],
+        *,
+        is_leader: bool = False,
     ) -> None:
         self.profile_name = profile_name
         self.agent_id = agent_id
         self.on_final = on_final
+        self.is_leader = is_leader
         self.proc = subprocess.Popen(
             ["hermes", "-p", profile_name, "acp"],
             stdin=subprocess.PIPE,
@@ -67,11 +71,25 @@ class ACPClient:
         # session/new is sent eagerly; sessionId arrives async via reader loop
         new_id = self._next_id()
         self._session_new_id = new_id
+        mcp_servers: list[dict] = []
+        if is_leader:
+            # ACP mode does NOT auto-load MCP servers from the profile's
+            # config.yaml — they must be injected here. Without this the
+            # leader LLM cannot see list_workers / send_to_worker.
+            mcp_servers.append({
+                "type": "http",
+                "name": "agent_bus",
+                "url": MCP_BUS_URL,
+                "headers": [],
+            })
         self._send({
             "jsonrpc": "2.0",
             "id": new_id,
             "method": "session/new",
-            "params": {"cwd": os.getcwd(), "mcpServers": []},
+            "params": {
+                "cwd": os.getcwd(),
+                "mcpServers": mcp_servers,
+            },
         })
 
     # ------------------------------------------------------------------ io
@@ -164,7 +182,7 @@ class ACPClient:
                 return
 
     # ------------------------------------------------------------------ api
-    def prompt(self, text: str, timeout: float = 10.0) -> None:
+    def prompt(self, text: str, timeout: float = 30.0) -> None:
         if not self._session_ready.wait(timeout=timeout):
             raise RuntimeError("ACP session not ready")
         if self._pending_prompt_id is not None:
@@ -226,7 +244,12 @@ class ACPPool:
             if agent_id in self.clients:
                 return True
         try:
-            client = ACPClient(profile_name, agent_id, self._on_final)
+            client = ACPClient(
+                profile_name,
+                agent_id,
+                self._on_final,
+                is_leader=(agent.get("role") == "leader"),
+            )
         except FileNotFoundError:
             store.update_agent(agent_id, acp_status="crashed")
             store.push_event(

@@ -43,6 +43,7 @@ def create_agent(
         profiles.attach_mcp_server(
             profile_name, name="agent_bus", url=MCP_BUS_URL
         )
+        profiles.disable_conflicting_toolsets(profile_name)
 
     created_at = now_iso()
     meta = {

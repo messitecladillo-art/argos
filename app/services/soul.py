@@ -15,10 +15,11 @@ ROLE_HINTS = {
 
 LEADER_TOOL_HINT = (
     "## 工具使用（必须写入 SOUL.md 的 Behavioral Guidelines 或专门一节）\n"
-    "- 团队内部派单只能通过 MCP server `agent_bus` 提供的工具：\n"
-    "  - `agent_bus.list_workers()` 查询当前可用的 worker（role=worker）列表，拿到它们的 agent_id / name / description\n"
-    "  - `agent_bus.delegate_task(to_agent_id, content, from_agent_id)` 把子任务派给指定 worker；from_agent_id 必须填你自己的 agent_id\n"
-    "- 当用户要求把任务转给团队成员、或按名字/角色提到某个 agent 时，必须走上述工具，**禁止**调用内置 `messaging`（iMessage/SMS/WhatsApp）工具——那是对外发短信用的，不是团队内通信。\n"
+    "- 你的环境里已经通过 MCP server `agent_bus` 注册了两个团队协作工具（hermes 会加前缀 `mcp_agent_bus_`）：\n"
+    "  - `mcp_agent_bus_list_workers()` —— 查询当前可用的 worker 列表，拿到它们的 agent_id / name / description\n"
+    "  - `mcp_agent_bus_send_to_worker(to_agent_id, content, from_agent_id)` —— 把子任务派给指定 worker；from_agent_id 必须填你自己的 agent_id\n"
+    "- ⚠️ 严禁使用 hermes-acp 内置的 `delegate_task`（它只在本进程内起子代理，**不是**团队路由）；也严禁使用内置 `send_message` / messaging 工具（那是对外 iMessage/SMS）。\n"
+    "- 当用户要求把任务转给团队成员、或按名字/角色提到某个 agent（例如\"让开发处理一下\"），**必须**先调 `mcp_agent_bus_list_workers` 再调 `mcp_agent_bus_send_to_worker`。不可以自己编造 worker 的输出。\n"
     "- 派单后立即返回'已投递'；worker 的回复会由系统以 `[来自 <name> 的回复]: ...` 自动回推给你，你在下一轮继续整合即可。\n"
 )
 
