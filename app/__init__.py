@@ -9,7 +9,7 @@ from .controllers import register_blueprints
 from .mcp_server import mcp_asgi_app, start_session_manager
 from .models.store import store
 from .services import registry
-from .services.acp import pool as acp_pool
+from .services.acp import pool as session_pool
 
 
 def create_app() -> Flask:
@@ -22,15 +22,14 @@ def create_app() -> Flask:
     register_blueprints(app)
     start_session_manager()
 
-    # leader ACP sessions call back into our own /mcp endpoint to register
-    # tools, so we must wait until Flask is actually accepting connections
-    # before starting them. Fire after a short delay from a background thread.
+    # Leader sessions load MCP tools from their Hermes profile, so wait until
+    # Flask is accepting connections before starting long-lived CLI sessions.
     def _deferred_start() -> None:
         for agent in list(store.agents):
-            acp_pool.start(agent)
+            session_pool.start(agent)
 
     threading.Timer(2.0, _deferred_start).start()
-    atexit.register(acp_pool.stop_all)
+    atexit.register(session_pool.stop_all)
 
     app.wsgi_app = DispatcherMiddleware(
         app.wsgi_app, {"/mcp": ASGIMiddleware(mcp_asgi_app)}

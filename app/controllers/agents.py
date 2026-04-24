@@ -4,7 +4,7 @@ from flask import Blueprint, jsonify, request
 
 from ..models.store import store
 from ..services import agents as agents_service
-from ..services.acp import pool as acp_pool
+from ..services.acp import pool as session_pool
 from ..services.profiles import ProfileError, list_hermes_profiles
 
 
@@ -55,7 +55,7 @@ def start_agent(agent_id: str):
     agent = store.find_agent(agent_id)
     if agent is None:
         return jsonify({"ok": False, "error": "agent not found"}), 404
-    ok = acp_pool.start(agent)
+    ok = session_pool.start(agent)
     return jsonify({"ok": ok, "agent": store.find_agent(agent_id)})
 
 
@@ -64,5 +64,35 @@ def stop_agent(agent_id: str):
     agent = store.find_agent(agent_id)
     if agent is None:
         return jsonify({"ok": False, "error": "agent not found"}), 404
-    acp_pool.stop(agent_id)
+    session_pool.stop(agent_id)
+    return jsonify({"ok": True, "agent": store.find_agent(agent_id)})
+
+
+@bp.post("/agents/<agent_id>/interactions/<request_id>/respond")
+def respond_interaction(agent_id: str, request_id: str):
+    agent = store.find_agent(agent_id)
+    if agent is None:
+        return jsonify({"ok": False, "error": "agent not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    try:
+        session_pool.respond_interaction(
+            agent_id,
+            request_id,
+            payload.get("response") or "",
+        )
+    except (RuntimeError, ValueError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": True, "agent": store.find_agent(agent_id)})
+
+
+@bp.post("/agents/<agent_id>/terminal-input")
+def send_terminal_input(agent_id: str):
+    agent = store.find_agent(agent_id)
+    if agent is None:
+        return jsonify({"ok": False, "error": "agent not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    try:
+        session_pool.send_terminal_input(agent_id, payload.get("text") or "")
+    except (RuntimeError, ValueError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
     return jsonify({"ok": True, "agent": store.find_agent(agent_id)})

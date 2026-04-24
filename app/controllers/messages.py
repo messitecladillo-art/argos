@@ -13,10 +13,9 @@ bp = Blueprint("messages", __name__, url_prefix="/api")
 def create_message():
     payload = request.get_json(silent=True) or {}
     try:
-        message = messages_service.send_message(
+        message = messages_service.send_user_task(
             store,
             content=payload.get("content") or "",
-            to_agent_id=payload.get("to_agent_id") or "",
         )
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400

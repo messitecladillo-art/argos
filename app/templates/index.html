@@ -35,11 +35,12 @@
         <div class="agent-list" id="agent-list">
           {% for agent in agents %}
           <div
-            class="agent-row {% if loop.first %}is-active{% endif %}"
+            class="agent-row {% if message_target and agent.agent_id == message_target.agent_id %}is-active{% endif %}"
             role="button"
             tabindex="0"
             data-agent-id="{{ agent.agent_id }}"
             data-agent-name="{{ agent.name }}"
+            data-agent-role="{{ agent.role }}"
           >
             <div class="agent-row__top">
               <div>
@@ -58,17 +59,25 @@
                   <dd>{{ agent.current_task }}</dd>
                 </div>
                 <div>
-                  <dt>Output</dt>
-                  <dd>{{ agent.last_output or '—' }}</dd>
+                  <dt>Last Output</dt>
+                  <dd>{{ agent.last_output_at[11:19] if agent.last_output_at else '—' }}</dd>
+                </div>
+                <div>
+                  <dt>State</dt>
+                  <dd>{{ agent.interaction_state or 'idle' }}</dd>
+                </div>
+                <div>
+                  <dt>Queue</dt>
+                  <dd>{{ agent.queue_depth or 0 }}</dd>
                 </div>
               </dl>
-              <div class="agent-row__acp">
-                <span class="acp-dot acp-{{ agent.acp_status or 'stopped' }}"></span>
-                <span class="acp-label">ACP {{ agent.acp_status or 'stopped' }}</span>
-                {% if agent.acp_status == 'running' %}
-                <button class="acp-btn acp-btn--stop" type="button" data-acp-action="stop" data-agent-id="{{ agent.agent_id }}">停止</button>
+              <div class="agent-row__session">
+                <span class="acp-dot acp-{{ agent.runtime_status or 'stopped' }}"></span>
+                <span class="acp-label">Session {{ agent.runtime_status or 'stopped' }}</span>
+                {% if agent.runtime_status == 'running' %}
+                <button class="acp-btn acp-btn--stop" type="button" data-session-action="stop" data-agent-id="{{ agent.agent_id }}">停止</button>
                 {% else %}
-                <button class="acp-btn acp-btn--start" type="button" data-acp-action="start" data-agent-id="{{ agent.agent_id }}">启动</button>
+                <button class="acp-btn acp-btn--start" type="button" data-session-action="start" data-agent-id="{{ agent.agent_id }}">启动</button>
                 {% endif %}
               </div>
             </div>
@@ -81,27 +90,6 @@
       </aside>
 
       <section class="main-panel">
-        <section class="composer panel">
-          <div class="section-head">
-            <div>
-              <p class="section-kicker">Message Console</p>
-              <h2>给 Agent 发消息</h2>
-            </div>
-            <span class="mono-label" id="selected-agent-label">target · {{ agents[0].name if agents else '尚未选择' }}</span>
-          </div>
-
-          <form class="message-form" id="message-form">
-            <input id="to-agent-id" name="to_agent_id" type="hidden" value="{{ agents[0].agent_id if agents else '' }}">
-            <label>
-              <textarea name="content" rows="3" placeholder="给当前目标 Agent 发送消息…"></textarea>
-            </label>
-            <div class="composer-actions">
-              <button class="primary-button" type="submit">Send Message</button>
-              <span class="signal-pill">SSE STREAM ONLINE</span>
-            </div>
-          </form>
-        </section>
-
         <section class="output panel">
           <div class="section-head">
             <div>
@@ -114,18 +102,19 @@
             </div>
           </div>
 
-          <div class="output-stream" id="event-list" data-filter-mode="selected" data-selected-agent="{{ agents[0].agent_id if agents else '' }}">
+          <div class="interaction-list" id="interaction-list"></div>
+
+          <div class="output-stream" id="event-list" data-filter-mode="selected" data-selected-agent="{{ message_target.agent_id if message_target else '' }}">
             {% for event in events %}
-            <article class="event-item" data-agent-id="{{ event.agent_id }}">
-              <div class="event-head">
-                <span class="event-type">{{ event.event_type }}</span>
-                <span class="event-agent">{{ event.agent_id }}</span>
-              </div>
-              <p>{{ event.data.text }}</p>
-              <small>{{ event.timestamp }}</small>
+            <article class="event-item" data-agent-id="{{ event.agent_id }}" data-event-type="{{ event.event_type }}">
+              {{ event.data.text }}
             </article>
             {% endfor %}
           </div>
+          <form class="terminal-form" id="terminal-form" autocomplete="off">
+            <span class="terminal-prompt">$</span>
+            <input id="terminal-input" name="terminal_input" type="text" placeholder="输入命令后 Enter，直接发送到当前 Agent 终端" spellcheck="false">
+          </form>
           <p class="empty-hint" id="event-empty" {% if events %}hidden{% endif %}>暂无事件。</p>
         </section>
       </section>

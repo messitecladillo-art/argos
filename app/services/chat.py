@@ -3,13 +3,14 @@ from __future__ import annotations
 import subprocess
 import threading
 
+from ..config import now_iso
 from ..models.store import RuntimeStore
 
 
 def _run_hermes_chat(profile_name: str, content: str) -> str:
     try:
         result = subprocess.run(
-            ["hermes", "-p", profile_name, "chat", "-Q", "--ignore-rules", "-q", content],
+            ["hermes", "-p", profile_name, "chat", "-Q", "-q", content],
             capture_output=True,
             text=True,
             timeout=300,
@@ -49,6 +50,7 @@ def _dispatch(store: RuntimeStore, agent_id: str, content: str) -> None:
         status="idle",
         current_task="空闲",
         last_output=preview,
+        last_output_at=now_iso(),
     )
     store.push_event(
         "agent.output.final",

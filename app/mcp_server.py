@@ -34,7 +34,7 @@ def send_to_worker(to_agent_id: str, content: str, from_agent_id: str) -> dict:
     ⚠️ 这是团队内通信专用工具，不同于 hermes-acp 内置的 `delegate_task`
     （后者是在本进程内生成子代理，与团队路由无关）。团队协作**必须**用这个。
 
-    立即返回"已投递"；worker 的 ACP 进程完成后，Flask 会自动把回复以
+    立即返回"已投递"；worker 的长期 Hermes 会话完成后，Flask 会自动把回复以
     `[来自 <worker_name> 的回复]: ...` 的形式反向 prompt 回 leader。
 
     参数：
@@ -50,15 +50,15 @@ def send_to_worker(to_agent_id: str, content: str, from_agent_id: str) -> dict:
         to_agent_id=to_agent_id,
         from_agent_id=from_agent_id,
     )
-    return {"ok": True, "message_id": message["message_id"], "status": "dispatched"}
-    """列出当前注册的所有 worker agent（供 leader 进行任务分派时发现下属）。
-
-    返回的字段包含 agent_id / name / description / status / current_task / load，
-    不包含 leader 自身，避免 leader 把任务派给自己。
-    """
-    return [
-        a for a in store.snapshot()["agents"] if a.get("role") == "worker"
-    ]
+    worker = store.find_agent(to_agent_id) or {}
+    return {
+        "ok": True,
+        "message_id": message["message_id"],
+        "status": "dispatched",
+        "to_agent_id": to_agent_id,
+        "to_name": worker.get("name") or to_agent_id,
+        "note": "任务已投递给 worker；等待系统自动回推 worker 回复后再汇总输出。",
+    }
 
 
 mcp_asgi_app = mcp.streamable_http_app()
