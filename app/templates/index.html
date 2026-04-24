@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Hermes Agent Workspace</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+  </head>
+  <body>
+    <div class="shell-grid"></div>
+    <main class="workspace-shell">
+      <aside class="sidebar panel">
+        <div class="sidebar-head">
+          <div class="sidebar-head__row">
+            <div>
+              <p class="section-kicker">Agent Registry</p>
+              <h1>Hermes Agent Teams</h1>
+            </div>
+            <button class="primary-button primary-button--sm" type="button" id="open-create-agent">+ 新建 Agent</button>
+          </div>
+        </div>
+
+        <div class="sidebar-stats" id="sidebar-stats">
+          {% for stat in stats[:2] %}
+          <article class="mini-stat">
+            <span>{{ stat.label }}</span>
+            <strong>{{ stat.value }}</strong>
+          </article>
+          {% endfor %}
+        </div>
+
+        <div class="agent-list" id="agent-list">
+          {% for agent in agents %}
+          <button
+            class="agent-row {% if loop.first %}is-active{% endif %}"
+            type="button"
+            data-agent-id="{{ agent.agent_id }}"
+            data-agent-name="{{ agent.name }}"
+          >
+            <div class="agent-row__top">
+              <div>
+                <strong>{{ agent.name }}</strong>
+                <p>{{ agent.role }} · {{ agent.profile_name }}</p>
+              </div>
+              <span class="status-badge status-{{ agent.status }}">{{ agent.status }}</span>
+            </div>
+            <div class="agent-row__body">
+              <div class="load-track">
+                <span style="width: {{ agent.load }}%"></span>
+              </div>
+              <dl>
+                <div>
+                  <dt>Task</dt>
+                  <dd>{{ agent.current_task }}</dd>
+                </div>
+                <div>
+                  <dt>Output</dt>
+                  <dd>{{ agent.last_output or '—' }}</dd>
+                </div>
+              </dl>
+            </div>
+          </button>
+          {% endfor %}
+        </div>
+        <p class="empty-hint" id="agent-empty" {% if agents %}hidden{% endif %}>
+          还没有 Agent，点击右上角「新建 Agent」开始。
+        </p>
+      </aside>
+
+      <section class="main-panel">
+        <section class="composer panel">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">Message Console</p>
+              <h2>给 Agent 发消息</h2>
+            </div>
+            <span class="mono-label" id="selected-agent-label">target · {{ agents[0].name if agents else '尚未选择' }}</span>
+          </div>
+
+          <form class="message-form" id="message-form">
+            <input id="to-agent-id" name="to_agent_id" type="hidden" value="{{ agents[0].agent_id if agents else '' }}">
+            <label>
+              <textarea name="content" rows="3" placeholder="给当前目标 Agent 发送消息…"></textarea>
+            </label>
+            <div class="composer-actions">
+              <button class="primary-button" type="submit">Send Message</button>
+              <span class="signal-pill">SSE STREAM ONLINE</span>
+            </div>
+          </form>
+        </section>
+
+        <section class="output panel">
+          <div class="section-head">
+            <div>
+              <p class="section-kicker">Agent Output</p>
+              <h2>输出面板</h2>
+            </div>
+            <div class="output-filters">
+              <button class="filter-chip is-active" type="button" id="show-selected">当前 Agent</button>
+              <button class="filter-chip" type="button" id="show-all">全部输出</button>
+            </div>
+          </div>
+
+          <div class="output-stream" id="event-list" data-filter-mode="selected" data-selected-agent="{{ agents[0].agent_id if agents else '' }}">
+            {% for event in events %}
+            <article class="event-item" data-agent-id="{{ event.agent_id }}">
+              <div class="event-head">
+                <span class="event-type">{{ event.event_type }}</span>
+                <span class="event-agent">{{ event.agent_id }}</span>
+              </div>
+              <p>{{ event.data.text }}</p>
+              <small>{{ event.timestamp }}</small>
+            </article>
+            {% endfor %}
+          </div>
+          <p class="empty-hint" id="event-empty" {% if events %}hidden{% endif %}>暂无事件。</p>
+        </section>
+      </section>
+    </main>
+
+    <div class="modal" id="create-agent-modal" hidden>
+      <div class="modal__backdrop" data-close-modal></div>
+      <div class="modal__panel panel">
+        <div class="modal__head">
+          <h2>新建 Agent</h2>
+          <button class="modal__close" type="button" data-close-modal aria-label="close">×</button>
+        </div>
+        <form id="create-agent-form" class="modal__form">
+          <label>
+            <span>名称</span>
+            <input name="name" required placeholder="例如 Orchestrator">
+          </label>
+          <label>
+            <span>Hermes Profile</span>
+            <input name="profile_name" required placeholder="lowercase（如 orchestrator）" pattern="[a-z0-9][a-z0-9_-]*">
+          </label>
+          <label>
+            <span>角色</span>
+            <select name="role">
+              <option value="specialist">specialist</option>
+              <option value="leader">leader</option>
+              <option value="custom">custom</option>
+            </select>
+          </label>
+          <label>
+            <span>描述</span>
+            <textarea name="description" rows="2" placeholder="该 Agent 的职责"></textarea>
+          </label>
+          <label>
+            <span>技能（逗号分隔）</span>
+            <input name="skills" placeholder="planning, summary">
+          </label>
+          <label>
+            <span>从已有 profile 克隆（可选）</span>
+            <input name="clone_from" placeholder="default">
+          </label>
+          <p class="form-error" id="create-agent-error" hidden></p>
+          <div class="modal__actions">
+            <button type="button" class="filter-chip" data-close-modal>取消</button>
+            <button type="submit" class="primary-button">创建</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <script>
+      window.__BOOTSTRAP__ = {{ {"agents": agents, "events": events}|tojson }};
+    </script>
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+  </body>
+</html>
