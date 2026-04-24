@@ -62,6 +62,7 @@ def create_agent(
         "current_task": "空闲",
         "runtime_status": "stopped",
         "interaction_state": "idle",
+        "orchestration_state": "none",
         "queue_depth": 0,
         "pending_interaction": None,
         "load": 0,

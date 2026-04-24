@@ -320,6 +320,45 @@ label span,
   font: inherit;
 }
 
+.choice-button {
+  appearance: none;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  padding: 10px 12px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease, transform 160ms ease;
+}
+
+.choice-button:hover,
+.choice-button.is-selected {
+  border-color: rgba(119, 240, 255, 0.52);
+  background: rgba(119, 240, 255, 0.1);
+}
+
+.choice-button:hover {
+  transform: translateY(-1px);
+}
+
+.choice-button span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.choice-button strong {
+  color: var(--text);
+  font-weight: 700;
+  line-height: 1.45;
+}
+
 .section-head {
   align-items: start;
   margin-bottom: 14px;
@@ -518,10 +557,10 @@ label span,
 }
 .modal__panel {
   position: relative;
-  width: min(520px, 100%);
-  padding: 22px;
+  width: min(560px, 100%);
+  padding: 26px;
   display: grid;
-  gap: 16px;
+  gap: 22px;
   max-height: 90vh;
   overflow: auto;
 }
@@ -540,25 +579,43 @@ label span,
 }
 .modal__form {
   display: grid;
-  gap: 12px;
+  gap: 16px;
 }
-.modal__form label { gap: 6px; }
+.modal__form label {
+  display: grid;
+  grid-template-columns: 150px minmax(0, 1fr);
+  align-items: center;
+  gap: 14px;
+}
+
+.modal__form label span {
+  color: var(--muted);
+  font-weight: 700;
+  line-height: 1.2;
+}
+
 .modal__form input,
 .modal__form select,
 .modal__form textarea {
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
   border-radius: 12px;
   border: 1px solid var(--panel-edge);
   background: rgba(4, 11, 20, 0.92);
   color: var(--text);
-  padding: 10px 12px;
+  padding: 12px 14px;
   font: inherit;
 }
-.modal__form textarea { min-height: 64px; resize: vertical; }
+.modal__form textarea {
+  min-height: 86px;
+  resize: vertical;
+}
 .modal__actions {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  margin-top: 4px;
+  margin-top: 8px;
 }
 .form-error {
   color: #ff8a8a;
@@ -570,6 +627,71 @@ label span,
   font-size: 0.82rem;
   line-height: 1.5;
   margin: 0;
+}
+
+.selection-modal__panel {
+  width: min(680px, 100%);
+  border-color: rgba(255, 191, 114, 0.28);
+  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.45), 0 0 40px rgba(119, 240, 255, 0.08);
+}
+
+.selection-modal__body {
+  display: grid;
+  gap: 16px;
+}
+
+.selection-modal__agent {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.035);
+}
+
+.selection-modal__agent span {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.selection-modal__agent strong {
+  color: var(--text);
+}
+
+.selection-modal__prompt {
+  margin: 0;
+  color: var(--text);
+  line-height: 1.7;
+}
+
+.selection-modal__choices {
+  display: grid;
+  gap: 10px;
+}
+
+@media (max-width: 640px) {
+  .modal {
+    padding: 14px;
+  }
+
+  .modal__panel {
+    padding: 20px;
+  }
+
+  .modal__form label {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .modal__actions {
+    justify-content: stretch;
+  }
+
+  .modal__actions button {
+    flex: 1;
+  }
 }
 
 .agent-row__acp {

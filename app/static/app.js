@@ -12,6 +12,8 @@ const createAgentError = document.getElementById("create-agent-error");
 const interactionList = document.getElementById("interaction-list");
 const terminalForm = document.getElementById("terminal-form");
 const terminalInput = document.getElementById("terminal-input");
+const selectionModal = document.getElementById("selection-modal");
+const selectionModalBody = document.getElementById("selection-modal-body");
 
 function escapeHtml(value) {
   return String(value || "")
@@ -37,6 +39,12 @@ function buildAgentRow(agent, isActive) {
   row.dataset.agentName = agent.name;
   row.dataset.agentRole = agent.role;
   const runtimeStatus = agent.runtime_status || "stopped";
+  const displayStatus = agent.orchestration_state === "waiting_workers"
+    ? "waiting"
+    : (agent.orchestration_state === "summarizing" ? "busy" : (agent.status || "idle"));
+  const displayState = agent.orchestration_state && agent.orchestration_state !== "none"
+    ? agent.orchestration_state
+    : (agent.interaction_state || "idle");
   const btn = runtimeStatus === "running"
     ? `<button class="acp-btn acp-btn--stop" type="button" data-session-action="stop" data-agent-id="${agent.agent_id}">停止</button>`
     : `<button class="acp-btn acp-btn--start" type="button" data-session-action="start" data-agent-id="${agent.agent_id}">启动</button>`;
@@ -46,14 +54,14 @@ function buildAgentRow(agent, isActive) {
         <strong>${escapeHtml(agent.name)}</strong>
         <p>${escapeHtml(agent.role)} · ${escapeHtml(agent.profile_name)}</p>
       </div>
-      <span class="status-badge status-${escapeHtml(agent.status)}">${escapeHtml(agent.status)}</span>
+      <span class="status-badge status-${escapeHtml(displayStatus)}">${escapeHtml(displayState)}</span>
     </div>
     <div class="agent-row__body">
       <div class="load-track"><span style="width: ${agent.load || 0}%"></span></div>
       <dl>
         <div><dt>Task</dt><dd>${escapeHtml(agent.current_task || "—")}</dd></div>
         <div><dt>Last Output</dt><dd>${escapeHtml(formatAgentTime(agent.last_output_at))}</dd></div>
-        <div><dt>State</dt><dd>${escapeHtml(agent.interaction_state || "idle")}</dd></div>
+        <div><dt>State</dt><dd>${escapeHtml(displayState)}</dd></div>
         <div><dt>Queue</dt><dd>${agent.queue_depth || 0}</dd></div>
       </dl>
       <div class="agent-row__session">
@@ -70,6 +78,7 @@ function buildInteractionCard(agent) {
   const interaction = agent.pending_interaction;
   if (!interaction) return "";
   const isApproval = interaction.kind === "awaiting_approval";
+  if (interaction.kind === "awaiting_selection") return "";
   return `
     <article class="interaction-card">
       <div class="interaction-card__head">
@@ -92,14 +101,68 @@ function buildInteractionCard(agent) {
   `;
 }
 
+function getSelectionPrompt(prompt) {
+  const lines = String(prompt || "")
+    .split("\n")
+    .map((line) => line.trim().replace(/^[│┃║▏▕▌▐]+|[│┃║▏▕▌▐]+$/g, "").trim())
+    .filter(Boolean);
+  return lines.find((line) => /[\u4e00-\u9fa5].*[？?]/.test(line)) || "Hermes 需要你选择一个选项后继续。";
+}
+
+function renderSelectionModal(agents) {
+  if (!selectionModal || !selectionModalBody) return;
+  const agent = agents.find((item) => item.pending_interaction?.kind === "awaiting_selection");
+  const interaction = agent?.pending_interaction;
+  if (!agent || !interaction) {
+    selectionModal.hidden = true;
+    selectionModalBody.innerHTML = "";
+    return;
+  }
+
+  const choices = Array.isArray(interaction.choices) ? interaction.choices : [];
+  const selectedIndex = Number.isInteger(interaction.selected_index) ? interaction.selected_index : 0;
+  const choiceButtons = choices.map((choice, index) => `
+    <button class="choice-button${index === selectedIndex ? " is-selected" : ""}" type="button" data-interaction-response="${index}" data-agent-id="${agent.agent_id}" data-request-id="${interaction.request_id}">
+      <span>${index === selectedIndex ? "当前" : "选择"}</span>
+      <strong>${escapeHtml(choice)}</strong>
+    </button>
+  `).join("");
+
+  selectionModalBody.innerHTML = `
+    <div class="selection-modal__agent">
+      <span>等待 Agent</span>
+      <strong>${escapeHtml(agent.name)}</strong>
+    </div>
+    <p class="selection-modal__prompt">${escapeHtml(getSelectionPrompt(interaction.prompt))}</p>
+    <div class="selection-modal__choices">${choiceButtons}</div>
+    <p class="form-hint">选择后会自动发送到 Hermes 终端继续执行。</p>
+  `;
+  selectionModal.hidden = false;
+}
+
 function renderInteractions(agents) {
   if (!interactionList) return;
+  const activeElement = document.activeElement;
+  const activeForm = activeElement?.closest?.(".interaction-form");
+  const activeRequestId = activeForm?.dataset.requestId || "";
+  const activeValue = activeElement?.name === "response" ? activeElement.value : "";
   const html = agents
     .filter((agent) => agent.pending_interaction)
     .map((agent) => buildInteractionCard(agent))
     .join("");
+  if (interactionList.innerHTML === html) {
+    interactionList.hidden = !html;
+    return;
+  }
   interactionList.innerHTML = html;
   interactionList.hidden = !html;
+  if (activeRequestId) {
+    const restoredInput = interactionList.querySelector(`.interaction-form[data-request-id="${CSS.escape(activeRequestId)}"] input[name="response"]`);
+    if (restoredInput) {
+      restoredInput.value = activeValue;
+      restoredInput.focus();
+    }
+  }
 }
 
 function renderAgents(agents, stats) {
@@ -110,6 +173,7 @@ function renderAgents(agents, stats) {
     agentList.appendChild(buildAgentRow(agent, agent.agent_id === selected));
   });
   renderInteractions(agents);
+  renderSelectionModal(agents);
   if (agentEmpty) agentEmpty.hidden = agents.length > 0;
   if (sidebarStats && stats) {
     sidebarStats.innerHTML = stats
@@ -218,11 +282,12 @@ async function sendTerminalInput(text) {
 }
 
 async function postInteractionResponse(agentId, requestId, response) {
-  await fetch(`/api/agents/${agentId}/interactions/${requestId}/respond`, {
+  const result = await fetch(`/api/agents/${agentId}/interactions/${requestId}/respond`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ response }),
   });
+  return result.ok;
 }
 
 if (agentList) {
@@ -244,17 +309,22 @@ if (agentList) {
   });
 }
 
+async function handleInteractionClick(event) {
+  const btn = event.target.closest("[data-interaction-response]");
+  if (!btn) return;
+  event.preventDefault();
+  btn.disabled = true;
+  await postInteractionResponse(
+    btn.dataset.agentId,
+    btn.dataset.requestId,
+    btn.dataset.interactionResponse,
+  ).then((ok) => {
+    if (ok && selectionModal?.contains(btn)) selectionModal.hidden = true;
+  }).finally(() => { btn.disabled = false; });
+}
+
 if (interactionList) {
-  interactionList.addEventListener("click", async (event) => {
-    const btn = event.target.closest("[data-interaction-response]");
-    if (!btn) return;
-    btn.disabled = true;
-    await postInteractionResponse(
-      btn.dataset.agentId,
-      btn.dataset.requestId,
-      btn.dataset.interactionResponse,
-    ).finally(() => { btn.disabled = false; });
-  });
+  interactionList.addEventListener("click", handleInteractionClick);
 
   interactionList.addEventListener("submit", async (event) => {
     const form = event.target.closest(".interaction-form");
@@ -266,6 +336,8 @@ if (interactionList) {
     await postInteractionResponse(form.dataset.agentId, form.dataset.requestId, response);
   });
 }
+
+selectionModal?.addEventListener("click", handleInteractionClick);
 
 if (showSelectedButton && showAllButton && eventList) {
   showSelectedButton.addEventListener("click", () => {

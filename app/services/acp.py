@@ -21,7 +21,7 @@ import pyte
 from ..models.store import store
 
 
-SILENCE_TIMEOUT_SECONDS = 2.0
+SILENCE_TIMEOUT_SECONDS = 10.0
 MAX_TURN_SECONDS = 120.0
 READ_CHUNK_SIZE = 1024
 READ_LOOP_INTERVAL = 0.2
@@ -31,7 +31,9 @@ TERMINAL_LINES = 36
 
 READY_PATTERNS = (
     re.compile(r"(?m)^\s*(?:⚕\s*)?❯\s*$"),
-    re.compile(r"(?m)^type a message \+ Enter to interrupt\s*$", re.IGNORECASE),
+)
+INTERRUPT_HINT_PATTERN = re.compile(
+    r"type a message \+ Enter to interrupt", re.IGNORECASE
 )
 APPROVAL_PATTERNS = (
     re.compile(r"\[(?:y/N|Y/n|yes/no)\]", re.IGNORECASE),
@@ -42,6 +44,12 @@ INPUT_PATTERNS = (
     re.compile(r"\b(?:enter|type|provide)\b.+\b(?:input|response|value)\b", re.IGNORECASE),
     re.compile(r"\bwaiting for input\b", re.IGNORECASE),
 )
+SELECTION_PATTERNS = (
+    re.compile(r"\bto select,\s*Enter to confirm\b", re.IGNORECASE),
+    re.compile(r"\bHermes needs your input\b", re.IGNORECASE),
+)
+
+
 def _strip_ansi(text: str) -> str:
     return re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", text)
 
@@ -63,6 +71,55 @@ def _is_substantive_output(text: str) -> bool:
     if re.fullmatch(r"[\s\-─|$⚕❯\[\]░▒▓█.,:;_/\\]+", stripped):
         return False
     return True
+
+
+def _has_interrupt_hint(text: str) -> bool:
+    return bool(INTERRUPT_HINT_PATTERN.search(text))
+
+
+def _clean_selection_line(line: str) -> str:
+    return line.strip().strip("│┃║▏▕▌▐").rstrip("│┃║▏▕▌▐").strip()
+
+
+def _extract_selection(text: str) -> dict[str, Any] | None:
+    if not any(pattern.search(text) for pattern in SELECTION_PATTERNS):
+        return None
+
+    lines = [_clean_selection_line(line) for line in text.splitlines()]
+    selected_index: int | None = None
+    choices: list[str] = []
+    collecting = False
+
+    for line in lines:
+        if not line:
+            if collecting and choices:
+                break
+            continue
+        if re.search(r"\b(?:to select|Enter to confirm)\b", line, re.IGNORECASE):
+            if collecting and choices:
+                break
+            continue
+
+        selected_match = re.match(r"^[›>❯]\s*(.+?)\s*$", line)
+        if selected_match:
+            label = selected_match.group(1).strip()
+            if label:
+                selected_index = len(choices)
+                choices.append(label)
+                collecting = True
+            continue
+
+        if collecting:
+            if line.startswith("?") or line.startswith("$"):
+                break
+            if re.match(r"^[┌└├╭╰─━═]+$", line):
+                break
+            if len(line) <= 120:
+                choices.append(line)
+
+    if selected_index is None or not choices:
+        return None
+    return {"choices": choices, "selected_index": selected_index}
 
 
 class HermesSession:
@@ -113,13 +170,21 @@ class HermesSession:
             {"text": f"queue_depth={queue_depth}"},
         )
 
-    def _set_interaction(self, kind: str, prompt: str) -> None:
+    def _set_interaction(
+        self,
+        kind: str,
+        prompt: str,
+        *,
+        choices: list[str] | None = None,
+        selected_index: int | None = None,
+    ) -> None:
         request_id = f"req_{uuid4().hex[:10]}"
         pending = {
             "request_id": request_id,
             "kind": kind,
             "prompt": prompt.strip()[-600:],
-            "choices": ["y", "n"] if kind == "awaiting_approval" else [],
+            "choices": choices if choices is not None else (["y", "n"] if kind == "awaiting_approval" else []),
+            "selected_index": selected_index,
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
         with self._lock:
@@ -129,7 +194,11 @@ class HermesSession:
         store.update_agent(
             self.agent_id,
             status="waiting",
-            current_task="等待人工确认" if kind == "awaiting_approval" else "等待人工输入",
+            current_task=(
+                "等待人工确认"
+                if kind == "awaiting_approval"
+                else ("等待人工选择" if kind == "awaiting_selection" else "等待人工输入")
+            ),
             interaction_state=kind,
             pending_interaction=pending,
         )
@@ -159,6 +228,24 @@ class HermesSession:
             None,
             {"text": f"{pending['kind']} -> {response}", "interaction": pending},
         )
+
+    def _detect_interaction(self, text: str) -> bool:
+        if any(pattern.search(text) for pattern in APPROVAL_PATTERNS):
+            self._set_interaction("awaiting_approval", text)
+            return True
+        selection = _extract_selection(text)
+        if selection is not None:
+            self._set_interaction(
+                "awaiting_selection",
+                text,
+                choices=selection["choices"],
+                selected_index=selection["selected_index"],
+            )
+            return True
+        if any(pattern.search(text) for pattern in INPUT_PATTERNS):
+            self._set_interaction("awaiting_input", text)
+            return True
+        return False
 
     def _mark_crashed(self, reason: str) -> None:
         with self._lock:
@@ -195,15 +282,32 @@ class HermesSession:
         self.proc.send("\x1b[201~")
         self.proc.send("\r")
 
+    def _send_selection(self, target_index: int, selected_index: int) -> None:
+        if self._closed:
+            return
+        delta = target_index - selected_index
+        if delta > 0:
+            self.proc.send("\x1b[B" * delta)
+        elif delta < 0:
+            self.proc.send("\x1b[A" * abs(delta))
+        self.proc.send("\r")
+
     def _dispatch_next(self) -> None:
         with self._lock:
             if self._closed or self._pending_interaction is not None or self._current_message is not None:
                 return
             if not self._queue:
+                agent = store.find_agent(self.agent_id) or {}
+                orchestration_state = agent.get("orchestration_state")
+                current_task = (
+                    "等待 worker 返回"
+                    if orchestration_state == "waiting_workers"
+                    else "空闲"
+                )
                 store.update_agent(
                     self.agent_id,
                     status="idle",
-                    current_task="空闲",
+                    current_task=current_task,
                     interaction_state="idle",
                 )
                 return
@@ -236,7 +340,11 @@ class HermesSession:
         preview = (reply[:180] + "…") if len(reply) > 180 else (reply or "—")
         next_state = "queued" if self._queue else "idle"
         next_status = "busy" if self._queue else "idle"
+        agent = store.find_agent(self.agent_id) or {}
+        orchestration_state = agent.get("orchestration_state")
         next_task = "等待队列执行" if self._queue else "空闲"
+        if not self._queue and orchestration_state == "waiting_workers":
+            next_task = "等待 worker 返回"
         store.update_agent(
             self.agent_id,
             status=next_status,
@@ -253,7 +361,14 @@ class HermesSession:
         )
         self._update_queue_depth()
         try:
-            self.on_final(self.agent_id, reply, message.get("reply_to_leader"))
+            self.on_final(
+                self.agent_id,
+                reply,
+                message.get("reply_to_leader"),
+                message.get("delegation_id"),
+                message.get("assignment_id"),
+                message.get("summarize_delegation_id"),
+            )
         except Exception as exc:  # noqa: BLE001
             store.push_event(
                 "agent.output.failed",
@@ -289,17 +404,31 @@ class HermesSession:
                 {"text": terminal_snapshot},
             )
 
-        if not running or pending is not None:
+        if running:
+            agent = store.find_agent(self.agent_id) or {}
+            if agent.get("status") != "busy" or agent.get("interaction_state") != "running":
+                store.update_agent(
+                    self.agent_id,
+                    status="busy",
+                    current_task="处理消息中",
+                    interaction_state="running",
+                )
+
+        if pending is not None:
             return
 
-        recent = self._tail()
-        if any(pattern.search(recent) for pattern in APPROVAL_PATTERNS):
-            self._set_interaction("awaiting_approval", recent)
+        recent = self._tail(2000)
+        detection_text = f"{terminal_snapshot}\n{recent}"
+        if not running:
+            self._detect_interaction(detection_text)
             return
-        if any(pattern.search(recent) for pattern in INPUT_PATTERNS):
-            self._set_interaction("awaiting_input", recent)
+        if self._detect_interaction(detection_text):
             return
-        if any(pattern.search(recent) for pattern in READY_PATTERNS) and "".join(self._current_output).strip():
+        if (
+            any(pattern.search(detection_text) for pattern in READY_PATTERNS)
+            and not _has_interrupt_hint(recent)
+            and "".join(self._current_output).strip()
+        ):
             self._finalize_current()
 
     def _reader_loop(self) -> None:
@@ -323,10 +452,12 @@ class HermesSession:
                 continue
 
             with self._lock:
+                interaction_text = f"{self._last_terminal_snapshot}\n{self._raw_output[-2000:]}"
                 timed_out = (
                     self._current_message is not None
                     and self._pending_interaction is None
                     and bool("".join(self._current_output).strip())
+                    and not _has_interrupt_hint(self._last_terminal_snapshot)
                     and (time.monotonic() - self._last_output_at) >= SILENCE_TIMEOUT_SECONDS
                 )
                 turn_expired = (
@@ -336,23 +467,36 @@ class HermesSession:
                     and (time.monotonic() - self._current_started_at) >= MAX_TURN_SECONDS
                 )
             if timed_out or turn_expired:
+                if self._detect_interaction(interaction_text):
+                    continue
                 self._finalize_current()
 
     # ------------------------------------------------------------------ api
-    def enqueue_message(self, text: str, *, reply_to_leader: str | None = None) -> None:
+    def enqueue_message(
+        self,
+        text: str,
+        *,
+        reply_to_leader: str | None = None,
+        delegation_id: str | None = None,
+        assignment_id: str | None = None,
+        summarize_delegation_id: str | None = None,
+    ) -> None:
         item = {
             "id": f"job_{next(self._counter):04d}",
             "text": text,
             "reply_to_leader": reply_to_leader,
+            "delegation_id": delegation_id,
+            "assignment_id": assignment_id,
+            "summarize_delegation_id": summarize_delegation_id,
         }
         with self._lock:
             self._queue.append(item)
             current_busy = self._current_message is not None or self._pending_interaction is not None
         store.update_agent(
             self.agent_id,
-            status="busy" if current_busy else "waiting",
+            status="busy",
             current_task="等待队列执行" if current_busy else "准备处理消息",
-            interaction_state="queued" if current_busy else "idle",
+            interaction_state="queued",
         )
         self._update_queue_depth()
         self._dispatch_next()
@@ -367,7 +511,19 @@ class HermesSession:
             raise ValueError("agent is not waiting for interaction")
         if pending["request_id"] != request_id:
             raise ValueError("interaction request_id mismatch")
-        self._send_line(response)
+        if pending.get("kind") == "awaiting_selection":
+            choices = pending.get("choices") or []
+            selected_index = int(pending.get("selected_index") or 0)
+            try:
+                target_index = int(response)
+            except ValueError:
+                target_index = choices.index(response) if response in choices else -1
+            if target_index < 0 or target_index >= len(choices):
+                raise ValueError("selection response is invalid")
+            self._send_selection(target_index, selected_index)
+            response = choices[target_index]
+        else:
+            self._send_line(response)
         self._clear_interaction(response)
 
     def send_terminal_input(self, text: str) -> None:
@@ -503,12 +659,21 @@ class ACPPool:
         content: str,
         *,
         reply_to_leader: str | None = None,
+        delegation_id: str | None = None,
+        assignment_id: str | None = None,
+        summarize_delegation_id: str | None = None,
     ) -> None:
         with self._lock:
             session = self.clients.get(agent_id)
         if session is None or not session.proc.isalive():
             raise RuntimeError("agent session is not running; start it first")
-        session.enqueue_message(content, reply_to_leader=reply_to_leader)
+        session.enqueue_message(
+            content,
+            reply_to_leader=reply_to_leader,
+            delegation_id=delegation_id,
+            assignment_id=assignment_id,
+            summarize_delegation_id=summarize_delegation_id,
+        )
 
     def respond_interaction(self, agent_id: str, request_id: str, response: str) -> None:
         with self._lock:
@@ -524,7 +689,43 @@ class ACPPool:
             raise RuntimeError("agent session is not running; start it first")
         session.send_terminal_input(text)
 
-    def _on_final(self, agent_id: str, reply: str, leader_id: str | None) -> None:
+    def _on_final(
+        self,
+        agent_id: str,
+        reply: str,
+        leader_id: str | None,
+        delegation_id: str | None,
+        assignment_id: str | None,
+        summarize_delegation_id: str | None,
+    ) -> None:
+        if summarize_delegation_id:
+            try:
+                store.mark_delegation_summarized(summarize_delegation_id)
+            except Exception as exc:  # noqa: BLE001
+                store.push_event(
+                    "delegation.summary.failed",
+                    agent_id,
+                    summarize_delegation_id,
+                    {"text": f"标记批次总结完成失败：{exc}"},
+                )
+        if leader_id and delegation_id and assignment_id:
+            try:
+                completed = store.complete_assignment(
+                    delegation_id,
+                    assignment_id,
+                    result=reply or "(空响应)",
+                )
+            except Exception as exc:  # noqa: BLE001
+                store.push_event(
+                    "delegation.assignment.failed",
+                    agent_id,
+                    delegation_id,
+                    {"text": f"记录 worker 结果失败：{exc}"},
+                )
+                completed = None
+            if completed:
+                self._prompt_leader_to_summarize(completed)
+            return
         if leader_id:
             worker = store.find_agent(agent_id) or {}
             name = worker.get("name") or agent_id
@@ -537,6 +738,48 @@ class ACPPool:
                     None,
                     {"text": f"回推 leader 失败：{exc}"},
                 )
+
+    def _prompt_leader_to_summarize(self, delegation: dict) -> None:
+        leader_id = delegation["leader_agent_id"]
+        delegation_id = delegation["delegation_id"]
+        store.mark_delegation_summarizing(delegation_id)
+        results = []
+        for index, assignment in enumerate(delegation["assignments"], start=1):
+            results.append(
+                "\n".join(
+                    [
+                        f"## {index}. {assignment['worker_name']} ({assignment['worker_agent_id']})",
+                        f"子任务：{assignment['content']}",
+                        f"状态：{assignment['status']}",
+                        "结果：",
+                        assignment.get("result") or "(空响应)",
+                    ]
+                )
+            )
+        worker_results = "\n\n".join(results)
+        prompt = (
+            "[SYSTEM_DELEGATION_SUMMARY_REQUEST]\n"
+            f"delegation_id: {delegation_id}\n"
+            "同一批 worker 子任务已经全部结束。请只基于以下 worker 结果，面向用户输出最终总结。\n"
+            "不要再次派发同一批任务；如有缺失或失败，请在总结中明确说明。\n\n"
+            "总结要求：\n"
+            f"{delegation['summary_instruction']}\n\n"
+            "Worker 结果：\n"
+            f"{worker_results}"
+        )
+        try:
+            self.prompt(
+                leader_id,
+                prompt,
+                summarize_delegation_id=delegation_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            store.push_event(
+                "agent.output.failed",
+                leader_id,
+                delegation_id,
+                {"text": f"回推 leader 汇总请求失败：{exc}"},
+            )
 
     def stop_all(self) -> None:
         with self._lock:

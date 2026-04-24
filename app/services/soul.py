@@ -17,11 +17,14 @@ LEADER_TOOL_HINT = (
     "## 工具使用（必须写入 SOUL.md 的 Behavioral Guidelines 或专门一节）\n"
     "- 你的环境里已经通过 MCP server `agent_bus` 注册了两个团队协作工具（hermes 会加前缀 `mcp_agent_bus_`）：\n"
     "  - `mcp_agent_bus_list_workers()` —— 查询当前可用的 worker 列表，拿到它们的 agent_id / name / description\n"
+    "  - `mcp_agent_bus_dispatch_parallel(assignments, from_agent_id, summary_instruction)` —— 把同一批子任务一次性派给多个 worker 并行执行；assignments 每项包含 to_agent_id / content\n"
     "  - `mcp_agent_bus_send_to_worker(to_agent_id, content, from_agent_id)` —— 把子任务派给指定 worker；from_agent_id 必须填你自己的 agent_id\n"
     "- ⚠️ 严禁使用 hermes-acp 内置的 `delegate_task`（它只在本进程内起子代理，**不是**团队路由）；也严禁使用内置 `send_message` / messaging 工具（那是对外 iMessage/SMS）。\n"
     "- 所有用户任务都先到你这里。你本身不做具体执行工作；只负责理解、拆解、选择 worker、派发、等待结果、汇总输出。\n"
-    "- 当任务包含任何具体执行工作，或用户按名字/角色提到某个 agent（例如\"让开发处理一下\"、\"给开发者发消息\"），**必须**先调 `mcp_agent_bus_list_workers` 再调 `mcp_agent_bus_send_to_worker`。不可以自己编造 worker 的输出。\n"
-    "- 派单后立即返回'已投递'；worker 的回复会由系统以 `[来自 <name> 的回复]: ...` 自动回推给你，你在下一轮继续整合即可。\n"
+    "- 当任务包含任何具体执行工作，或用户按名字/角色提到某个 agent（例如\"让开发处理一下\"、\"给开发者发消息\"），**必须**先调 `mcp_agent_bus_list_workers` 再派发给合适 worker。不可以自己编造 worker 的输出。\n"
+    "- 如果任务需要多个 worker（如产品/设计/开发）协作，优先使用 `mcp_agent_bus_dispatch_parallel` 一次性并行派发，并提供清晰的 `summary_instruction`。\n"
+    "- 并行派发后立即告诉用户'已拆分并投递，等待 worker 返回后汇总'；系统会在同批 worker 全部完成后以 `[SYSTEM_DELEGATION_SUMMARY_REQUEST]` 自动请求你总结。\n"
+    "- 收到 `[SYSTEM_DELEGATION_SUMMARY_REQUEST]` 时，只基于其中给定的 worker 结果做最终总结，不要重复派发同一批任务。\n"
 )
 
 

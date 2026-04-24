@@ -15,6 +15,23 @@ from .models.store import store
 mcp = FastMCP("hermes-agents", streamable_http_path="/")
 
 
+def _resolve_sender_agent_id(from_agent_id: str) -> str:
+    """Accept common leader aliases and return the registered agent_id."""
+    value = (from_agent_id or "").strip()
+    snapshot = store.snapshot()
+    if any(agent.get("agent_id") == value for agent in snapshot["agents"]):
+        return value
+    normalized = value.lower()
+    leader = next((a for a in snapshot["agents"] if a.get("role") == "leader"), None)
+    if leader and normalized in {
+        "leader",
+        str(leader.get("name") or "").lower(),
+        str(leader.get("profile_name") or "").lower(),
+    }:
+        return leader["agent_id"]
+    raise ValueError(f"from_agent_id not found: {from_agent_id}")
+
+
 @mcp.tool()
 def list_workers() -> list[dict]:
     """列出当前注册的所有 worker agent（供 leader 进行任务分派时发现下属）。
@@ -42,22 +59,90 @@ def send_to_worker(to_agent_id: str, content: str, from_agent_id: str) -> dict:
     - content: 任务正文
     - from_agent_id: 本 leader 自己的 agent_id，用于结果回推
     """
-    from .services.messages import send_message
-
-    message = send_message(
-        store,
-        content=content,
-        to_agent_id=to_agent_id,
+    result = dispatch_parallel(
+        assignments=[{"to_agent_id": to_agent_id, "content": content}],
         from_agent_id=from_agent_id,
+        summary_instruction="请基于 worker 的执行结果，面向用户输出最终总结。",
     )
-    worker = store.find_agent(to_agent_id) or {}
+    assignment = result["assignments"][0]
     return {
         "ok": True,
-        "message_id": message["message_id"],
-        "status": "dispatched",
+        "message_id": assignment["message_id"],
+        "delegation_id": result["delegation_id"],
+        "assignment_id": assignment["assignment_id"],
+        "status": "waiting_workers",
         "to_agent_id": to_agent_id,
-        "to_name": worker.get("name") or to_agent_id,
-        "note": "任务已投递给 worker；等待系统自动回推 worker 回复后再汇总输出。",
+        "to_name": assignment["to_name"],
+        "note": "任务已投递给 worker；系统会在 worker 返回后自动请求 leader 汇总。",
+    }
+
+
+@mcp.tool()
+def dispatch_parallel(
+    assignments: list[dict],
+    from_agent_id: str,
+    summary_instruction: str = "",
+) -> dict:
+    """leader 一次性把同一批子任务派给多个 worker 并行执行。
+
+    平台会创建 delegation 批次并收集所有 worker 结果；同一批 worker 全部
+    完成后，系统会自动把汇总请求发回 leader。leader 收到汇总请求后只做最终
+    总结，不要重复派发同一批任务。
+
+    参数：
+    - assignments: 子任务数组，每项包含 to_agent_id / content
+    - from_agent_id: 本 leader 自己的 agent_id
+    - summary_instruction: 所有 worker 返回后 leader 应如何汇总
+    """
+    from .services.messages import send_message
+    from .services.acp import pool
+
+    if not assignments:
+        raise ValueError("assignments is required")
+    sender_agent_id = _resolve_sender_agent_id(from_agent_id)
+    for assignment in assignments:
+        worker_id = (assignment.get("to_agent_id") or "").strip()
+        if not worker_id:
+            raise ValueError("assignment.to_agent_id is required")
+        if not pool.is_running(worker_id):
+            raise ValueError(f"target agent session is not running: {worker_id}")
+    delegation = store.create_delegation(
+        leader_agent_id=sender_agent_id,
+        assignments=assignments,
+        summary_instruction=summary_instruction,
+    )
+    dispatched = []
+    for assignment in delegation["assignments"]:
+        message = send_message(
+            store,
+            content=assignment["content"],
+            to_agent_id=assignment["worker_agent_id"],
+            from_agent_id=sender_agent_id,
+            delegation_id=delegation["delegation_id"],
+            assignment_id=assignment["assignment_id"],
+        )
+        store.attach_assignment_message(
+            delegation["delegation_id"],
+            assignment["assignment_id"],
+            message["message_id"],
+        )
+        dispatched.append(
+            {
+                "assignment_id": assignment["assignment_id"],
+                "message_id": message["message_id"],
+                "to_agent_id": assignment["worker_agent_id"],
+                "to_name": assignment["worker_name"],
+            }
+        )
+    return {
+        "ok": True,
+        "delegation_id": delegation["delegation_id"],
+        "status": "waiting_workers",
+        "from_agent_id": sender_agent_id,
+        "dispatched_count": len(dispatched),
+        "pending_count": len(dispatched),
+        "assignments": dispatched,
+        "note": "已并行投递；系统会在同批 worker 全部返回后自动请求 leader 汇总。",
     }
 
 
