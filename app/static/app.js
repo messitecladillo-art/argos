@@ -3,8 +3,6 @@ const agentList = document.getElementById("agent-list");
 const agentEmpty = document.getElementById("agent-empty");
 const eventEmpty = document.getElementById("event-empty");
 const sidebarStats = document.getElementById("sidebar-stats");
-const showSelectedButton = document.getElementById("show-selected");
-const showAllButton = document.getElementById("show-all");
 const openCreateAgent = document.getElementById("open-create-agent");
 const modal = document.getElementById("create-agent-modal");
 const createAgentForm = document.getElementById("create-agent-form");
@@ -17,6 +15,9 @@ const selectionModalBody = document.getElementById("selection-modal-body");
 const resolvedInteractionIds = new Set();
 const submittingInteractionIds = new Set();
 const resolvedSelectionSignatures = new Set();
+let agentContextMenu = null;
+let deletingAgentId = "";
+let dismissAgentModal = null;
 
 function interactionKey(agentId, requestId) {
   return `${agentId || ""}:${requestId || ""}`;
@@ -50,6 +51,8 @@ function buildAgentRow(agent, isActive) {
   row.dataset.agentId = agent.agent_id;
   row.dataset.agentName = agent.name;
   row.dataset.agentRole = agent.role;
+  row.dataset.agentStatus = agent.status || "idle";
+  row.dataset.agentOrchestrationState = agent.orchestration_state || "none";
   const runtimeStatus = agent.runtime_status || "stopped";
   const displayStatus = agent.orchestration_state === "waiting_workers"
     ? "waiting"
@@ -262,6 +265,7 @@ function renderInteractions(agents) {
 
 function renderAgents(agents, stats) {
   if (!agentList) return;
+  closeAgentContextMenu();
   const activeInteractionKeys = new Set();
   agents.forEach((agent) => {
     const requestId = agent.pending_interaction?.request_id;
@@ -325,17 +329,11 @@ function removeAgentTerminalSnapshots(agentId) {
 
 function applyEventFilter() {
   if (!eventList) return;
-  const mode = eventList.dataset.filterMode || "selected";
-  const selectedAgent = eventList.dataset.selectedAgent || "";
   const items = eventList.querySelectorAll(".event-item");
-  let visibleCount = 0;
   items.forEach((item) => {
-    const matches = item.dataset.agentId === selectedAgent;
-    const hidden = mode === "selected" && !matches;
-    item.classList.toggle("is-hidden", hidden);
-    if (!hidden) visibleCount += 1;
+    item.classList.remove("is-hidden");
   });
-  if (eventEmpty) eventEmpty.hidden = visibleCount > 0;
+  if (eventEmpty) eventEmpty.hidden = items.length > 0;
 }
 
 function hydrateTerminalSnapshots() {
@@ -393,8 +391,139 @@ async function postInteractionResponse(agentId, requestId, response) {
   return result.ok;
 }
 
+function isIdleAgentRow(row) {
+  return row?.dataset.agentStatus === "idle"
+    && (row.dataset.agentOrchestrationState || "none") === "none";
+}
+
+function ensureAgentContextMenu() {
+  if (agentContextMenu) return agentContextMenu;
+  agentContextMenu = document.createElement("div");
+  agentContextMenu.className = "agent-context-menu";
+  agentContextMenu.hidden = true;
+  agentContextMenu.innerHTML = `
+    <button class="agent-context-menu__item agent-context-menu__item--danger" type="button" data-agent-delete>
+      解雇
+    </button>
+  `;
+  agentContextMenu.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    const btn = event.target.closest("[data-agent-delete]");
+    if (!btn || btn.disabled) return;
+    const agentId = agentContextMenu.dataset.agentId || "";
+    const agentName = agentContextMenu.dataset.agentName || agentId;
+    if (!agentId || deletingAgentId) return;
+
+    const confirmed = await confirmAgentDismissal(agentName);
+    if (!confirmed) {
+      closeAgentContextMenu();
+      return;
+    }
+
+    deletingAgentId = agentId;
+    btn.disabled = true;
+    try {
+      const response = await fetch(`/api/agents/${agentId}`, { method: "DELETE" });
+      const data = await response.json().catch(() => ({}));
+      if (!response.ok || !data.ok) {
+        alert(data.error || "解雇失败");
+        return;
+      }
+      closeAgentContextMenu();
+    } finally {
+      deletingAgentId = "";
+      btn.disabled = false;
+    }
+  });
+  document.body.appendChild(agentContextMenu);
+  return agentContextMenu;
+}
+
+function positionAgentContextMenu(menu, clientX, clientY) {
+  menu.hidden = false;
+  const padding = 8;
+  const rect = menu.getBoundingClientRect();
+  const left = Math.min(clientX, window.innerWidth - rect.width - padding);
+  const top = Math.min(clientY, window.innerHeight - rect.height - padding);
+  menu.style.left = `${Math.max(padding, left)}px`;
+  menu.style.top = `${Math.max(padding, top)}px`;
+}
+
+function showAgentContextMenu(row, clientX, clientY) {
+  const menu = ensureAgentContextMenu();
+  const deleteBtn = menu.querySelector("[data-agent-delete]");
+  const canDelete = isIdleAgentRow(row);
+  menu.dataset.agentId = row.dataset.agentId || "";
+  menu.dataset.agentName = row.dataset.agentName || "";
+  if (deleteBtn) {
+    deleteBtn.disabled = !canDelete;
+    deleteBtn.textContent = canDelete ? "解雇" : "仅 idle 可解雇";
+  }
+  positionAgentContextMenu(menu, clientX, clientY);
+}
+
+function closeAgentContextMenu() {
+  if (!agentContextMenu) return;
+  agentContextMenu.hidden = true;
+  agentContextMenu.dataset.agentId = "";
+  agentContextMenu.dataset.agentName = "";
+}
+
+function confirmAgentDismissal(agentName) {
+  const modal = ensureDismissAgentModal();
+  const name = agentName || "该 Agent";
+  modal.querySelector("[data-dismiss-agent-message]").textContent = `你要解雇 ${name} 吗？`;
+  modal.hidden = false;
+  const confirmBtn = modal.querySelector("[data-dismiss-agent-confirm]");
+  confirmBtn.focus();
+
+  return new Promise((resolve) => {
+    dismissAgentModal.resolve = resolve;
+  });
+}
+
+function ensureDismissAgentModal() {
+  if (dismissAgentModal) return dismissAgentModal;
+  const modalEl = document.createElement("div");
+  modalEl.className = "modal dismiss-agent-modal";
+  modalEl.hidden = true;
+  modalEl.innerHTML = `
+    <div class="modal__backdrop" data-dismiss-agent-cancel></div>
+    <div class="modal__panel panel dismiss-agent-modal__panel" role="dialog" aria-modal="true" aria-labelledby="dismiss-agent-title">
+      <div class="modal__head">
+        <h2 id="dismiss-agent-title">确认解雇</h2>
+      </div>
+      <p class="dismiss-agent-modal__message" data-dismiss-agent-message></p>
+      <div class="modal__actions">
+        <button type="button" class="filter-chip" data-dismiss-agent-cancel>取消</button>
+        <button type="button" class="dismiss-agent-modal__confirm" data-dismiss-agent-confirm>解雇</button>
+      </div>
+    </div>
+  `;
+  modalEl.resolve = null;
+  const closeWith = (value) => {
+    modalEl.hidden = true;
+    const resolve = modalEl.resolve;
+    modalEl.resolve = null;
+    if (resolve) resolve(value);
+  };
+  modalEl.addEventListener("click", (event) => {
+    if (event.target.closest("[data-dismiss-agent-confirm]")) {
+      closeWith(true);
+      return;
+    }
+    if (event.target.closest("[data-dismiss-agent-cancel]")) {
+      closeWith(false);
+    }
+  });
+  document.body.appendChild(modalEl);
+  dismissAgentModal = modalEl;
+  return dismissAgentModal;
+}
+
 if (agentList) {
   agentList.addEventListener("click", (event) => {
+    closeAgentContextMenu();
     const btn = event.target.closest("[data-session-action]");
     if (btn) {
       event.stopPropagation();
@@ -410,7 +539,33 @@ if (agentList) {
     if (!row) return;
     setSelectedAgent(row.dataset.agentId, row.dataset.agentName);
   });
+
+  agentList.addEventListener("contextmenu", (event) => {
+    const row = event.target.closest(".agent-row");
+    if (!row) return;
+    event.preventDefault();
+    showAgentContextMenu(row, event.clientX, event.clientY);
+  });
+
+  agentList.addEventListener("scroll", closeAgentContextMenu, { passive: true });
 }
+
+document.addEventListener("click", (event) => {
+  if (agentContextMenu?.contains(event.target)) return;
+  closeAgentContextMenu();
+});
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && dismissAgentModal && !dismissAgentModal.hidden) {
+    dismissAgentModal.hidden = true;
+    const resolve = dismissAgentModal.resolve;
+    dismissAgentModal.resolve = null;
+    if (resolve) resolve(false);
+  }
+  if (event.key === "Escape") closeAgentContextMenu();
+});
+
+window.addEventListener("resize", closeAgentContextMenu);
 
 async function handleInteractionClick(event) {
   const btn = event.target.closest("[data-interaction-response]");
@@ -464,21 +619,6 @@ if (interactionList) {
 }
 
 selectionModal?.addEventListener("click", handleInteractionClick);
-
-if (showSelectedButton && showAllButton && eventList) {
-  showSelectedButton.addEventListener("click", () => {
-    eventList.dataset.filterMode = "selected";
-    showSelectedButton.classList.add("is-active");
-    showAllButton.classList.remove("is-active");
-    applyEventFilter();
-  });
-  showAllButton.addEventListener("click", () => {
-    eventList.dataset.filterMode = "all";
-    showAllButton.classList.add("is-active");
-    showSelectedButton.classList.remove("is-active");
-    applyEventFilter();
-  });
-}
 
 if (terminalForm && terminalInput) {
   terminalForm.addEventListener("submit", async (event) => {

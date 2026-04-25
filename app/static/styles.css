@@ -286,7 +286,6 @@ label span,
 .interaction-list {
   display: grid;
   gap: 12px;
-  margin-bottom: 16px;
 }
 
 .interaction-card {
@@ -407,11 +406,6 @@ label span,
   border: 1px solid var(--panel-edge);
   color: var(--muted);
   background: transparent;
-}
-
-.output-filters {
-  display: flex;
-  gap: 10px;
 }
 
 .filter-chip {
@@ -536,6 +530,7 @@ label span,
   font-size: 0.82rem;
   border-radius: 999px;
   box-shadow: 0 6px 16px rgba(119, 240, 255, 0.2);
+  white-space: nowrap;
 }
 
 .empty-hint {
@@ -732,3 +727,82 @@ label span,
 .acp-btn--stop { border-color: #ff5a5a55; color: #ff8a8a; }
 .acp-btn--start { border-color: #2dd46f55; color: #7fe9a7; }
 .acp-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.agent-context-menu[hidden] {
+  display: none;
+}
+
+.agent-context-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 132px;
+  padding: 6px;
+  border: 1px solid var(--panel-edge-strong);
+  border-radius: 12px;
+  background: rgba(7, 17, 29, 0.98);
+  box-shadow: 0 18px 42px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(12px);
+}
+
+.agent-context-menu__item {
+  appearance: none;
+  width: 100%;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 0.86rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.agent-context-menu__item:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.agent-context-menu__item--danger {
+  color: var(--danger);
+}
+
+.agent-context-menu__item:disabled {
+  opacity: 0.48;
+  cursor: not-allowed;
+}
+
+.agent-context-menu__item:disabled:hover {
+  background: transparent;
+}
+
+.dismiss-agent-modal__panel {
+  width: min(420px, 100%);
+  border-color: rgba(255, 127, 122, 0.28);
+}
+
+.dismiss-agent-modal__message {
+  margin: 0;
+  color: var(--text);
+  font-size: 1rem;
+  line-height: 1.6;
+}
+
+.dismiss-agent-modal__confirm {
+  appearance: none;
+  min-height: 38px;
+  border: 1px solid rgba(255, 127, 122, 0.42);
+  border-radius: 999px;
+  background: rgba(255, 127, 122, 0.12);
+  color: var(--danger);
+  padding: 8px 16px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.dismiss-agent-modal__confirm:hover {
+  background: rgba(255, 127, 122, 0.18);
+}

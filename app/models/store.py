@@ -51,8 +51,8 @@ class RuntimeStore:
             or a.get("orchestration_state") == "waiting_workers"
         )
         return [
-            {"label": "Online Agents", "value": f"{online:02d}", "hint": "当前接入运行单元"},
-            {"label": "Active Tasks", "value": f"{active:02d}", "hint": "正在协同推进中"},
+            {"label": "在职员工", "value": f"{online:02d}", "hint": "当前接入运行单元"},
+            {"label": "当前任务", "value": f"{active:02d}", "hint": "正在协同推进中"},
         ]
 
     # ------------------------------------------------------------------ agents

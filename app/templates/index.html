@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=selection-modal-3">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=output-no-filter-1">
   </head>
   <body>
     <div class="shell-grid"></div>
@@ -16,10 +16,10 @@
         <div class="sidebar-head">
           <div class="sidebar-head__row">
             <div>
-              <p class="section-kicker">Agent Registry</p>
-              <h1>Hermes Agent Teams</h1>
+              <h1>团队管理</h1>
+              <p class="section-kicker">Powered by Hermes Agents</p>
             </div>
-            <button class="primary-button primary-button--sm" type="button" id="open-create-agent">+ 新建 Agent</button>
+            <button class="primary-button primary-button--sm" type="button" id="open-create-agent">新员工</button>
           </div>
         </div>
 
@@ -41,6 +41,8 @@
             data-agent-id="{{ agent.agent_id }}"
             data-agent-name="{{ agent.name }}"
             data-agent-role="{{ agent.role }}"
+            data-agent-status="{{ agent.status or 'idle' }}"
+            data-agent-orchestration-state="{{ agent.orchestration_state or 'none' }}"
           >
             <div class="agent-row__top">
               <div>
@@ -93,18 +95,13 @@
         <section class="output panel">
           <div class="section-head">
             <div>
-              <p class="section-kicker">Agent Output</p>
-              <h2>输出面板</h2>
-            </div>
-            <div class="output-filters">
-              <button class="filter-chip is-active" type="button" id="show-selected">当前 Agent</button>
-              <button class="filter-chip" type="button" id="show-all">全部输出</button>
+              <h2>聊天记录</h2>
             </div>
           </div>
 
           <div class="interaction-list" id="interaction-list"></div>
 
-          <div class="output-stream" id="event-list" data-filter-mode="selected" data-selected-agent="{{ message_target.agent_id if message_target else '' }}">
+          <div class="output-stream" id="event-list" data-selected-agent="{{ message_target.agent_id if message_target else '' }}">
             {% for event in events %}
             <article class="event-item" data-agent-id="{{ event.agent_id }}" data-event-type="{{ event.event_type }}">
               {{ event.data.text }}
@@ -124,17 +121,17 @@
       <div class="modal__backdrop" data-close-modal></div>
       <div class="modal__panel panel">
         <div class="modal__head">
-          <h2>新建 Agent</h2>
+          <h2>新员工入职</h2>
           <button class="modal__close" type="button" data-close-modal aria-label="close">×</button>
         </div>
         <form id="create-agent-form" class="modal__form">
           <label>
-            <span>名称</span>
-            <input name="name" required placeholder="例如 Orchestrator">
+            <span>中午姓名</span>
+            <input name="name" required placeholder="姓名或职务，例如：林克">
           </label>
           <label>
-            <span>Hermes Profile</span>
-            <input name="profile_name" required placeholder="lowercase（如 orchestrator）" pattern="[a-z0-9][a-z0-9_-]*">
+            <span>英文名称</span>
+            <input name="profile_name" required placeholder="全部小写，不能有空格" pattern="[a-z0-9][a-z0-9_-]*">
           </label>
           <label>
             <span>角色</span>
@@ -145,13 +142,13 @@
           </label>
           <label>
             <span>描述</span>
-            <textarea name="description" rows="2" placeholder="该 Agent 的职责"></textarea>
+            <textarea name="description" rows="2" placeholder="描述岗位职责"></textarea>
           </label>
-          <p class="form-hint">角色只支持 `leader` 和 `worker`，并且系统内只能存在一个 leader。</p>
+          <p class="form-hint">注意：系统内只能存在一个 leader。</p>
           <p class="form-error" id="create-agent-error" hidden></p>
           <div class="modal__actions">
             <button type="button" class="filter-chip" data-close-modal>取消</button>
-            <button type="submit" class="primary-button">创建</button>
+            <button type="submit" class="primary-button">入职</button>
           </div>
         </form>
       </div>
@@ -173,6 +170,6 @@
     <script>
       window.__BOOTSTRAP__ = {{ {"agents": agents, "events": events}|tojson }};
     </script>
-    <script src="{{ url_for('static', filename='app.js') }}?v=selection-modal-3"></script>
+    <script src="{{ url_for('static', filename='app.js') }}?v=output-no-filter-1"></script>
   </body>
 </html>

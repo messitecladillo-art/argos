@@ -44,7 +44,8 @@ def delete_agent(agent_id: str):
     try:
         agent = agents_service.delete_agent(store, agent_id)
     except ValueError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 404
+        status_code = 404 if str(exc) == "agent not found" else 400
+        return jsonify({"ok": False, "error": str(exc)}), status_code
     except ProfileError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
     return jsonify({"ok": True, "agent": agent})

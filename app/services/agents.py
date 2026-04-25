@@ -97,6 +97,9 @@ def delete_agent(store: RuntimeStore, agent_id: str) -> dict:
     agent = store.find_agent(agent_id)
     if agent is None:
         raise ValueError("agent not found")
+    orchestration_state = agent.get("orchestration_state") or "none"
+    if agent.get("status") != "idle" or orchestration_state != "none":
+        raise ValueError("only idle agents can be dismissed")
     profile_name = agent["profile_name"]
     acp.pool.stop(agent_id)
     profiles.delete_hermes_profile(profile_name)
@@ -106,6 +109,6 @@ def delete_agent(store: RuntimeStore, agent_id: str) -> dict:
         "agent.deleted",
         agent_id,
         None,
-        {"text": f"Agent {agent['name']} 已删除（profile={profile_name}）"},
+        {"text": f"Agent {agent['name']} 已解雇（profile={profile_name}）"},
     )
     return agent
