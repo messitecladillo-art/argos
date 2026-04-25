@@ -546,8 +546,8 @@ label span,
 .modal__backdrop {
   position: absolute;
   inset: 0;
-  background: rgba(4, 3, 2, 0.74);
-  backdrop-filter: blur(6px);
+  background: rgba(3, 2, 1, 0.82);
+  backdrop-filter: blur(7px);
 }
 .modal__panel {
   position: relative;
@@ -557,6 +557,13 @@ label span,
   gap: 22px;
   max-height: 90vh;
   overflow: auto;
+  background:
+    linear-gradient(180deg, rgba(24, 19, 11, 0.98), rgba(9, 7, 4, 0.99));
+  border-color: rgba(246, 207, 117, 0.38);
+  box-shadow:
+    0 36px 86px rgba(0, 0, 0, 0.72),
+    0 0 0 1px rgba(246, 207, 117, 0.06) inset,
+    0 1px 0 rgba(255, 244, 204, 0.08) inset;
 }
 .modal__head {
   display: flex;
@@ -595,7 +602,7 @@ label span,
   min-width: 0;
   box-sizing: border-box;
   border-radius: 12px;
-  border: 1px solid var(--panel-edge);
+  border: 1px solid rgba(246, 207, 117, 0.24);
   background: rgba(8, 7, 5, 0.94);
   color: var(--text);
   padding: 12px 14px;
@@ -622,6 +629,9 @@ label span,
   line-height: 1.5;
   margin: 0;
 }
+.form-hint--role {
+  margin: -8px 0 0 164px;
+}
 
 @media (max-width: 640px) {
   .modal {
@@ -635,6 +645,10 @@ label span,
   .modal__form label {
     grid-template-columns: 1fr;
     gap: 8px;
+  }
+
+  .form-hint--role {
+    margin: 0;
   }
 
   .modal__actions {
