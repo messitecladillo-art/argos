@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=xterm-terminal-1">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=xterm-terminal-3">
   </head>
   <body>
     <div class="shell-grid"></div>
@@ -151,24 +151,11 @@
       </div>
     </div>
 
-    <div class="modal" id="selection-modal" hidden>
-      <div class="modal__backdrop"></div>
-      <div class="modal__panel panel selection-modal__panel" role="dialog" aria-modal="true" aria-labelledby="selection-modal-title">
-        <div class="modal__head">
-          <div>
-            <p class="section-kicker">Hermes needs your input</p>
-            <h2 id="selection-modal-title">请选择下一步</h2>
-          </div>
-        </div>
-        <div id="selection-modal-body" class="selection-modal__body"></div>
-      </div>
-    </div>
-
     <script>
       window.__BOOTSTRAP__ = {{ {"agents": agents, "events": events}|tojson }};
     </script>
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
-    <script src="{{ url_for('static', filename='app.js') }}?v=xterm-terminal-1"></script>
+    <script src="{{ url_for('static', filename='app.js') }}?v=xterm-terminal-3"></script>
   </body>
 </html>

@@ -171,6 +171,8 @@ class HermesSession:
         self._current_output: list[str] = []
         self._current_message: dict[str, Any] | None = None
         self._pending_interaction: dict[str, Any] | None = None
+        self._terminal_interaction_buffer = ""
+        self._terminal_selection_index: int | None = None
         self._recently_resolved_interactions: dict[str, float] = {}
         self._closed = False
         self._last_output_at = time.monotonic()
@@ -236,6 +238,8 @@ class HermesSession:
             if self._pending_interaction is not None:
                 return
             self._pending_interaction = pending
+            self._terminal_interaction_buffer = ""
+            self._terminal_selection_index = selected_index
         store.update_agent(
             self.agent_id,
             status="waiting",
@@ -260,6 +264,9 @@ class HermesSession:
             self._pending_interaction = None
         if pending is None:
             return
+        with self._lock:
+            self._terminal_interaction_buffer = ""
+            self._terminal_selection_index = None
         signature = pending.get("signature")
         if signature:
             with self._lock:
@@ -345,6 +352,60 @@ class HermesSession:
         if self._closed or not data:
             return
         self.proc.send(data)
+
+    def _track_terminal_interaction_data(self, data: str) -> None:
+        submitted = "\r" in data or "\n" in data
+        with self._lock:
+            pending = self._pending_interaction
+            if pending is None:
+                return
+            choices = list(pending.get("choices") or [])
+            if pending.get("kind") == "awaiting_selection" and choices:
+                current_index = self._terminal_selection_index
+                if current_index is None:
+                    current_index = int(pending.get("selected_index") or 0)
+                current_index = max(0, min(current_index, len(choices) - 1))
+                cursor = 0
+                while cursor < len(data):
+                    if data.startswith("\x1b[A", cursor) or data.startswith("\x1bOA", cursor):
+                        current_index = max(0, current_index - 1)
+                        cursor += 3
+                        continue
+                    if data.startswith("\x1b[B", cursor) or data.startswith("\x1bOB", cursor):
+                        current_index = min(len(choices) - 1, current_index + 1)
+                        cursor += 3
+                        continue
+                    cursor += 1
+                self._terminal_selection_index = current_index
+                response = choices[current_index] if submitted else ""
+            else:
+                buffer = self._terminal_interaction_buffer
+                cursor = 0
+                while cursor < len(data):
+                    if data.startswith("\x1b[200~", cursor):
+                        cursor += 6
+                        continue
+                    if data.startswith("\x1b[201~", cursor):
+                        cursor += 6
+                        continue
+                    if data[cursor] == "\x1b":
+                        match = re.match(r"\x1b\[[0-9;?]*[A-Za-z~]|\x1bO[A-Za-z]", data[cursor:])
+                        cursor += len(match.group(0)) if match else 1
+                        continue
+                    char = data[cursor]
+                    if char in "\r\n":
+                        cursor += 1
+                        continue
+                    if char in ("\b", "\x7f"):
+                        buffer = buffer[:-1]
+                    elif char >= " ":
+                        buffer += char
+                    cursor += 1
+                self._terminal_interaction_buffer = buffer
+                response = buffer.strip() if submitted else ""
+        if submitted:
+            self._clear_interaction(response or "terminal submit")
+            self._last_output_at = time.monotonic()
 
     def _resize_terminal(self, rows: int, columns: int) -> None:
         rows = max(10, min(int(rows), 120))
@@ -624,6 +685,7 @@ class HermesSession:
         if not data:
             raise ValueError("data is required")
         self._send_terminal_data(data)
+        self._track_terminal_interaction_data(data)
 
     def resize_terminal(self, rows: int, columns: int) -> None:
         self._resize_terminal(rows, columns)

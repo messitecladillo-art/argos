@@ -11,28 +11,16 @@ const modal = document.getElementById("create-agent-modal");
 const createAgentForm = document.getElementById("create-agent-form");
 const createAgentError = document.getElementById("create-agent-error");
 const interactionList = document.getElementById("interaction-list");
-const selectionModal = document.getElementById("selection-modal");
-const selectionModalBody = document.getElementById("selection-modal-body");
 const terminalSnapshots = new Map();
+const terminalOutputLogs = new Map();
 const terminalHasLiveOutput = new Set();
-const resolvedInteractionIds = new Set();
-const submittingInteractionIds = new Set();
-const resolvedSelectionSignatures = new Set();
+const maxTerminalLogLength = 200000;
 let agentContextMenu = null;
 let deletingAgentId = "";
 let dismissAgentModal = null;
 let term = null;
 let fitAddon = null;
 let resizeTimer = 0;
-
-function interactionKey(agentId, requestId) {
-  return `${agentId || ""}:${requestId || ""}`;
-}
-
-function selectionSignature(agentId, interaction) {
-  const choices = Array.isArray(interaction?.choices) ? interaction.choices : [];
-  return `${agentId || ""}:selection:${choices.map(cleanChoiceLabel).join("|")}`;
-}
 
 function escapeHtml(value) {
   return String(value || "")
@@ -95,198 +83,21 @@ function buildAgentRow(agent, isActive) {
   return row;
 }
 
-function buildInteractionCard(agent) {
-  const interaction = agent.pending_interaction;
-  if (!interaction) return "";
-  const isApproval = interaction.kind === "awaiting_approval";
-  if (getSelectionInteraction(agent)) return "";
-  return `
-    <article class="interaction-card">
-      <div class="interaction-card__head">
-        <strong>${escapeHtml(agent.name)}</strong>
-        <span>${escapeHtml(interaction.kind)}</span>
-      </div>
-      <p>${escapeHtml(interaction.prompt || "需要人工处理")}</p>
-      ${
-        isApproval
-          ? `<div class="interaction-card__actions">
-              <button class="primary-button primary-button--sm" type="button" data-interaction-response="y" data-agent-id="${agent.agent_id}" data-request-id="${interaction.request_id}">允许</button>
-              <button class="filter-chip" type="button" data-interaction-response="n" data-agent-id="${agent.agent_id}" data-request-id="${interaction.request_id}">拒绝</button>
-            </div>`
-          : `<form class="interaction-form" data-agent-id="${agent.agent_id}" data-request-id="${interaction.request_id}">
-              <input name="response" placeholder="输入回复后继续执行">
-              <button class="primary-button primary-button--sm" type="submit">提交</button>
-            </form>`
-      }
-    </article>
-  `;
-}
-
-function getSelectionPrompt(prompt) {
-  const lines = String(prompt || "")
-    .split("\n")
-    .map((line) => line.trim().replace(/^[│┃║▏▕▌▐]+|[│┃║▏▕▌▐]+$/g, "").trim())
-    .filter(Boolean);
-  return lines.find((line) => /[\u4e00-\u9fa5].*[？?]/.test(line)) || "Hermes 需要你选择一个选项后继续。";
-}
-
-function cleanChoiceLabel(label) {
-  return String(label || "")
-    .replace(/\s{2,}/g, " ")
-    .replace(/\s*\([0-9.]+s\)\s*$/, "")
-    .trim();
-}
-
-function parseSelectionFromPrompt(prompt) {
-  const lines = String(prompt || "")
-    .split("\n")
-    .map((line) => line.trim().replace(/^[│┃║▏▕▌▐]+|[│┃║▏▕▌▐]+$/g, "").trim());
-  const choicePattern = /\bagent_[\w-]+\b|Other \(type your answer\)/i;
-  const scannedChoices = [];
-  let scannedSelectedIndex = null;
-  for (const line of lines) {
-    if (!line) continue;
-    const selectedMatch = line.match(/^[›>❯]\s*(.+?)\s*$/);
-    const choiceLine = selectedMatch ? selectedMatch[1] : line;
-    if (!selectedMatch && !choicePattern.test(choiceLine)) continue;
-    const label = cleanChoiceLabel(choiceLine);
-    if (!label || scannedChoices.includes(label)) continue;
-    if (selectedMatch) scannedSelectedIndex = scannedChoices.length;
-    scannedChoices.push(label);
-  }
-  if (scannedSelectedIndex !== null && scannedChoices.length) {
-    return { choices: scannedChoices, selectedIndex: scannedSelectedIndex };
-  }
-
-  let selectedIndex = null;
-  const choices = [];
-  let collecting = false;
-
-  for (const line of lines) {
-    if (!line) {
-      if (collecting && choices.length) break;
-      continue;
-    }
-    if (/\b(to select|Enter to confirm)\b/i.test(line)) {
-      if (collecting && choices.length) break;
-      continue;
-    }
-
-    const selectedMatch = line.match(/^[›>❯]\s*(.+?)\s*$/);
-    if (selectedMatch) {
-      const label = cleanChoiceLabel(selectedMatch[1]);
-      if (label) {
-        selectedIndex = choices.length;
-        choices.push(label);
-        collecting = true;
-      }
-      continue;
-    }
-
-    if (collecting) {
-      if (line.startsWith("?") || line.startsWith("$")) break;
-      if (/^[┌└├╭╰─━═]+$/.test(line)) break;
-      if (line.length <= 140) choices.push(cleanChoiceLabel(line));
-    }
-  }
-
-  return selectedIndex === null || choices.length === 0 ? null : { choices, selectedIndex };
-}
-
-function getSelectionInteraction(agent) {
-  const interaction = agent.pending_interaction;
-  if (!interaction) return null;
-  if (interaction.kind === "awaiting_selection") return interaction;
-  const parsed = parseSelectionFromPrompt(interaction.prompt);
-  if (!parsed) return null;
-  return {
-    ...interaction,
-    kind: "awaiting_selection",
-    choices: parsed.choices,
-    selected_index: parsed.selectedIndex,
-  };
-}
-
-function renderSelectionModal(agents) {
-  if (!selectionModal || !selectionModalBody) return;
-  const agent = agents.find((item) => {
-    const interaction = getSelectionInteraction(item);
-    if (!interaction) return false;
-    return !resolvedInteractionIds.has(interactionKey(item.agent_id, interaction.request_id))
-      && !resolvedSelectionSignatures.has(selectionSignature(item.agent_id, interaction));
-  });
-  const interaction = agent ? getSelectionInteraction(agent) : null;
-  if (!agent || !interaction) {
-    selectionModal.hidden = true;
-    selectionModalBody.innerHTML = "";
-    return;
-  }
-
-  const choices = Array.isArray(interaction.choices) ? interaction.choices : [];
-  const selectedIndex = Number.isInteger(interaction.selected_index) ? interaction.selected_index : 0;
-  const isSubmitting = submittingInteractionIds.has(interactionKey(agent.agent_id, interaction.request_id));
-  const choiceButtons = choices.map((choice, index) => `
-    <button class="choice-button${index === selectedIndex ? " is-selected" : ""}" type="button" data-interaction-response="${index}" data-agent-id="${agent.agent_id}" data-request-id="${interaction.request_id}" ${isSubmitting ? "disabled" : ""}>
-      <span>${index === selectedIndex ? "当前" : "选择"}</span>
-      <strong>${escapeHtml(choice)}</strong>
-    </button>
-  `).join("");
-
-  selectionModalBody.innerHTML = `
-    <div class="selection-modal__agent">
-      <span>等待 Agent</span>
-      <strong>${escapeHtml(agent.name)}</strong>
-    </div>
-    <p class="selection-modal__prompt">${escapeHtml(getSelectionPrompt(interaction.prompt))}</p>
-    <div class="selection-modal__choices">${choiceButtons}</div>
-    <p class="form-hint">${isSubmitting ? "已发送选择，等待 Hermes 继续执行…" : "选择后会自动发送到 Hermes 终端继续执行。"}</p>
-  `;
-  selectionModal.hidden = false;
-}
-
 function renderInteractions(agents) {
   if (!interactionList) return;
-  const activeElement = document.activeElement;
-  const activeForm = activeElement?.closest?.(".interaction-form");
-  const activeRequestId = activeForm?.dataset.requestId || "";
-  const activeValue = activeElement?.name === "response" ? activeElement.value : "";
-  const html = agents
-    .filter((agent) => agent.pending_interaction)
-    .map((agent) => buildInteractionCard(agent))
-    .join("");
-  if (interactionList.innerHTML === html) {
-    interactionList.hidden = !html;
-    return;
-  }
-  interactionList.innerHTML = html;
-  interactionList.hidden = !html;
-  if (activeRequestId) {
-    const restoredInput = interactionList.querySelector(`.interaction-form[data-request-id="${CSS.escape(activeRequestId)}"] input[name="response"]`);
-    if (restoredInput) {
-      restoredInput.value = activeValue;
-      restoredInput.focus();
-    }
-  }
+  interactionList.innerHTML = "";
+  interactionList.hidden = true;
 }
 
 function renderAgents(agents, stats) {
   if (!agentList) return;
   closeAgentContextMenu();
-  const activeInteractionKeys = new Set();
-  agents.forEach((agent) => {
-    const requestId = agent.pending_interaction?.request_id;
-    if (requestId) activeInteractionKeys.add(interactionKey(agent.agent_id, requestId));
-  });
-  resolvedInteractionIds.forEach((key) => {
-    if (!activeInteractionKeys.has(key)) resolvedInteractionIds.delete(key);
-  });
   const selected = eventList?.dataset.selectedAgent || (agents[0] && agents[0].agent_id) || "";
   agentList.innerHTML = "";
   agents.forEach((agent) => {
     agentList.appendChild(buildAgentRow(agent, agent.agent_id === selected));
   });
   renderInteractions(agents);
-  renderSelectionModal(agents);
   if (agentEmpty) agentEmpty.hidden = agents.length > 0;
   if (sidebarStats && stats) {
     sidebarStats.innerHTML = stats
@@ -323,9 +134,16 @@ function cleanTerminalText(text) {
 
 function bootstrapTerminalSnapshots() {
   const events = Array.isArray(window.__BOOTSTRAP__?.events) ? window.__BOOTSTRAP__.events : [];
-  events.forEach((event) => {
-    if (event.event_type !== "agent.terminal.snapshot") return;
-    terminalSnapshots.set(event.agent_id || "", cleanTerminalText(event.data?.text || ""));
+  events.slice().reverse().forEach((event) => {
+    const agentId = event.agent_id || "";
+    if (event.event_type === "agent.terminal.output") {
+      terminalHasLiveOutput.add(agentId);
+      appendTerminalOutput(agentId, String(event.data?.text || ""));
+      return;
+    }
+    if (event.event_type === "agent.terminal.snapshot") {
+      terminalSnapshots.set(agentId, cleanTerminalText(event.data?.text || ""));
+    }
   });
 }
 
@@ -335,6 +153,24 @@ function applyEventFilter() {
 
 function hydrateTerminalSnapshots() {
   bootstrapTerminalSnapshots();
+}
+
+function appendTerminalOutput(agentId, text) {
+  if (!agentId || !text) return;
+  const current = terminalOutputLogs.get(agentId) || "";
+  const next = `${current}${text}`;
+  terminalOutputLogs.set(agentId, next.length > maxTerminalLogLength ? next.slice(-maxTerminalLogLength) : next);
+}
+
+function resetTerminalView() {
+  if (!term) return;
+  term.reset();
+  term.clear();
+}
+
+function writeSnapshotFallback(snapshot) {
+  if (!term || !snapshot) return;
+  term.write(`${snapshot.replace(/\n/g, "\r\n")}\r\n`);
 }
 
 function initTerminal() {
@@ -393,10 +229,12 @@ function setSelectedAgent(agentId, agentName, force = false) {
   eventList.dataset.selectedAgent = agentId;
   if (terminalTitle) terminalTitle.textContent = agentId ? `${name} · Hermes Terminal` : "Agent Terminal";
   if (term && (changed || force)) {
-    term.clear();
-    const snapshot = terminalSnapshots.get(agentId);
-    if (snapshot) {
-      term.write(`${snapshot}\r\n`);
+    resetTerminalView();
+    const outputLog = terminalOutputLogs.get(agentId);
+    if (outputLog) {
+      term.write(outputLog);
+    } else if (terminalSnapshots.has(agentId)) {
+      writeSnapshotFallback(terminalSnapshots.get(agentId));
     } else if (agentId && !terminalHasLiveOutput.has(agentId)) {
       term.write("\x1b[90m等待 Agent 终端输出。启动会话后可直接输入。\x1b[0m\r\n");
     }
@@ -436,17 +274,9 @@ function handleTerminalEvent(event) {
   }
   if (event.event_type !== "agent.terminal.output") return;
   terminalHasLiveOutput.add(agentId);
+  appendTerminalOutput(agentId, String(event.data?.text || ""));
   if (agentId !== (eventList.dataset.selectedAgent || "")) return;
   if (term) term.write(String(event.data?.text || ""));
-}
-
-async function postInteractionResponse(agentId, requestId, response) {
-  const result = await fetch(`/api/agents/${agentId}/interactions/${requestId}/respond`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ response }),
-  });
-  return result.ok;
 }
 
 function isIdleAgentRow(row) {
@@ -628,59 +458,6 @@ window.addEventListener("resize", () => {
   clearTimeout(resizeTimer);
   resizeTimer = window.setTimeout(fitTerminal, 120);
 });
-
-async function handleInteractionClick(event) {
-  const btn = event.target.closest("[data-interaction-response]");
-  if (!btn) return;
-  event.preventDefault();
-  const key = interactionKey(btn.dataset.agentId, btn.dataset.requestId);
-  if (submittingInteractionIds.has(key) || resolvedInteractionIds.has(key)) return;
-
-  const isSelectionModal = selectionModal?.contains(btn);
-  let modalSelectionSignature = "";
-  if (isSelectionModal) {
-    const interaction = {
-      choices: Array.from(selectionModal.querySelectorAll(".choice-button strong")).map((item) => item.textContent || ""),
-    };
-    modalSelectionSignature = selectionSignature(btn.dataset.agentId, interaction);
-    resolvedSelectionSignatures.add(modalSelectionSignature);
-  }
-  submittingInteractionIds.add(key);
-  if (isSelectionModal) selectionModal.hidden = true;
-  btn.disabled = true;
-  try {
-    const ok = await postInteractionResponse(
-      btn.dataset.agentId,
-      btn.dataset.requestId,
-      btn.dataset.interactionResponse,
-    );
-    if (ok) {
-      resolvedInteractionIds.add(key);
-      return;
-    }
-    if (modalSelectionSignature) resolvedSelectionSignatures.delete(modalSelectionSignature);
-    if (isSelectionModal) selectionModal.hidden = false;
-  } finally {
-    submittingInteractionIds.delete(key);
-    btn.disabled = false;
-  }
-}
-
-if (interactionList) {
-  interactionList.addEventListener("click", handleInteractionClick);
-
-  interactionList.addEventListener("submit", async (event) => {
-    const form = event.target.closest(".interaction-form");
-    if (!form) return;
-    event.preventDefault();
-    const input = form.querySelector('input[name="response"]');
-    const response = String(input?.value || "").trim();
-    if (!response) return;
-    await postInteractionResponse(form.dataset.agentId, form.dataset.requestId, response);
-  });
-}
-
-selectionModal?.addEventListener("click", handleInteractionClick);
 
 function openModal() {
   if (!modal) return;

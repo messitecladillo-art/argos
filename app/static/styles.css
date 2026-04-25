@@ -623,48 +623,6 @@ label span,
   margin: 0;
 }
 
-.selection-modal__panel {
-  width: min(680px, 100%);
-  border-color: rgba(255, 191, 114, 0.28);
-  box-shadow: 0 28px 80px rgba(0, 0, 0, 0.45), 0 0 40px rgba(119, 240, 255, 0.08);
-}
-
-.selection-modal__body {
-  display: grid;
-  gap: 16px;
-}
-
-.selection-modal__agent {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 12px 14px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 14px;
-  background: rgba(255, 255, 255, 0.035);
-}
-
-.selection-modal__agent span {
-  color: var(--muted);
-  font-size: 0.82rem;
-}
-
-.selection-modal__agent strong {
-  color: var(--text);
-}
-
-.selection-modal__prompt {
-  margin: 0;
-  color: var(--text);
-  line-height: 1.7;
-}
-
-.selection-modal__choices {
-  display: grid;
-  gap: 10px;
-}
-
 @media (max-width: 640px) {
   .modal {
     padding: 14px;

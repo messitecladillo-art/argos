@@ -18,12 +18,15 @@ def index():
     terminal_events = []
     seen_terminal_agents = set()
     for event in snapshot["events"]:
-        if event.get("event_type") != "agent.terminal.snapshot":
+        event_type = event.get("event_type")
+        if event_type == "agent.terminal.output":
+            terminal_events.append(event)
             continue
-        agent_id = event.get("agent_id")
-        if agent_id in seen_terminal_agents:
-            continue
-        terminal_events.append(event)
-        seen_terminal_agents.add(agent_id)
+        if event_type == "agent.terminal.snapshot":
+            agent_id = event.get("agent_id")
+            if agent_id in seen_terminal_agents:
+                continue
+            terminal_events.append(event)
+            seen_terminal_agents.add(agent_id)
     snapshot["events"] = terminal_events
     return render_template("index.html", **snapshot, message_target=leader)
