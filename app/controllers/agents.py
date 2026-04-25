@@ -97,3 +97,33 @@ def send_terminal_input(agent_id: str):
     except (RuntimeError, ValueError) as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
     return jsonify({"ok": True, "agent": store.find_agent(agent_id)})
+
+
+@bp.post("/agents/<agent_id>/terminal-data")
+def send_terminal_data(agent_id: str):
+    agent = store.find_agent(agent_id)
+    if agent is None:
+        return jsonify({"ok": False, "error": "agent not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    try:
+        session_pool.send_terminal_data(agent_id, payload.get("data") or "")
+    except (RuntimeError, ValueError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": True, "agent": store.find_agent(agent_id)})
+
+
+@bp.post("/agents/<agent_id>/terminal-resize")
+def resize_terminal(agent_id: str):
+    agent = store.find_agent(agent_id)
+    if agent is None:
+        return jsonify({"ok": False, "error": "agent not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    try:
+        rows = int(payload.get("rows") or 0)
+        cols = int(payload.get("cols") or 0)
+        if rows <= 0 or cols <= 0:
+            raise ValueError("rows and cols are required")
+        session_pool.resize_terminal(agent_id, rows, cols)
+    except (RuntimeError, ValueError, TypeError) as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+    return jsonify({"ok": True, "agent": store.find_agent(agent_id)})

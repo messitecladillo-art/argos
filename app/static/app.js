@@ -1,4 +1,7 @@
-const eventList = document.getElementById("event-list");
+const terminalShell = document.getElementById("terminal-shell");
+const terminalViewport = document.getElementById("terminal-viewport");
+const terminalTitle = document.getElementById("terminal-title");
+const eventList = terminalShell;
 const agentList = document.getElementById("agent-list");
 const agentEmpty = document.getElementById("agent-empty");
 const eventEmpty = document.getElementById("event-empty");
@@ -8,16 +11,19 @@ const modal = document.getElementById("create-agent-modal");
 const createAgentForm = document.getElementById("create-agent-form");
 const createAgentError = document.getElementById("create-agent-error");
 const interactionList = document.getElementById("interaction-list");
-const terminalForm = document.getElementById("terminal-form");
-const terminalInput = document.getElementById("terminal-input");
 const selectionModal = document.getElementById("selection-modal");
 const selectionModalBody = document.getElementById("selection-modal-body");
+const terminalSnapshots = new Map();
+const terminalHasLiveOutput = new Set();
 const resolvedInteractionIds = new Set();
 const submittingInteractionIds = new Set();
 const resolvedSelectionSignatures = new Set();
 let agentContextMenu = null;
 let deletingAgentId = "";
 let dismissAgentModal = null;
+let term = null;
+let fitAddon = null;
+let resizeTimer = 0;
 
 function interactionKey(agentId, requestId) {
   return `${agentId || ""}:${requestId || ""}`;
@@ -293,16 +299,12 @@ function renderAgents(agents, stats) {
     setSelectedAgent(active.agent_id);
   } else {
     if (eventList) eventList.dataset.selectedAgent = "";
+    if (terminalTitle) terminalTitle.textContent = "Agent Terminal";
+    if (term) {
+      term.clear();
+      term.write("\x1b[90m还没有 Agent。创建并启动 Agent 后，这里会显示交互终端。\x1b[0m\r\n");
+    }
   }
-}
-
-function buildEventItem(event) {
-  const item = document.createElement("article");
-  item.className = "event-item";
-  item.dataset.agentId = event.agent_id || "";
-  item.dataset.eventType = event.event_type || "";
-  item.textContent = cleanTerminalText((event.data && event.data.text) || "");
-  return item;
 }
 
 function cleanTerminalText(text) {
@@ -319,67 +321,123 @@ function cleanTerminalText(text) {
     .trimEnd();
 }
 
-function removeAgentTerminalSnapshots(agentId) {
-  if (!eventList || !agentId) return;
-  eventList.querySelectorAll('.event-item[data-event-type="agent.terminal.snapshot"]').forEach((item) => {
-    if (item.dataset.agentId !== agentId) return;
-    item.remove();
+function bootstrapTerminalSnapshots() {
+  const events = Array.isArray(window.__BOOTSTRAP__?.events) ? window.__BOOTSTRAP__.events : [];
+  events.forEach((event) => {
+    if (event.event_type !== "agent.terminal.snapshot") return;
+    terminalSnapshots.set(event.agent_id || "", cleanTerminalText(event.data?.text || ""));
   });
 }
 
 function applyEventFilter() {
-  if (!eventList) return;
-  const items = eventList.querySelectorAll(".event-item");
-  items.forEach((item) => {
-    item.classList.remove("is-hidden");
-  });
-  if (eventEmpty) eventEmpty.hidden = items.length > 0;
+  if (eventEmpty) eventEmpty.hidden = Boolean(eventList?.dataset.selectedAgent);
 }
 
 function hydrateTerminalSnapshots() {
-  if (!eventList) return;
-  eventList.querySelectorAll(".event-item").forEach((item) => {
-    if (item.dataset.eventType !== "agent.terminal.snapshot") {
-      item.remove();
-      return;
-    }
-    item.textContent = cleanTerminalText(item.textContent || "");
+  bootstrapTerminalSnapshots();
+}
+
+function initTerminal() {
+  if (!terminalViewport || !window.Terminal || !window.FitAddon) return;
+  term = new Terminal({
+    cursorBlink: true,
+    convertEol: true,
+    fontFamily: '"JetBrains Mono", monospace',
+    fontSize: 13,
+    lineHeight: 1.35,
+    scrollback: 5000,
+    theme: {
+      background: "#01070e",
+      foreground: "#e8f4ff",
+      cursor: "#77f0ff",
+      selectionBackground: "#234d59",
+      black: "#0b1118",
+      red: "#ff6b7a",
+      green: "#77e09a",
+      yellow: "#ffd166",
+      blue: "#8ab4ff",
+      magenta: "#d597ff",
+      cyan: "#77f0ff",
+      white: "#e8f4ff",
+      brightBlack: "#5b7088",
+      brightWhite: "#ffffff",
+    },
   });
+  fitAddon = new FitAddon.FitAddon();
+  term.loadAddon(fitAddon);
+  term.open(terminalViewport);
+  term.onData((data) => {
+    sendTerminalData(data);
+  });
+  fitTerminal();
 }
 
-function prependEvent(event) {
-  if (!eventList) return;
-  if (event.event_type !== "agent.terminal.snapshot") return;
-  removeAgentTerminalSnapshots(event.agent_id || "");
-  eventList.append(buildEventItem(event));
-  while (eventList.children.length > 40) {
-    eventList.firstElementChild.remove();
+function fitTerminal() {
+  if (!term || !fitAddon || !terminalViewport) return;
+  try {
+    fitAddon.fit();
+    sendTerminalResize(term.rows, term.cols);
+  } catch (e) {
+    /* xterm can throw while hidden or before fonts/layout are ready */
   }
-  applyEventFilter();
-  eventList.scrollTop = eventList.scrollHeight;
 }
 
-function setSelectedAgent(agentId, agentName) {
+function setSelectedAgent(agentId, agentName, force = false) {
   if (!agentList || !eventList) return;
   const row = agentList.querySelector(`.agent-row[data-agent-id="${CSS.escape(agentId)}"]`);
   const name = agentName || row?.dataset.agentName || agentId || "尚未选择";
+  const changed = eventList.dataset.selectedAgent !== agentId;
   agentList.querySelectorAll(".agent-row").forEach((item) => {
     item.classList.toggle("is-active", item.dataset.agentId === agentId);
   });
   eventList.dataset.selectedAgent = agentId;
-  if (terminalInput) terminalInput.placeholder = agentId ? `发送到 ${name} 的终端，Enter 提交` : "请选择 Agent";
+  if (terminalTitle) terminalTitle.textContent = agentId ? `${name} · Hermes Terminal` : "Agent Terminal";
+  if (term && (changed || force)) {
+    term.clear();
+    const snapshot = terminalSnapshots.get(agentId);
+    if (snapshot) {
+      term.write(`${snapshot}\r\n`);
+    } else if (agentId && !terminalHasLiveOutput.has(agentId)) {
+      term.write("\x1b[90m等待 Agent 终端输出。启动会话后可直接输入。\x1b[0m\r\n");
+    }
+  }
+  fitTerminal();
   applyEventFilter();
 }
 
-async function sendTerminalInput(text) {
+async function sendTerminalData(data) {
   const agentId = eventList?.dataset.selectedAgent || "";
-  if (!agentId || !text) return false;
-  const response = await fetch(`/api/agents/${agentId}/terminal-input`, {
+  if (!agentId || !data) return false;
+  const response = await fetch(`/api/agents/${agentId}/terminal-data`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify({ data }),
   });
   return response.ok;
+}
+
+async function sendTerminalResize(rows, cols) {
+  const agentId = eventList?.dataset.selectedAgent || "";
+  if (!agentId || !rows || !cols) return false;
+  const response = await fetch(`/api/agents/${agentId}/terminal-resize`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ rows, cols }),
+  });
+  return response.ok;
+}
+
+function handleTerminalEvent(event) {
+  if (!eventList) return;
+  const agentId = event.agent_id || "";
+  if (event.event_type === "agent.terminal.snapshot") {
+    terminalSnapshots.set(agentId, cleanTerminalText(event.data?.text || ""));
+    return;
+  }
+  if (event.event_type !== "agent.terminal.output") return;
+  terminalHasLiveOutput.add(agentId);
+  if (agentId !== (eventList.dataset.selectedAgent || "")) return;
+  if (term) term.write(String(event.data?.text || ""));
 }
 
 async function postInteractionResponse(agentId, requestId, response) {
@@ -566,6 +624,10 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("resize", closeAgentContextMenu);
+window.addEventListener("resize", () => {
+  clearTimeout(resizeTimer);
+  resizeTimer = window.setTimeout(fitTerminal, 120);
+});
 
 async function handleInteractionClick(event) {
   const btn = event.target.closest("[data-interaction-response]");
@@ -619,22 +681,6 @@ if (interactionList) {
 }
 
 selectionModal?.addEventListener("click", handleInteractionClick);
-
-if (terminalForm && terminalInput) {
-  terminalForm.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const text = terminalInput.value.trim();
-    if (!text) return;
-    terminalInput.disabled = true;
-    try {
-      const ok = await sendTerminalInput(text);
-      if (ok) terminalInput.value = "";
-    } finally {
-      terminalInput.disabled = false;
-      terminalInput.focus();
-    }
-  });
-}
 
 function openModal() {
   if (!modal) return;
@@ -700,7 +746,7 @@ if (createAgentForm) {
 const stream = new EventSource("/api/events/stream");
 stream.addEventListener("event", (event) => {
   const payload = JSON.parse(event.data);
-  prependEvent(payload);
+  handleTerminalEvent(payload);
 });
 stream.addEventListener("agents", (event) => {
   const payload = JSON.parse(event.data);
@@ -709,11 +755,16 @@ stream.addEventListener("agents", (event) => {
 stream.onmessage = (event) => {
   try {
     const payload = JSON.parse(event.data);
-    if (payload && payload.event_type) prependEvent(payload);
+    if (payload && payload.event_type) handleTerminalEvent(payload);
   } catch (e) {
     /* ignore */
   }
 };
 
 hydrateTerminalSnapshots();
+initTerminal();
+if (eventList?.dataset.selectedAgent) {
+  const row = agentList?.querySelector(`.agent-row[data-agent-id="${CSS.escape(eventList.dataset.selectedAgent)}"]`);
+  setSelectedAgent(eventList.dataset.selectedAgent, row?.dataset.agentName, true);
+}
 applyEventFilter();

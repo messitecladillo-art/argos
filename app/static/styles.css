@@ -375,7 +375,7 @@ label span,
 
 .output {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto minmax(0, 1fr);
 }
 
 .primary-button {
@@ -418,63 +418,56 @@ label span,
   background: rgba(119, 240, 255, 0.08);
 }
 
-.output-stream {
+.terminal-shell {
   min-height: 0;
   height: 100%;
   overflow: auto;
-  padding: 18px;
-  font-family: "JetBrains Mono", monospace;
-  font-size: 0.9rem;
   color: #e8f4ff;
   background: rgba(1, 7, 14, 0.78);
   border: 1px solid rgba(119, 240, 255, 0.12);
-  border-radius: 18px 18px 0 0;
+  border-radius: 18px;
   box-shadow: inset 0 1px 18px rgba(0, 0, 0, 0.24);
-}
-
-.event-item {
-  margin: 0;
-  padding: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.5;
-}
-
-.event-item.is-hidden {
-  display: none;
-}
-
-.terminal-form {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.terminal-toolbar {
+  display: flex;
   align-items: center;
-  gap: 10px;
-  min-height: 48px;
-  padding: 0 16px;
-  border: 1px solid rgba(119, 240, 255, 0.12);
-  border-top: 0;
-  border-radius: 0 0 18px 18px;
-  background: rgba(1, 7, 14, 0.92);
+  gap: 9px;
+  min-height: 38px;
+  padding: 0 14px;
+  border-bottom: 1px solid rgba(119, 240, 255, 0.1);
+  color: rgba(232, 244, 255, 0.76);
   font-family: "JetBrains Mono", monospace;
+  font-size: 0.76rem;
 }
 
-.terminal-prompt {
-  color: var(--accent);
-  font-weight: 700;
+.terminal-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #77f0ff;
+  box-shadow: 0 0 14px rgba(119, 240, 255, 0.7);
 }
 
-.terminal-form input {
-  width: 100%;
-  min-width: 0;
-  border: 0;
-  outline: 0;
-  background: transparent;
-  color: var(--text);
-  font: inherit;
+.terminal-viewport {
+  min-height: 0;
+  height: 100%;
+  padding: 12px;
+  overflow: hidden;
 }
 
-.terminal-form input::placeholder {
-  color: rgba(142, 168, 195, 0.68);
+.terminal-viewport .xterm {
+  height: 100%;
+}
+
+.terminal-viewport .xterm-viewport {
+  background: transparent !important;
+}
+
+.terminal-viewport .xterm-screen {
+  border-radius: 10px;
 }
 
 @media (max-width: 980px) {
@@ -492,7 +485,7 @@ label span,
     min-height: auto;
   }
 
-  .output-stream {
+  .terminal-shell {
     height: 540px;
   }
 }

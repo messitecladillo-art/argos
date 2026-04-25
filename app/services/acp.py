@@ -341,6 +341,27 @@ class HermesSession:
             self.proc.send("\x1b[A" * abs(delta))
         self.proc.send("\r")
 
+    def _send_terminal_data(self, data: str) -> None:
+        if self._closed or not data:
+            return
+        self.proc.send(data)
+
+    def _resize_terminal(self, rows: int, columns: int) -> None:
+        rows = max(10, min(int(rows), 120))
+        columns = max(40, min(int(columns), 240))
+        if self._closed:
+            return
+        try:
+            self.proc.setwinsize(rows, columns)
+        except Exception:  # noqa: BLE001
+            pass
+        with self._lock:
+            try:
+                self._terminal_screen.resize(rows, columns)
+            except Exception:  # noqa: BLE001
+                self._terminal_screen = pyte.Screen(columns, rows)
+                self._terminal_stream = pyte.Stream(self._terminal_screen)
+
     def _dispatch_next(self) -> None:
         with self._lock:
             if self._closed or self._pending_interaction is not None or self._current_message is not None:
@@ -444,6 +465,13 @@ class HermesSession:
                 if _is_substantive_output(clean):
                     self._last_output_at = now
             pending = self._pending_interaction
+
+        store.push_event(
+            "agent.terminal.output",
+            self.agent_id,
+            None,
+            {"text": terminal_chunk},
+        )
 
         if snapshot_changed:
             store.push_event(
@@ -591,6 +619,14 @@ class HermesSession:
             None,
             {"text": f"$ {text}"},
         )
+
+    def send_terminal_data(self, data: str) -> None:
+        if not data:
+            raise ValueError("data is required")
+        self._send_terminal_data(data)
+
+    def resize_terminal(self, rows: int, columns: int) -> None:
+        self._resize_terminal(rows, columns)
 
     def close(self) -> None:
         self._closed = True
@@ -742,6 +778,20 @@ class ACPPool:
         if session is None or not session.proc.isalive():
             raise RuntimeError("agent session is not running; start it first")
         session.send_terminal_input(text)
+
+    def send_terminal_data(self, agent_id: str, data: str) -> None:
+        with self._lock:
+            session = self.clients.get(agent_id)
+        if session is None or not session.proc.isalive():
+            raise RuntimeError("agent session is not running; start it first")
+        session.send_terminal_data(data)
+
+    def resize_terminal(self, agent_id: str, rows: int, columns: int) -> None:
+        with self._lock:
+            session = self.clients.get(agent_id)
+        if session is None or not session.proc.isalive():
+            raise RuntimeError("agent session is not running; start it first")
+        session.resize_terminal(rows, columns)
 
     def _on_final(
         self,

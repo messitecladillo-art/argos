@@ -7,7 +7,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=output-no-filter-1">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=xterm-terminal-1">
   </head>
   <body>
     <div class="shell-grid"></div>
@@ -101,18 +102,14 @@
 
           <div class="interaction-list" id="interaction-list"></div>
 
-          <div class="output-stream" id="event-list" data-selected-agent="{{ message_target.agent_id if message_target else '' }}">
-            {% for event in events %}
-            <article class="event-item" data-agent-id="{{ event.agent_id }}" data-event-type="{{ event.event_type }}">
-              {{ event.data.text }}
-            </article>
-            {% endfor %}
+          <div class="terminal-shell" id="terminal-shell" data-selected-agent="{{ message_target.agent_id if message_target else '' }}">
+            <div class="terminal-toolbar">
+              <span class="terminal-dot"></span>
+              <span id="terminal-title">Agent Terminal</span>
+            </div>
+            <div class="terminal-viewport" id="terminal-viewport"></div>
           </div>
-          <form class="terminal-form" id="terminal-form" autocomplete="off">
-            <span class="terminal-prompt">$</span>
-            <input id="terminal-input" name="terminal_input" type="text" placeholder="输入命令后 Enter，直接发送到当前 Agent 终端" spellcheck="false">
-          </form>
-          <p class="empty-hint" id="event-empty" {% if events %}hidden{% endif %}>暂无事件。</p>
+          <p class="empty-hint" id="event-empty" hidden>暂无终端输出。</p>
         </section>
       </section>
     </main>
@@ -170,6 +167,8 @@
     <script>
       window.__BOOTSTRAP__ = {{ {"agents": agents, "events": events}|tojson }};
     </script>
-    <script src="{{ url_for('static', filename='app.js') }}?v=output-no-filter-1"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
+    <script src="{{ url_for('static', filename='app.js') }}?v=xterm-terminal-1"></script>
   </body>
 </html>
