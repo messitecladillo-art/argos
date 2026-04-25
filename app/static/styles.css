@@ -140,6 +140,12 @@ label span,
   min-width: 0;
   overflow: auto;
   padding-right: 4px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.agent-list::-webkit-scrollbar {
+  display: none;
 }
 
 .agent-row {

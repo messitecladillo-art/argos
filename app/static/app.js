@@ -16,9 +16,15 @@ const selectionModal = document.getElementById("selection-modal");
 const selectionModalBody = document.getElementById("selection-modal-body");
 const resolvedInteractionIds = new Set();
 const submittingInteractionIds = new Set();
+const resolvedSelectionSignatures = new Set();
 
 function interactionKey(agentId, requestId) {
   return `${agentId || ""}:${requestId || ""}`;
+}
+
+function selectionSignature(agentId, interaction) {
+  const choices = Array.isArray(interaction?.choices) ? interaction.choices : [];
+  return `${agentId || ""}:selection:${choices.map(cleanChoiceLabel).join("|")}`;
 }
 
 function escapeHtml(value) {
@@ -197,7 +203,8 @@ function renderSelectionModal(agents) {
   const agent = agents.find((item) => {
     const interaction = getSelectionInteraction(item);
     if (!interaction) return false;
-    return !resolvedInteractionIds.has(interactionKey(item.agent_id, interaction.request_id));
+    return !resolvedInteractionIds.has(interactionKey(item.agent_id, interaction.request_id))
+      && !resolvedSelectionSignatures.has(selectionSignature(item.agent_id, interaction));
   });
   const interaction = agent ? getSelectionInteraction(agent) : null;
   if (!agent || !interaction) {
@@ -255,6 +262,14 @@ function renderInteractions(agents) {
 
 function renderAgents(agents, stats) {
   if (!agentList) return;
+  const activeInteractionKeys = new Set();
+  agents.forEach((agent) => {
+    const requestId = agent.pending_interaction?.request_id;
+    if (requestId) activeInteractionKeys.add(interactionKey(agent.agent_id, requestId));
+  });
+  resolvedInteractionIds.forEach((key) => {
+    if (!activeInteractionKeys.has(key)) resolvedInteractionIds.delete(key);
+  });
   const selected = eventList?.dataset.selectedAgent || (agents[0] && agents[0].agent_id) || "";
   agentList.innerHTML = "";
   agents.forEach((agent) => {
@@ -405,6 +420,14 @@ async function handleInteractionClick(event) {
   if (submittingInteractionIds.has(key) || resolvedInteractionIds.has(key)) return;
 
   const isSelectionModal = selectionModal?.contains(btn);
+  let modalSelectionSignature = "";
+  if (isSelectionModal) {
+    const interaction = {
+      choices: Array.from(selectionModal.querySelectorAll(".choice-button strong")).map((item) => item.textContent || ""),
+    };
+    modalSelectionSignature = selectionSignature(btn.dataset.agentId, interaction);
+    resolvedSelectionSignatures.add(modalSelectionSignature);
+  }
   submittingInteractionIds.add(key);
   if (isSelectionModal) selectionModal.hidden = true;
   btn.disabled = true;
@@ -418,6 +441,7 @@ async function handleInteractionClick(event) {
       resolvedInteractionIds.add(key);
       return;
     }
+    if (modalSelectionSignature) resolvedSelectionSignatures.delete(modalSelectionSignature);
     if (isSelectionModal) selectionModal.hidden = false;
   } finally {
     submittingInteractionIds.delete(key);

@@ -28,6 +28,7 @@ READ_LOOP_INTERVAL = 0.2
 MAX_RAW_OUTPUT_CHARS = 12000
 TERMINAL_COLUMNS = 120
 TERMINAL_LINES = 36
+RESOLVED_INTERACTION_SUPPRESS_SECONDS = 30.0
 
 READY_PATTERNS = (
     re.compile(r"(?m)^\s*(?:⚕\s*)?❯\s*$"),
@@ -148,6 +149,13 @@ def _extract_selection(text: str) -> dict[str, Any] | None:
     return {"choices": choices, "selected_index": selected_index}
 
 
+def _interaction_signature(kind: str, choices: list[str] | None = None, prompt: str = "") -> str:
+    if choices:
+        return f"{kind}:" + "|".join(_clean_choice_label(choice) for choice in choices)
+    compact_prompt = re.sub(r"\s+", " ", _strip_ansi(prompt))[-240:]
+    return f"{kind}:{compact_prompt}"
+
+
 class HermesSession:
     def __init__(self, profile_name: str, agent_id: str, on_final) -> None:
         self.profile_name = profile_name
@@ -163,6 +171,7 @@ class HermesSession:
         self._current_output: list[str] = []
         self._current_message: dict[str, Any] | None = None
         self._pending_interaction: dict[str, Any] | None = None
+        self._recently_resolved_interactions: dict[str, float] = {}
         self._closed = False
         self._last_output_at = time.monotonic()
         self._current_started_at = 0.0
@@ -205,15 +214,25 @@ class HermesSession:
         selected_index: int | None = None,
     ) -> None:
         request_id = f"req_{uuid4().hex[:10]}"
+        signature = _interaction_signature(kind, choices, prompt)
+        now = time.monotonic()
         pending = {
             "request_id": request_id,
             "kind": kind,
             "prompt": prompt.strip()[-600:],
             "choices": choices if choices is not None else (["y", "n"] if kind == "awaiting_approval" else []),
             "selected_index": selected_index,
+            "signature": signature,
             "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
         with self._lock:
+            self._recently_resolved_interactions = {
+                key: resolved_at
+                for key, resolved_at in self._recently_resolved_interactions.items()
+                if now - resolved_at < RESOLVED_INTERACTION_SUPPRESS_SECONDS
+            }
+            if signature in self._recently_resolved_interactions:
+                return
             if self._pending_interaction is not None:
                 return
             self._pending_interaction = pending
@@ -241,6 +260,10 @@ class HermesSession:
             self._pending_interaction = None
         if pending is None:
             return
+        signature = pending.get("signature")
+        if signature:
+            with self._lock:
+                self._recently_resolved_interactions[signature] = time.monotonic()
         store.update_agent(
             self.agent_id,
             status="busy",
@@ -541,6 +564,9 @@ class HermesSession:
         if pending.get("kind") == "awaiting_selection" or pending_selection is not None:
             choices = (pending_selection or {}).get("choices") or pending.get("choices") or []
             selected_index = int((pending_selection or {}).get("selected_index") or pending.get("selected_index") or 0)
+            signature = _interaction_signature("awaiting_selection", choices)
+            with self._lock:
+                self._recently_resolved_interactions[signature] = time.monotonic()
             try:
                 target_index = int(response)
             except ValueError:
@@ -552,6 +578,7 @@ class HermesSession:
         else:
             self._send_line(response)
         self._clear_interaction(response)
+        self._last_output_at = time.monotonic()
 
     def send_terminal_input(self, text: str) -> None:
         text = (text or "").strip()
