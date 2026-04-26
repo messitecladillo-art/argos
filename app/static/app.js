@@ -21,6 +21,8 @@ let dismissAgentModal = null;
 let term = null;
 let fitAddon = null;
 let resizeTimer = 0;
+let lastTerminalRows = 0;
+let lastTerminalCols = 0;
 
 function escapeHtml(value) {
   return String(value || "")
@@ -209,17 +211,32 @@ function initTerminal() {
   term.onData((data) => {
     sendTerminalData(data);
   });
-  fitTerminal();
+  scheduleTerminalFit(0);
+  scheduleTerminalFit(80);
+  requestAnimationFrame(() => requestAnimationFrame(fitTerminal));
 }
 
 function fitTerminal() {
   if (!term || !fitAddon || !terminalViewport) return;
   try {
     fitAddon.fit();
-    sendTerminalResize(term.rows, term.cols);
+    if (term.rows !== lastTerminalRows || term.cols !== lastTerminalCols) {
+      lastTerminalRows = term.rows;
+      lastTerminalCols = term.cols;
+      sendTerminalResize(term.rows, term.cols);
+    }
   } catch (e) {
     /* xterm can throw while hidden or before fonts/layout are ready */
   }
+}
+
+function scheduleTerminalFit(delay = 120) {
+  window.setTimeout(fitTerminal, delay);
+}
+
+function debounceTerminalFit(delay = 120) {
+  clearTimeout(resizeTimer);
+  resizeTimer = window.setTimeout(fitTerminal, delay);
 }
 
 function setSelectedAgent(agentId, agentName, force = false) {
@@ -233,17 +250,18 @@ function setSelectedAgent(agentId, agentName, force = false) {
   eventList.dataset.selectedAgent = agentId;
   if (terminalTitle) terminalTitle.textContent = agentId ? `${name} · Hermes Terminal` : "Agent Terminal";
   if (term && (changed || force)) {
+    fitTerminal();
     resetTerminalView();
     const outputLog = terminalOutputLogs.get(agentId);
-    if (outputLog) {
-      term.write(outputLog);
-    } else if (terminalSnapshots.has(agentId)) {
+    if (terminalSnapshots.has(agentId)) {
       writeSnapshotFallback(terminalSnapshots.get(agentId));
+    } else if (outputLog) {
+      term.write(outputLog);
     } else if (agentId && !terminalHasLiveOutput.has(agentId)) {
       term.write("\x1b[90m等待 Agent 终端输出。启动会话后可直接输入。\x1b[0m\r\n");
     }
   }
-  fitTerminal();
+  scheduleTerminalFit(0);
   applyEventFilter();
 }
 
@@ -458,10 +476,19 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("resize", closeAgentContextMenu);
-window.addEventListener("resize", () => {
-  clearTimeout(resizeTimer);
-  resizeTimer = window.setTimeout(fitTerminal, 120);
-});
+window.addEventListener("resize", () => debounceTerminalFit(120));
+
+if (window.ResizeObserver && terminalViewport) {
+  const terminalResizeObserver = new ResizeObserver(() => debounceTerminalFit(60));
+  terminalResizeObserver.observe(terminalViewport);
+}
+
+if (document.fonts?.ready) {
+  document.fonts.ready.then(() => {
+    scheduleTerminalFit(0);
+    scheduleTerminalFit(160);
+  });
+}
 
 function openModal() {
   if (!modal) return;

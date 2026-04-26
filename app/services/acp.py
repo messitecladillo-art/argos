@@ -185,6 +185,7 @@ class HermesSession:
             encoding="utf-8",
             echo=False,
             timeout=None,
+            dimensions=(TERMINAL_LINES, TERMINAL_COLUMNS),
             env={**os.environ, "PYTHONUNBUFFERED": "1"},
         )
         threading.Thread(target=self._reader_loop, daemon=True).start()
