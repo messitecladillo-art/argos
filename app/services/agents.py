@@ -1,11 +1,28 @@
 from __future__ import annotations
 
-from ..config import MCP_BUS_URL, PROFILE_NAME_RE, now_iso
+import shutil
+from pathlib import Path
+
+from ..config import AGENT_TEAM_WORKSPACE_ROOT, MCP_BUS_URL, PROFILE_NAME_RE, now_iso
 from ..models.store import RuntimeStore
 from . import acp, profiles, registry, soul
 
 
 VALID_ROLES = {"leader", "worker"}
+
+
+def _safe_workspace_delete_path(workspace_path: str) -> Path:
+    workspace_root = AGENT_TEAM_WORKSPACE_ROOT.resolve(strict=False)
+    target = Path(workspace_path).expanduser().resolve(strict=False)
+    if target == workspace_root or workspace_root not in target.parents:
+        raise ValueError("workspace_path is outside the configured team workspace root")
+    return target
+
+
+def _delete_workspace(workspace_path: str) -> None:
+    target = _safe_workspace_delete_path(workspace_path)
+    if target.exists():
+        shutil.rmtree(target)
 
 
 def create_agent(
@@ -37,6 +54,8 @@ def create_agent(
     if role == "leader" and store.has_leader():
         raise ValueError("only one leader can exist")
 
+    workspace_path = registry.ensure_workspace(profile_name)
+
     profiles.create_hermes_profile(profile_name)
 
     if role == "leader":
@@ -52,6 +71,7 @@ def create_agent(
         "description": description,
         "is_leader": role == "leader",
         "created_at": created_at,
+        "workspace_path": workspace_path,
     }
     registry.write_team_meta(profile_name, meta)
 
@@ -101,9 +121,12 @@ def delete_agent(store: RuntimeStore, agent_id: str) -> dict:
     if agent.get("status") != "idle" or orchestration_state != "none":
         raise ValueError("only idle agents can be dismissed")
     profile_name = agent["profile_name"]
+    workspace_path = agent.get("workspace_path") or str(registry.workspace_path_for(profile_name))
+    _safe_workspace_delete_path(workspace_path)
     acp.pool.stop(agent_id)
     profiles.delete_hermes_profile(profile_name)
     registry.delete_team_meta(profile_name)  # no-op if the profile dir was already gone
+    _delete_workspace(workspace_path)
     store.remove_agent(agent_id)
     store.push_event(
         "agent.deleted",

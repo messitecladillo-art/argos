@@ -20,6 +20,7 @@ import pexpect
 import pyte
 
 from ..models.store import store
+from . import registry
 
 
 logger = logging.getLogger("hermes.agent_state")
@@ -217,9 +218,12 @@ def _log_state(event: str, agent_id: str, **fields: Any) -> None:
 
 
 class HermesSession:
-    def __init__(self, profile_name: str, agent_id: str, on_final) -> None:
+    def __init__(
+        self, profile_name: str, agent_id: str, workspace_path: str, on_final
+    ) -> None:
         self.profile_name = profile_name
         self.agent_id = agent_id
+        self.workspace_path = workspace_path
         self.on_final = on_final
         self._lock = threading.Lock()
         self._queue: deque[dict[str, Any]] = deque()
@@ -250,7 +254,7 @@ class HermesSession:
         self.proc = pexpect.spawn(
             "hermes",
             ["-p", profile_name],
-            cwd=os.getcwd(),
+            cwd=workspace_path,
             encoding="utf-8",
             echo=False,
             timeout=None,
@@ -1121,6 +1125,9 @@ class ACPPool:
     def start(self, agent: dict) -> bool:
         agent_id = agent["agent_id"]
         profile_name = agent["profile_name"]
+        workspace_path = agent.get("workspace_path") or str(
+            registry.workspace_path_for(profile_name)
+        )
         pending_items: list[dict[str, Any]] = []
         with self._lock:
             existing = self.clients.get(agent_id)
@@ -1129,7 +1136,9 @@ class ACPPool:
             if existing is not None:
                 pending_items = existing.take_pending_messages()
         try:
-            session = HermesSession(profile_name, agent_id, self._on_final)
+            workspace_path = registry.ensure_workspace(profile_name, workspace_path)
+            store.update_agent(agent_id, workspace_path=workspace_path)
+            session = HermesSession(profile_name, agent_id, workspace_path, self._on_final)
         except FileNotFoundError:
             store.update_agent(
                 agent_id,

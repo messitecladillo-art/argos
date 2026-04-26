@@ -3,11 +3,18 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from ..config import HERMES_HOME, PROFILE_NAME_RE, now_iso
+from ..config import AGENT_TEAM_WORKSPACE_ROOT, HERMES_HOME, PROFILE_NAME_RE, now_iso
 
 
 META_FILENAME = "team-meta.json"
-META_FIELDS = ("name", "role", "description", "is_leader", "created_at")
+META_FIELDS = (
+    "name",
+    "role",
+    "description",
+    "is_leader",
+    "created_at",
+    "workspace_path",
+)
 
 
 def agent_id_for(profile_name: str) -> str:
@@ -17,6 +24,17 @@ def agent_id_for(profile_name: str) -> str:
 
 def _meta_path(profile_name: str) -> Path:
     return HERMES_HOME / "profiles" / profile_name / META_FILENAME
+
+
+def workspace_path_for(profile_name: str) -> Path:
+    return AGENT_TEAM_WORKSPACE_ROOT / profile_name
+
+
+def ensure_workspace(profile_name: str, workspace_path: str | Path | None = None) -> str:
+    path = Path(workspace_path).expanduser() if workspace_path else workspace_path_for(profile_name)
+    path = path.resolve(strict=False)
+    path.mkdir(parents=True, exist_ok=True)
+    return str(path)
 
 
 def write_team_meta(profile_name: str, meta: dict) -> None:
@@ -36,6 +54,12 @@ def delete_team_meta(profile_name: str) -> None:
 
 def _hydrate(profile_name: str, meta: dict) -> dict:
     created_at = meta.get("created_at") or now_iso()
+    raw_workspace_path = meta.get("workspace_path")
+    workspace_path = (
+        str(Path(raw_workspace_path).expanduser().resolve(strict=False))
+        if raw_workspace_path
+        else str(workspace_path_for(profile_name))
+    )
     return {
         "agent_id": agent_id_for(profile_name),
         "profile_name": profile_name,
@@ -43,6 +67,7 @@ def _hydrate(profile_name: str, meta: dict) -> dict:
         "role": meta.get("role") or "worker",
         "description": meta.get("description") or "",
         "is_leader": bool(meta.get("is_leader")),
+        "workspace_path": workspace_path,
         "status": "idle",
         "current_task": "空闲",
         "runtime_status": "stopped",
@@ -80,7 +105,17 @@ def load_team_metas() -> list[dict]:
             continue
         if not isinstance(meta, dict):
             continue
-        agents.append(_hydrate(profile_name, meta))
+        agent = _hydrate(profile_name, meta)
+        if not meta.get("workspace_path"):
+            write_team_meta(
+                profile_name,
+                {
+                    **meta,
+                    "created_at": agent["created_at"],
+                    "workspace_path": agent["workspace_path"],
+                },
+            )
+        agents.append(agent)
     return agents
 
 
