@@ -10,20 +10,22 @@ const openCreateAgent = document.getElementById("open-create-agent");
 const modal = document.getElementById("create-agent-modal");
 const createAgentForm = document.getElementById("create-agent-form");
 const createAgentError = document.getElementById("create-agent-error");
+const openHistoryDrawer = document.getElementById("open-history-drawer");
+const historyDrawer = document.getElementById("history-drawer");
+const historyDrawerAgent = document.getElementById("history-drawer-agent");
+const historyEmpty = document.getElementById("history-empty");
 const interactionList = document.getElementById("interaction-list");
 const terminalSnapshots = new Map();
-const terminalOutputLogs = new Map();
 const terminalHasLiveOutput = new Set();
-const maxTerminalLogLength = 200000;
+const terminalSessions = new Map();
+const chatEventsByAgent = new Map();
+const defaultTerminalCols = 120;
+const defaultTerminalRows = 36;
 const hermesDebug = window.localStorage?.getItem("hermesDebug") !== "0";
 let agentContextMenu = null;
 let deletingAgentId = "";
 let dismissAgentModal = null;
-let term = null;
-let fitAddon = null;
 let resizeTimer = 0;
-let lastTerminalRows = 0;
-let lastTerminalCols = 0;
 
 function debugLog(event, payload) {
   if (!hermesDebug) return;
@@ -124,10 +126,102 @@ function buildAgentRow(agent, isActive) {
   return row;
 }
 
-function renderInteractions(agents) {
+function getChatEventMeta(event) {
+  const type = event.event_type || "";
+  if (type === "message.sent") return { label: "发送", className: "user" };
+  if (type === "agent.output.final") return { label: "回复", className: "agent" };
+  if (type === "agent.output.failed" || type === "agent.runtime.failed") {
+    return { label: "异常", className: "error" };
+  }
+  if (type === "agent.interaction.required") {
+    return { label: "需介入", className: "waiting" };
+  }
+  if (type === "agent.interaction.resolved") {
+    return { label: "已处理", className: "system" };
+  }
+  if (type === "agent.created" || type === "agent.deleted") {
+    return { label: "系统", className: "system" };
+  }
+  if (type === "user_task.created" || type === "user_task.completed") {
+    return { label: "任务", className: "system" };
+  }
+  return null;
+}
+
+function isChatEvent(event) {
+  return Boolean(event?.agent_id && getChatEventMeta(event));
+}
+
+function rememberChatEvent(event) {
+  if (!isChatEvent(event)) return false;
+  const agentId = event.agent_id;
+  const events = chatEventsByAgent.get(agentId) || [];
+  if (events.some((item) => item.id === event.id)) return false;
+  events.push(event);
+  events.sort((a, b) => (
+    String(a.timestamp || "").localeCompare(String(b.timestamp || ""))
+  ));
+  chatEventsByAgent.set(agentId, events.slice(-80));
+  return true;
+}
+
+function formatChatEventText(event) {
+  return String(event.data?.text || "").trim() || "(空内容)";
+}
+
+function buildChatEventCard(event) {
+  const meta = getChatEventMeta(event);
+  const card = document.createElement("article");
+  card.className = `interaction-card interaction-card--${meta.className}`;
+  card.innerHTML = `
+    <div class="interaction-card__head">
+      <span>${escapeHtml(meta.label)}</span>
+      <time>${escapeHtml(formatAgentTime(event.timestamp))}</time>
+    </div>
+    <p>${escapeHtml(formatChatEventText(event))}</p>
+  `;
+  return card;
+}
+
+function getSelectedAgentName() {
+  const selectedAgentId = eventList?.dataset.selectedAgent || "";
+  const row = selectedAgentId
+    ? agentList?.querySelector(`.agent-row[data-agent-id="${CSS.escape(selectedAgentId)}"]`)
+    : null;
+  return row?.dataset.agentName || selectedAgentId || "尚未选择 Agent";
+}
+
+function renderInteractions() {
   if (!interactionList) return;
+  const selectedAgentId = eventList?.dataset.selectedAgent || "";
+  const events = selectedAgentId ? (chatEventsByAgent.get(selectedAgentId) || []) : [];
+  if (historyDrawerAgent) historyDrawerAgent.textContent = getSelectedAgentName();
+  if (historyEmpty) historyEmpty.hidden = events.length > 0;
   interactionList.innerHTML = "";
-  interactionList.hidden = true;
+  interactionList.hidden = events.length === 0;
+  events.forEach((event) => {
+    interactionList.appendChild(buildChatEventCard(event));
+  });
+  interactionList.scrollTop = interactionList.scrollHeight;
+}
+
+function openHistoryPanel() {
+  if (!historyDrawer) return;
+  renderInteractions();
+  historyDrawer.hidden = false;
+  requestAnimationFrame(() => {
+    historyDrawer.classList.add("is-open");
+  });
+}
+
+function closeHistoryPanel() {
+  if (!historyDrawer || historyDrawer.hidden) return;
+  historyDrawer.classList.remove("is-open");
+  window.setTimeout(() => {
+    if (!historyDrawer.classList.contains("is-open")) {
+      historyDrawer.hidden = true;
+    }
+  }, 180);
 }
 
 function renderAgents(agents, stats) {
@@ -145,9 +239,11 @@ function renderAgents(agents, stats) {
   const selected = eventList?.dataset.selectedAgent || (agents[0] && agents[0].agent_id) || "";
   agentList.innerHTML = "";
   agents.forEach((agent) => {
+    ensureTerminalSession(agent.agent_id);
     agentList.appendChild(buildAgentRow(agent, agent.agent_id === selected));
   });
-  renderInteractions(agents);
+  requestAnimationFrame(() => requestAnimationFrame(fitAllTerminalSessions));
+  renderInteractions();
   if (agentEmpty) agentEmpty.hidden = agents.length > 0;
   if (sidebarStats && stats) {
     sidebarStats.innerHTML = stats
@@ -161,10 +257,7 @@ function renderAgents(agents, stats) {
   } else {
     if (eventList) eventList.dataset.selectedAgent = "";
     if (terminalTitle) terminalTitle.textContent = "Agent Terminal";
-    if (term) {
-      term.clear();
-      term.write("\x1b[90m还没有 Agent。创建并启动 Agent 后，这里会显示交互终端。\x1b[0m\r\n");
-    }
+    writeEmptyTerminalHint();
   }
 }
 
@@ -197,10 +290,9 @@ function cleanTerminalText(text) {
 function bootstrapTerminalSnapshots() {
   const events = Array.isArray(window.__BOOTSTRAP__?.events) ? window.__BOOTSTRAP__.events : [];
   events.slice().reverse().forEach((event) => {
+    rememberChatEvent(event);
     const agentId = event.agent_id || "";
     if (event.event_type === "agent.terminal.output") {
-      terminalHasLiveOutput.add(agentId);
-      appendTerminalOutput(agentId, String(event.data?.text || ""));
       return;
     }
     if (event.event_type === "agent.terminal.snapshot") {
@@ -217,33 +309,16 @@ function hydrateTerminalSnapshots() {
   bootstrapTerminalSnapshots();
 }
 
-function appendTerminalOutput(agentId, text) {
-  if (!agentId || !text) return;
-  const current = terminalOutputLogs.get(agentId) || "";
-  const next = `${current}${text}`;
-  terminalOutputLogs.set(agentId, next.length > maxTerminalLogLength ? next.slice(-maxTerminalLogLength) : next);
-}
-
-function resetTerminalView() {
-  if (!term) return;
-  term.reset();
-  term.clear();
-}
-
-function writeSnapshotFallback(snapshot) {
-  if (!term || !snapshot) return;
-  term.write(`${snapshot.replace(/\n/g, "\r\n")}\r\n`);
-}
-
-function initTerminal() {
-  if (!terminalViewport || !window.Terminal || !window.FitAddon) return;
-  term = new Terminal({
+function createTerminalInstance(agentId) {
+  const term = new Terminal({
     cursorBlink: true,
     convertEol: true,
     fontFamily: '"JetBrains Mono", monospace',
     fontSize: 13,
     lineHeight: 1.35,
     scrollback: 5000,
+    cols: defaultTerminalCols,
+    rows: defaultTerminalRows,
     theme: {
       background: "#020201",
       foreground: "#f4efe4",
@@ -261,29 +336,95 @@ function initTerminal() {
       brightWhite: "#fff8e8",
     },
   });
-  fitAddon = new FitAddon.FitAddon();
+  const fitAddon = new FitAddon.FitAddon();
+  const pane = document.createElement("div");
+  pane.className = "terminal-pane";
+  pane.dataset.agentId = agentId;
   term.loadAddon(fitAddon);
-  term.open(terminalViewport);
+  terminalViewport.appendChild(pane);
+  term.open(pane);
   term.onData((data) => {
-    sendTerminalData(data);
+    if (agentId !== "__empty__") sendTerminalData(agentId, data);
   });
+  return {
+    agentId,
+    term,
+    fitAddon,
+    pane,
+    lastRows: 0,
+    lastCols: 0,
+    hasLiveOutput: false,
+  };
+}
+
+function ensureTerminalSession(agentId) {
+  if (!agentId || !terminalViewport || !window.Terminal || !window.FitAddon) {
+    return null;
+  }
+  let session = terminalSessions.get(agentId);
+  if (session) return session;
+  session = createTerminalInstance(agentId);
+  terminalSessions.set(agentId, session);
+  if (!terminalHasLiveOutput.has(agentId)) {
+    session.term.write("\x1b[90m等待 Agent 终端输出。启动会话后可直接输入。\x1b[0m\r\n");
+  }
+  return session;
+}
+
+function writeEmptyTerminalHint() {
+  if (!terminalViewport) return;
+  terminalSessions.forEach((session) => {
+    session.pane.classList.remove("is-active");
+  });
+  let session = terminalSessions.get("__empty__");
+  if (!session && window.Terminal && window.FitAddon) {
+    session = createTerminalInstance("__empty__");
+    terminalSessions.set("__empty__", session);
+    session.term.write("\x1b[90m还没有 Agent。创建并启动 Agent 后，这里会显示交互终端。\x1b[0m\r\n");
+  }
+  if (session) {
+    session.pane.classList.add("is-active");
+    scheduleTerminalFit(0);
+  }
+}
+
+function fitTerminalSession(session) {
+  if (!session) return;
+  try {
+    session.fitAddon.fit();
+    if (session.agentId === "__empty__") return;
+    if (session.term.rows !== session.lastRows || session.term.cols !== session.lastCols) {
+      session.lastRows = session.term.rows;
+      session.lastCols = session.term.cols;
+      sendTerminalResize(session.agentId, session.term.rows, session.term.cols);
+    }
+  } catch (e) {
+    /* xterm can throw while hidden or before fonts/layout are ready */
+  }
+}
+
+function fitAllTerminalSessions() {
+  terminalSessions.forEach((session) => fitTerminalSession(session));
+}
+
+function initTerminal() {
+  if (!terminalViewport || !window.Terminal || !window.FitAddon) return;
+  const selectedAgentId = eventList?.dataset.selectedAgent || "";
+  if (selectedAgentId) {
+    ensureTerminalSession(selectedAgentId);
+  } else {
+    writeEmptyTerminalHint();
+  }
   scheduleTerminalFit(0);
   scheduleTerminalFit(80);
   requestAnimationFrame(() => requestAnimationFrame(fitTerminal));
 }
 
 function fitTerminal() {
-  if (!term || !fitAddon || !terminalViewport) return;
-  try {
-    fitAddon.fit();
-    if (term.rows !== lastTerminalRows || term.cols !== lastTerminalCols) {
-      lastTerminalRows = term.rows;
-      lastTerminalCols = term.cols;
-      sendTerminalResize(term.rows, term.cols);
-    }
-  } catch (e) {
-    /* xterm can throw while hidden or before fonts/layout are ready */
-  }
+  const agentId = eventList?.dataset.selectedAgent || "";
+  const session = terminalSessions.get(agentId);
+  if (!session || !session.pane.classList.contains("is-active")) return;
+  fitTerminalSession(session);
 }
 
 function scheduleTerminalFit(delay = 120) {
@@ -304,25 +445,20 @@ function setSelectedAgent(agentId, agentName, force = false) {
     item.classList.toggle("is-active", item.dataset.agentId === agentId);
   });
   eventList.dataset.selectedAgent = agentId;
+  renderInteractions();
   if (terminalTitle) terminalTitle.textContent = agentId ? `${name} · Hermes Terminal` : "Agent Terminal";
-  if (term && (changed || force)) {
-    fitTerminal();
-    resetTerminalView();
-    const outputLog = terminalOutputLogs.get(agentId);
-    if (outputLog) {
-      term.write(outputLog);
-    } else if (terminalSnapshots.has(agentId)) {
-      writeSnapshotFallback(terminalSnapshots.get(agentId));
-    } else if (agentId && !terminalHasLiveOutput.has(agentId)) {
-      term.write("\x1b[90m等待 Agent 终端输出。启动会话后可直接输入。\x1b[0m\r\n");
-    }
+  const session = ensureTerminalSession(agentId);
+  terminalSessions.forEach((item, key) => {
+    item.pane.classList.toggle("is-active", key === agentId);
+  });
+  if (session && (changed || force)) {
+    requestAnimationFrame(() => requestAnimationFrame(fitTerminal));
   }
   scheduleTerminalFit(0);
   applyEventFilter();
 }
 
-async function sendTerminalData(data) {
-  const agentId = eventList?.dataset.selectedAgent || "";
+async function sendTerminalData(agentId, data) {
   if (!agentId || !data) return false;
   const response = await fetch(`/api/agents/${agentId}/terminal-data`, {
     method: "POST",
@@ -332,8 +468,7 @@ async function sendTerminalData(data) {
   return response.ok;
 }
 
-async function sendTerminalResize(rows, cols) {
-  const agentId = eventList?.dataset.selectedAgent || "";
+async function sendTerminalResize(agentId, rows, cols) {
   if (!agentId || !rows || !cols) return false;
   const response = await fetch(`/api/agents/${agentId}/terminal-resize`, {
     method: "POST",
@@ -345,6 +480,7 @@ async function sendTerminalResize(rows, cols) {
 
 function handleTerminalEvent(event) {
   if (!eventList) return;
+  if (rememberChatEvent(event)) renderInteractions();
   const agentId = event.agent_id || "";
   if (event.event_type === "agent.terminal.snapshot") {
     terminalSnapshots.set(agentId, cleanTerminalText(event.data?.text || ""));
@@ -353,14 +489,20 @@ function handleTerminalEvent(event) {
   }
   if (event.event_type !== "agent.terminal.output") return;
   terminalHasLiveOutput.add(agentId);
-  appendTerminalOutput(agentId, String(event.data?.text || ""));
+  const session = ensureTerminalSession(agentId);
+  if (session) {
+    if (!session.hasLiveOutput) {
+      session.term.reset();
+      session.term.clear();
+    }
+    session.hasLiveOutput = true;
+    session.term.write(String(event.data?.text || ""));
+  }
   debugLog("terminal-output", {
     agent_id: agentId,
     selected: eventList.dataset.selectedAgent || "",
     bytes: String(event.data?.text || "").length,
   });
-  if (agentId !== (eventList.dataset.selectedAgent || "")) return;
-  if (term) term.write(String(event.data?.text || ""));
 }
 
 function isIdleAgentRow(row) {
@@ -538,7 +680,10 @@ document.addEventListener("keydown", (event) => {
 });
 
 window.addEventListener("resize", closeAgentContextMenu);
-window.addEventListener("resize", () => debounceTerminalFit(120));
+window.addEventListener("resize", () => {
+  debounceTerminalFit(120);
+  window.setTimeout(fitAllTerminalSessions, 180);
+});
 
 if (window.ResizeObserver && terminalViewport) {
   const terminalResizeObserver = new ResizeObserver(() => debounceTerminalFit(60));
@@ -549,6 +694,7 @@ if (document.fonts?.ready) {
   document.fonts.ready.then(() => {
     scheduleTerminalFit(0);
     scheduleTerminalFit(160);
+    window.setTimeout(fitAllTerminalSessions, 200);
   });
 }
 
@@ -569,6 +715,14 @@ function closeModal() {
 }
 
 if (openCreateAgent) openCreateAgent.addEventListener("click", openModal);
+if (openHistoryDrawer) openHistoryDrawer.addEventListener("click", openHistoryPanel);
+if (historyDrawer) {
+  historyDrawer.addEventListener("click", (event) => {
+    if (event.target instanceof HTMLElement && event.target.dataset.closeHistory !== undefined) {
+      closeHistoryPanel();
+    }
+  });
+}
 if (modal) {
   modal.addEventListener("click", (event) => {
     if (event.target instanceof HTMLElement && event.target.dataset.closeModal !== undefined) {
@@ -577,6 +731,7 @@ if (modal) {
   });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !modal.hidden) closeModal();
+    if (e.key === "Escape") closeHistoryPanel();
   });
 }
 

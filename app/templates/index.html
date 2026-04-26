@@ -107,13 +107,18 @@
         <section class="output panel">
           <div class="section-head">
             <div>
-              <h2>聊天记录</h2>
+              <h2>实时消息</h2>
             </div>
+            <button class="filter-chip history-button" type="button" id="open-history-drawer">
+              历史记录
+            </button>
           </div>
 
-          <div class="interaction-list" id="interaction-list"></div>
-
-          <div class="terminal-shell" id="terminal-shell" data-selected-agent="{{ message_target.agent_id if message_target else '' }}">
+          <div
+            class="terminal-shell"
+            id="terminal-shell"
+            data-selected-agent="{{ message_target.agent_id if message_target else '' }}"
+          >
             <div class="terminal-toolbar">
               <span class="terminal-dot"></span>
               <span id="terminal-title">Agent Terminal</span>
@@ -124,6 +129,26 @@
         </section>
       </section>
     </main>
+
+    <div class="history-drawer" id="history-drawer" hidden>
+      <div class="history-drawer__backdrop" data-close-history></div>
+      <aside
+        class="history-drawer__panel panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="history-drawer-title"
+      >
+        <div class="history-drawer__head">
+          <div>
+            <h2 id="history-drawer-title">历史记录</h2>
+            <p id="history-drawer-agent">尚未选择 Agent</p>
+          </div>
+          <button class="modal__close" type="button" data-close-history aria-label="close">×</button>
+        </div>
+        <div class="interaction-list" id="interaction-list"></div>
+        <p class="empty-hint history-drawer__empty" id="history-empty" hidden>暂无历史记录。</p>
+      </aside>
+    </div>
 
     <div class="modal" id="create-agent-modal" hidden>
       <div class="modal__backdrop" data-close-modal></div>
