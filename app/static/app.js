@@ -146,11 +146,23 @@ function renderAgents(agents, stats) {
 
 function cleanTerminalText(text) {
   return String(text || "")
+    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
+    .replace(/\x1b\[[0-9;?: ]*[A-Za-z~]/g, "")
+    .replace(/\x1b[()#][0-9A-Za-z]/g, "")
+    .replace(/\x1b./g, "")
     .split("\n")
     .filter((line) => {
       const value = line.trim();
       if (!value) return true;
+      if (/^[\s\-─━═│┃║┌┐└┘┏┓┗┛╭╮╰╯├┤┬┴┼╞╡╪╥╨╔╗╚╝╠╣╦╩╬]+$/.test(value)) return false;
+      if (/^[Jj0-9]{1,3}$/.test(value)) return false;
       if (/^[$⚕]?\s*gpt-[\w.-]+\s*\|.*\|\s*\[.*\]\s*\d+%/i.test(value)) return false;
+      if (/\bgpt-[\w.-]+\b.*\[[█░▒▓\s]+\].*\d+%/i.test(value)) return false;
+      if (/Hermes/.test(value) && /[─━═╭╮╰╯┌┐└┘]/.test(value)) return false;
+      if (/type a message \+ Enter to interrupt/i.test(value)) return false;
+      if (/cursor position requests/i.test(value)) return false;
+      if (/^[\w.-]+\s+❯$/.test(value)) return false;
+      if (/^[⚕$]\s*❯/.test(value)) return false;
       if (/\[\d+\s*q\s*\[\d+\s*q/.test(value)) return false;
       return true;
     })
@@ -273,10 +285,10 @@ function setSelectedAgent(agentId, agentName, force = false) {
     fitTerminal();
     resetTerminalView();
     const outputLog = terminalOutputLogs.get(agentId);
-    if (terminalSnapshots.has(agentId)) {
-      writeSnapshotFallback(terminalSnapshots.get(agentId));
-    } else if (outputLog) {
+    if (outputLog) {
       term.write(outputLog);
+    } else if (terminalSnapshots.has(agentId)) {
+      writeSnapshotFallback(terminalSnapshots.get(agentId));
     } else if (agentId && !terminalHasLiveOutput.has(agentId)) {
       term.write("\x1b[90m等待 Agent 终端输出。启动会话后可直接输入。\x1b[0m\r\n");
     }

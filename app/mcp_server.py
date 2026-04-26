@@ -51,8 +51,8 @@ def send_to_worker(to_agent_id: str, content: str, from_agent_id: str) -> dict:
     ⚠️ 这是团队内通信专用工具，不同于 hermes-acp 内置的 `delegate_task`
     （后者是在本进程内生成子代理，与团队路由无关）。团队协作**必须**用这个。
 
-    立即返回"已投递"；worker 的长期 Hermes 会话完成后，Flask 会自动把回复以
-    `[来自 <worker_name> 的回复]: ...` 的形式反向 prompt 回 leader。
+    立即返回"已投递"；如果这是用户任务中的 worker 派发，平台会等待同一用户
+    任务下所有 worker 完成后，再自动请求 leader 做一次最终汇总。
 
     参数：
     - to_agent_id: 目标 worker 的 agent_id（先调 list_workers 获取）
@@ -73,7 +73,7 @@ def send_to_worker(to_agent_id: str, content: str, from_agent_id: str) -> dict:
         "status": "waiting_workers",
         "to_agent_id": to_agent_id,
         "to_name": assignment["to_name"],
-        "note": "任务已投递给 worker；系统会在 worker 返回后自动请求 leader 汇总。",
+        "note": "任务已投递给 worker；系统会在同一用户任务的 worker 全部返回后自动请求 leader 汇总。",
     }
 
 
@@ -85,9 +85,9 @@ def dispatch_parallel(
 ) -> dict:
     """leader 一次性把同一批子任务派给多个 worker 并行执行。
 
-    平台会创建 delegation 批次并收集所有 worker 结果；同一批 worker 全部
-    完成后，系统会自动把汇总请求发回 leader。leader 收到汇总请求后只做最终
-    总结，不要重复派发同一批任务。
+    平台会创建 delegation 批次并收集所有 worker 结果；如果属于用户任务，
+    系统会等待该用户任务下所有批次都完成后，再把一次性汇总请求发回 leader。
+    leader 收到汇总请求后只做最终总结，不要重复派发同一批任务。
 
     参数：
     - assignments: 子任务数组，每项包含 to_agent_id / content
@@ -100,6 +100,7 @@ def dispatch_parallel(
     if not assignments:
         raise ValueError("assignments is required")
     sender_agent_id = _resolve_sender_agent_id(from_agent_id)
+    user_task_id = pool.current_user_task_id(sender_agent_id)
     for assignment in assignments:
         worker_id = (assignment.get("to_agent_id") or "").strip()
         if not worker_id:
@@ -110,6 +111,7 @@ def dispatch_parallel(
         leader_agent_id=sender_agent_id,
         assignments=assignments,
         summary_instruction=summary_instruction,
+        user_task_id=user_task_id,
     )
     dispatched = []
     for assignment in delegation["assignments"]:
@@ -120,6 +122,7 @@ def dispatch_parallel(
             from_agent_id=sender_agent_id,
             delegation_id=delegation["delegation_id"],
             assignment_id=assignment["assignment_id"],
+            user_task_id=user_task_id,
         )
         store.attach_assignment_message(
             delegation["delegation_id"],
@@ -139,6 +142,7 @@ def dispatch_parallel(
         "delegation_id": delegation["delegation_id"],
         "status": "waiting_workers",
         "from_agent_id": sender_agent_id,
+        "user_task_id": user_task_id,
         "dispatched_count": len(dispatched),
         "pending_count": len(dispatched),
         "assignments": dispatched,

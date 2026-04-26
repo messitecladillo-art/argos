@@ -31,7 +31,7 @@ TERMINAL_LINES = 36
 RESOLVED_INTERACTION_SUPPRESS_SECONDS = 30.0
 
 READY_PATTERNS = (
-    re.compile(r"(?m)^\s*(?:⚕\s*)?❯\s*$"),
+    re.compile(r"(?m)^\s*(?:[\w.-]+\s+)?(?:⚕\s*)?❯\s*$"),
 )
 INTERRUPT_HINT_PATTERN = re.compile(
     r"type a message \+ Enter to interrupt", re.IGNORECASE
@@ -52,7 +52,50 @@ SELECTION_PATTERNS = (
 
 
 def _strip_ansi(text: str) -> str:
-    return re.sub(r"\x1b\[[0-9;?]*[A-Za-z]", "", text)
+    text = re.sub(r"\x1b\][^\x07]*(?:\x07|\x1b\\)", "", text)
+    text = re.sub(r"\x1b\[[0-9;?: ]*[A-Za-z~]", "", text)
+    text = re.sub(r"\x1b[()#][0-9A-Za-z]", "", text)
+    return re.sub(r"\x1b.", "", text)
+
+
+def _is_tui_noise_line(value: str) -> bool:
+    if not value:
+        return False
+    if re.fullmatch(r"[\s\-─━═│┃║┌┐└┘┏┓┗┛╭╮╰╯├┤┬┴┼╞╡╪╥╨╔╗╚╝╠╣╦╩╬]+", value):
+        return True
+    if re.fullmatch(r"[Jj0-9]{1,3}", value):
+        return True
+    if re.search(r"\bgpt-[\w.-]+\b.*\[[█░▒▓\s]+\].*\d+%", value, re.IGNORECASE):
+        return True
+    if "Hermes" in value and re.search(r"[─━═╭╮╰╯┌┐└┘]", value):
+        return True
+    if "type a message + Enter to interrupt" in value:
+        return True
+    if "cursor position requests" in value.lower():
+        return True
+    if re.fullmatch(r"[\w.-]+\s+❯", value):
+        return True
+    if re.fullmatch(r"[⚕$]\s*❯.*", value):
+        return True
+    return False
+
+
+def _clean_agent_reply(text: str) -> str:
+    text = _strip_ansi(text).replace("\r", "\n")
+    cleaned: list[str] = []
+    previous_blank = False
+    for raw_line in text.splitlines():
+        value = raw_line.strip()
+        if _is_tui_noise_line(value):
+            continue
+        if not value:
+            if cleaned and not previous_blank:
+                cleaned.append("")
+            previous_blank = True
+            continue
+        cleaned.append(value)
+        previous_blank = False
+    return "\n".join(cleaned).strip()
 
 
 def _compact_screen_text(screen: pyte.Screen) -> str:
@@ -198,8 +241,14 @@ class HermesSession:
     def _update_queue_depth(self) -> None:
         with self._lock:
             queue_depth = len(self._queue)
+            current_user_task_id = None
             if self._current_message is not None:
                 queue_depth += 1
+                current_user_task_id = self._current_message.get("user_task_id")
+        queue_depth += store.count_active_user_tasks(
+            self.agent_id,
+            exclude_user_task_id=current_user_task_id,
+        )
         store.update_agent(self.agent_id, queue_depth=queue_depth)
         store.push_event(
             "agent.queue.updated",
@@ -305,10 +354,17 @@ class HermesSession:
         return False
 
     def _mark_crashed(self, reason: str) -> None:
+        failed_message = None
         with self._lock:
             self._pending_interaction = None
             if self._current_message is not None:
-                self._queue.appendleft(self._current_message)
+                failed_message = self._current_message
+                if not (
+                    failed_message.get("reply_to_leader")
+                    and failed_message.get("delegation_id")
+                    and failed_message.get("assignment_id")
+                ):
+                    self._queue.appendleft(failed_message)
             self._current_message = None
         store.update_agent(
             self.agent_id,
@@ -325,6 +381,31 @@ class HermesSession:
             None,
             {"text": f"Hermes session ended: {reason}"},
         )
+        if (
+            failed_message
+            and failed_message.get("reply_to_leader")
+            and failed_message.get("delegation_id")
+            and failed_message.get("assignment_id")
+        ):
+            try:
+                self.on_final(
+                    self.agent_id,
+                    f"会话异常退出：{reason}",
+                    failed_message.get("reply_to_leader"),
+                    failed_message.get("delegation_id"),
+                    failed_message.get("assignment_id"),
+                    failed_message.get("user_task_id"),
+                    failed_message.get("summarize_delegation_id"),
+                    failed_message.get("summarize_user_task_id"),
+                    True,
+                )
+            except Exception as exc:  # noqa: BLE001
+                store.push_event(
+                    "agent.output.failed",
+                    self.agent_id,
+                    failed_message.get("delegation_id"),
+                    {"text": f"failure handler error: {exc}"},
+                )
 
     # ------------------------------------------------------------------ io
     def _send_line(self, text: str) -> None:
@@ -431,17 +512,31 @@ class HermesSession:
             if not self._queue:
                 agent = store.find_agent(self.agent_id) or {}
                 orchestration_state = agent.get("orchestration_state")
-                current_task = (
-                    "等待 worker 返回"
-                    if orchestration_state == "waiting_workers"
-                    else "空闲"
-                )
-                store.update_agent(
-                    self.agent_id,
-                    status="idle",
-                    current_task=current_task,
-                    interaction_state="idle",
-                )
+                active_tasks = store.count_active_user_tasks(self.agent_id)
+                if active_tasks:
+                    current_task = (
+                        "汇总 worker 结果中"
+                        if orchestration_state == "summarizing"
+                        else "等待 worker 返回"
+                    )
+                    store.update_agent(
+                        self.agent_id,
+                        status="busy",
+                        current_task=current_task,
+                        interaction_state="queued",
+                    )
+                else:
+                    current_task = (
+                        "等待 worker 返回"
+                        if orchestration_state == "waiting_workers"
+                        else "空闲"
+                    )
+                    store.update_agent(
+                        self.agent_id,
+                        status="idle",
+                        current_task=current_task,
+                        interaction_state="idle",
+                    )
                 return
             message = self._queue.popleft()
             self._current_message = message
@@ -465,16 +560,20 @@ class HermesSession:
             message = self._current_message
             if message is None:
                 return
-            reply = _strip_ansi("".join(self._current_output)).strip()
+            reply = _clean_agent_reply("".join(self._current_output))
             self._current_message = None
             self._current_output = []
 
         preview = (reply[:180] + "…") if len(reply) > 180 else (reply or "—")
-        next_state = "queued" if self._queue else "idle"
-        next_status = "busy" if self._queue else "idle"
+        active_tasks = store.count_active_user_tasks(
+            self.agent_id,
+            exclude_user_task_id=message.get("user_task_id"),
+        )
+        next_state = "queued" if self._queue or active_tasks else "idle"
+        next_status = "busy" if self._queue or active_tasks else "idle"
         agent = store.find_agent(self.agent_id) or {}
         orchestration_state = agent.get("orchestration_state")
-        next_task = "等待队列执行" if self._queue else "空闲"
+        next_task = "等待队列执行" if self._queue else ("等待 worker 返回" if active_tasks else "空闲")
         if not self._queue and orchestration_state == "waiting_workers":
             next_task = "等待 worker 返回"
         store.update_agent(
@@ -499,7 +598,10 @@ class HermesSession:
                 message.get("reply_to_leader"),
                 message.get("delegation_id"),
                 message.get("assignment_id"),
+                message.get("user_task_id"),
                 message.get("summarize_delegation_id"),
+                message.get("summarize_user_task_id"),
+                False,
             )
         except Exception as exc:  # noqa: BLE001
             store.push_event(
@@ -618,7 +720,9 @@ class HermesSession:
         reply_to_leader: str | None = None,
         delegation_id: str | None = None,
         assignment_id: str | None = None,
+        user_task_id: str | None = None,
         summarize_delegation_id: str | None = None,
+        summarize_user_task_id: str | None = None,
     ) -> None:
         item = {
             "id": f"job_{next(self._counter):04d}",
@@ -626,7 +730,9 @@ class HermesSession:
             "reply_to_leader": reply_to_leader,
             "delegation_id": delegation_id,
             "assignment_id": assignment_id,
+            "user_task_id": user_task_id,
             "summarize_delegation_id": summarize_delegation_id,
+            "summarize_user_task_id": summarize_user_task_id,
         }
         with self._lock:
             self._queue.append(item)
@@ -712,6 +818,12 @@ class HermesSession:
             self._queue.extend(items)
         self._update_queue_depth()
         self._dispatch_next()
+
+    def current_user_task_id(self) -> str | None:
+        with self._lock:
+            if self._current_message is None:
+                return None
+            return self._current_message.get("user_task_id")
 
 
 class ACPPool:
@@ -814,7 +926,9 @@ class ACPPool:
         reply_to_leader: str | None = None,
         delegation_id: str | None = None,
         assignment_id: str | None = None,
+        user_task_id: str | None = None,
         summarize_delegation_id: str | None = None,
+        summarize_user_task_id: str | None = None,
     ) -> None:
         with self._lock:
             session = self.clients.get(agent_id)
@@ -825,8 +939,17 @@ class ACPPool:
             reply_to_leader=reply_to_leader,
             delegation_id=delegation_id,
             assignment_id=assignment_id,
+            user_task_id=user_task_id,
             summarize_delegation_id=summarize_delegation_id,
+            summarize_user_task_id=summarize_user_task_id,
         )
+
+    def current_user_task_id(self, agent_id: str) -> str | None:
+        with self._lock:
+            session = self.clients.get(agent_id)
+        if session is None or not session.proc.isalive():
+            return None
+        return session.current_user_task_id()
 
     def respond_interaction(self, agent_id: str, request_id: str, response: str) -> None:
         with self._lock:
@@ -863,8 +986,22 @@ class ACPPool:
         leader_id: str | None,
         delegation_id: str | None,
         assignment_id: str | None,
+        user_task_id: str | None,
         summarize_delegation_id: str | None,
+        summarize_user_task_id: str | None,
+        failed: bool = False,
     ) -> None:
+        if summarize_user_task_id:
+            try:
+                store.mark_user_task_completed(summarize_user_task_id)
+            except Exception as exc:  # noqa: BLE001
+                store.push_event(
+                    "user_task.summary.failed",
+                    agent_id,
+                    summarize_user_task_id,
+                    {"text": f"标记用户任务总结完成失败：{exc}"},
+                )
+            return
         if summarize_delegation_id:
             try:
                 store.mark_delegation_summarized(summarize_delegation_id)
@@ -881,6 +1018,7 @@ class ACPPool:
                     delegation_id,
                     assignment_id,
                     result=reply or "(空响应)",
+                    failed=failed,
                 )
             except Exception as exc:  # noqa: BLE001
                 store.push_event(
@@ -891,7 +1029,24 @@ class ACPPool:
                 )
                 completed = None
             if completed:
-                self._prompt_leader_to_summarize(completed)
+                if completed.get("user_task_id"):
+                    self._prompt_user_task_to_summarize(completed)
+                else:
+                    self._prompt_leader_to_summarize(completed)
+            return
+        if user_task_id:
+            try:
+                completed = store.close_user_task_dispatch(user_task_id)
+            except Exception as exc:  # noqa: BLE001
+                store.push_event(
+                    "user_task.dispatch.failed",
+                    agent_id,
+                    user_task_id,
+                    {"text": f"关闭用户任务派发阶段失败：{exc}"},
+                )
+                completed = None
+            if completed:
+                self._prompt_user_task_to_summarize(completed)
             return
         if leader_id:
             worker = store.find_agent(agent_id) or {}
@@ -946,6 +1101,52 @@ class ACPPool:
                 leader_id,
                 delegation_id,
                 {"text": f"回推 leader 汇总请求失败：{exc}"},
+            )
+
+    def _prompt_user_task_to_summarize(self, user_task: dict) -> None:
+        user_task_id = user_task["user_task_id"]
+        user_task = store.mark_user_task_summarizing(user_task_id)
+        leader_id = user_task["leader_agent_id"]
+        results = []
+        for delegation in store.snapshot()["delegations"]:
+            if delegation.get("user_task_id") != user_task_id:
+                continue
+            for index, assignment in enumerate(delegation["assignments"], start=1):
+                results.append(
+                    "\n".join(
+                        [
+                            f"## {len(results) + 1}. {assignment['worker_name']} ({assignment['worker_agent_id']})",
+                            f"批次：{delegation['delegation_id']}",
+                            f"子任务：{assignment['content']}",
+                            f"状态：{assignment['status']}",
+                            "结果：",
+                            assignment.get("result") or "(空响应)",
+                        ]
+                    )
+                )
+        worker_results = "\n\n".join(results) or "(没有 worker 结果)"
+        prompt = (
+            "[SYSTEM_USER_TASK_SUMMARY_REQUEST]\n"
+            f"user_task_id: {user_task_id}\n"
+            "同一个用户任务拆分出的所有 worker 子任务已经全部结束。请只基于以下 worker 结果，面向用户输出最终总结。\n"
+            "不要再次派发同一批任务；如有缺失或失败，请在总结中明确说明。\n\n"
+            "用户原始任务：\n"
+            f"{user_task.get('content') or ''}\n\n"
+            "Worker 结果：\n"
+            f"{worker_results}"
+        )
+        try:
+            self.prompt(
+                leader_id,
+                prompt,
+                summarize_user_task_id=user_task_id,
+            )
+        except Exception as exc:  # noqa: BLE001
+            store.push_event(
+                "agent.output.failed",
+                leader_id,
+                user_task_id,
+                {"text": f"回推 leader 用户任务汇总请求失败：{exc}"},
             )
 
     def stop_all(self) -> None:

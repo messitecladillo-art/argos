@@ -28,8 +28,9 @@ def _format_user_task(content: str, leader_id: str) -> str:
         "mcp_agent_bus_send_to_worker(to_agent_id, content, from_agent_id) 派给合适 worker。\n"
         "3. from_agent_id 必须填写你自己的 agent_id。\n"
         "4. 并行派发后，平台会等待同一批 worker 全部完成，再把汇总请求发回给你。\n"
-        "5. 收到 `[SYSTEM_DELEGATION_SUMMARY_REQUEST]` 时，只基于给定 worker 结果总结，不要重复派发同一批任务。\n"
-        "6. 只有任务不需要 worker 时，才可以直接回复用户。\n"
+        "5. 如果你在同一个用户任务里分多次调用 worker，平台会把这些 worker 结果合并，等全部完成后再发汇总请求。\n"
+        "6. 派发 worker 后不要把任务当作最终完成；收到 `[SYSTEM_USER_TASK_SUMMARY_REQUEST]` 或 `[SYSTEM_DELEGATION_SUMMARY_REQUEST]` 时，只基于给定 worker 结果总结，不要重复派发同一批任务。\n"
+        "7. 只有任务不需要 worker 时，才可以直接回复用户。\n"
         "用户原始任务：\n"
         f"{content}"
     )
@@ -61,11 +62,13 @@ def send_user_task(store: RuntimeStore, *, content: str) -> dict:
     if not content:
         raise ValueError("content is required")
     leader_id = find_leader_agent_id(store)
+    user_task = store.create_user_task(leader_agent_id=leader_id, content=content)
     return send_message(
         store,
         content=content,
         to_agent_id=leader_id,
         prompt_content=_format_user_task(content, leader_id),
+        user_task_id=user_task["user_task_id"],
     )
 
 
@@ -78,7 +81,9 @@ def send_message(
     prompt_content: str | None = None,
     delegation_id: str | None = None,
     assignment_id: str | None = None,
+    user_task_id: str | None = None,
     summarize_delegation_id: str | None = None,
+    summarize_user_task_id: str | None = None,
 ) -> dict:
     content = (content or "").strip()
     if not content:
@@ -93,6 +98,7 @@ def send_message(
         from_agent_id=from_agent_id,
         delegation_id=delegation_id,
         assignment_id=assignment_id,
+        user_task_id=user_task_id,
     )
     final_content = prompt_content or _format_team_message(store, content, to_agent_id, from_agent_id)
     pool.prompt(
@@ -101,6 +107,8 @@ def send_message(
         reply_to_leader=from_agent_id,
         delegation_id=delegation_id,
         assignment_id=assignment_id,
+        user_task_id=user_task_id,
         summarize_delegation_id=summarize_delegation_id,
+        summarize_user_task_id=summarize_user_task_id,
     )
     return message
