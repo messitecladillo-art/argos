@@ -1,7 +1,12 @@
 from __future__ import annotations
 
+import logging
+
 from ..models.store import RuntimeStore
 from .acp import pool
+
+
+logger = logging.getLogger("hermes.agent_state")
 
 
 def find_leader_agent_id(runtime_store: RuntimeStore) -> str:
@@ -63,6 +68,12 @@ def send_user_task(store: RuntimeStore, *, content: str) -> dict:
         raise ValueError("content is required")
     leader_id = find_leader_agent_id(store)
     user_task = store.create_user_task(leader_agent_id=leader_id, content=content)
+    logger.warning(
+        "[agent-message] send_user_task leader=%s user_task=%s content_len=%s",
+        leader_id,
+        user_task["user_task_id"],
+        len(content),
+    )
     return send_message(
         store,
         content=content,
@@ -84,6 +95,7 @@ def send_message(
     user_task_id: str | None = None,
     summarize_delegation_id: str | None = None,
     summarize_user_task_id: str | None = None,
+    dispatch: bool = True,
 ) -> dict:
     content = (content or "").strip()
     if not content:
@@ -101,6 +113,19 @@ def send_message(
         user_task_id=user_task_id,
     )
     final_content = prompt_content or _format_team_message(store, content, to_agent_id, from_agent_id)
+    logger.warning(
+        "[agent-message] send_message to=%s from=%s message=%s delegation=%s assignment=%s user_task=%s prompt_len=%s dispatch=%s",
+        to_agent_id,
+        from_agent_id,
+        message["message_id"],
+        delegation_id,
+        assignment_id,
+        user_task_id,
+        len(final_content),
+        dispatch,
+    )
+    if not dispatch:
+        return {**message, "prompt_content": final_content}
     pool.prompt(
         to_agent_id,
         final_content,

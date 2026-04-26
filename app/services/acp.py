@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import os
 import re
+import logging
 import threading
 import time
 from collections import deque
@@ -20,6 +21,8 @@ import pyte
 
 from ..models.store import store
 
+
+logger = logging.getLogger("hermes.agent_state")
 
 SILENCE_TIMEOUT_SECONDS = 10.0
 MAX_TURN_SECONDS = 120.0
@@ -121,6 +124,15 @@ def _has_interrupt_hint(text: str) -> bool:
     return bool(INTERRUPT_HINT_PATTERN.search(text))
 
 
+def _looks_ready_for_next_input(*texts: str) -> bool:
+    return any(
+        pattern.search(text)
+        for text in texts
+        if text
+        for pattern in READY_PATTERNS
+    )
+
+
 def _clean_selection_line(line: str) -> str:
     return line.strip().strip("│┃║▏▕▌▐").rstrip("│┃║▏▕▌▐").strip()
 
@@ -199,6 +211,11 @@ def _interaction_signature(kind: str, choices: list[str] | None = None, prompt: 
     return f"{kind}:{compact_prompt}"
 
 
+def _log_state(event: str, agent_id: str, **fields: Any) -> None:
+    details = " ".join(f"{key}={value!r}" for key, value in fields.items())
+    logger.warning("[agent-state] %s agent=%s %s", event, agent_id, details)
+
+
 class HermesSession:
     def __init__(self, profile_name: str, agent_id: str, on_final) -> None:
         self.profile_name = profile_name
@@ -213,6 +230,15 @@ class HermesSession:
         self._last_terminal_snapshot = ""
         self._current_output: list[str] = []
         self._current_message: dict[str, Any] | None = None
+        self._current_had_interrupt_hint = False
+        self._current_saw_substantive_output = False
+        self._manual_terminal_active = False
+        self._manual_terminal_user_task_id: str | None = None
+        self._manual_terminal_buffer = ""
+        self._manual_terminal_output: list[str] = []
+        self._manual_terminal_started_at = 0.0
+        self._manual_terminal_had_interrupt_hint = False
+        self._manual_terminal_saw_substantive_output = False
         self._pending_interaction: dict[str, Any] | None = None
         self._terminal_interaction_buffer = ""
         self._terminal_selection_index: int | None = None
@@ -250,6 +276,7 @@ class HermesSession:
             exclude_user_task_id=current_user_task_id,
         )
         store.update_agent(self.agent_id, queue_depth=queue_depth)
+        _log_state("queue_depth", self.agent_id, depth=queue_depth)
         store.push_event(
             "agent.queue.updated",
             self.agent_id,
@@ -301,6 +328,7 @@ class HermesSession:
             interaction_state=kind,
             pending_interaction=pending,
         )
+        _log_state("interaction_required", self.agent_id, kind=kind, request_id=request_id)
         store.push_event(
             "agent.interaction.required",
             self.agent_id,
@@ -328,6 +356,7 @@ class HermesSession:
             interaction_state="running",
             pending_interaction=None,
         )
+        _log_state("interaction_resolved", self.agent_id, kind=pending.get("kind"), response=response)
         store.push_event(
             "agent.interaction.resolved",
             self.agent_id,
@@ -374,6 +403,7 @@ class HermesSession:
             status="offline",
             current_task="会话异常退出",
         )
+        _log_state("crashed", self.agent_id, reason=reason, failed_message=bool(failed_message))
         self._update_queue_depth()
         store.push_event(
             "agent.runtime.failed",
@@ -440,7 +470,79 @@ class HermesSession:
         with self._lock:
             pending = self._pending_interaction
             if pending is None:
-                return
+                buffer = self._manual_terminal_buffer
+                cursor = 0
+                while cursor < len(data):
+                    if data.startswith("\x1b[200~", cursor):
+                        cursor += 6
+                        continue
+                    if data.startswith("\x1b[201~", cursor):
+                        cursor += 6
+                        continue
+                    if data[cursor] == "\x1b":
+                        match = re.match(r"\x1b\[[0-9;?]*[A-Za-z~]|\x1bO[A-Za-z]", data[cursor:])
+                        cursor += len(match.group(0)) if match else 1
+                        continue
+                    char = data[cursor]
+                    if char in "\r\n":
+                        cursor += 1
+                        continue
+                    if char in ("\b", "\x7f"):
+                        buffer = buffer[:-1]
+                    elif char >= " ":
+                        buffer += char
+                    cursor += 1
+                if submitted and buffer.strip():
+                    self._manual_terminal_active = True
+                    self._manual_terminal_output = []
+                    self._manual_terminal_started_at = time.monotonic()
+                    self._manual_terminal_had_interrupt_hint = False
+                    self._manual_terminal_saw_substantive_output = False
+                    self._last_output_at = self._manual_terminal_started_at
+                    self._manual_terminal_buffer = ""
+                    submitted_text = buffer.strip()
+                else:
+                    self._manual_terminal_buffer = buffer if not submitted else ""
+                    submitted_text = ""
+                if not submitted_text:
+                    return
+                pending = None
+            else:
+                submitted_text = ""
+        if pending is None:
+            user_task_id = None
+            agent = store.find_agent(self.agent_id) or {}
+            if agent.get("role") == "leader":
+                try:
+                    user_task = store.create_user_task(
+                        leader_agent_id=self.agent_id,
+                        content=submitted_text,
+                    )
+                    user_task_id = user_task["user_task_id"]
+                except Exception as exc:  # noqa: BLE001
+                    store.push_event(
+                        "user_task.create.failed",
+                        self.agent_id,
+                        None,
+                        {"text": f"终端任务创建失败：{exc}"},
+                    )
+            with self._lock:
+                if self._manual_terminal_active:
+                    self._manual_terminal_user_task_id = user_task_id
+            store.update_agent(
+                self.agent_id,
+                status="busy",
+                current_task="终端处理中",
+                interaction_state="running",
+            )
+            _log_state(
+                "terminal_manual_start",
+                self.agent_id,
+                chars=len(submitted_text),
+                user_task_id=user_task_id,
+            )
+            return
+        with self._lock:
             choices = list(pending.get("choices") or [])
             if pending.get("kind") == "awaiting_selection" and choices:
                 current_index = self._terminal_selection_index
@@ -489,6 +591,50 @@ class HermesSession:
             self._clear_interaction(response or "terminal submit")
             self._last_output_at = time.monotonic()
 
+    def _finalize_manual_terminal(self) -> None:
+        with self._lock:
+            if not self._manual_terminal_active:
+                return
+            reply = _clean_agent_reply("".join(self._manual_terminal_output))
+            user_task_id = self._manual_terminal_user_task_id
+            self._manual_terminal_active = False
+            self._manual_terminal_user_task_id = None
+            self._manual_terminal_output = []
+            self._manual_terminal_started_at = 0.0
+            self._manual_terminal_had_interrupt_hint = False
+            self._manual_terminal_saw_substantive_output = False
+            queued = bool(self._queue or self._current_message)
+        store.update_agent(
+            self.agent_id,
+            status="busy" if queued else "idle",
+            current_task="等待队列执行" if queued else "空闲",
+            interaction_state="queued" if queued else "idle",
+            last_output=(reply[:180] + "…") if len(reply) > 180 else (reply or "—"),
+            last_output_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        )
+        _log_state("terminal_manual_final", self.agent_id, reply_len=len(reply), queued=queued)
+        if user_task_id:
+            try:
+                self.on_final(
+                    self.agent_id,
+                    reply,
+                    None,
+                    None,
+                    None,
+                    user_task_id,
+                    None,
+                    None,
+                    False,
+                )
+            except Exception as exc:  # noqa: BLE001
+                store.push_event(
+                    "user_task.dispatch.failed",
+                    self.agent_id,
+                    user_task_id,
+                    {"text": f"关闭终端用户任务失败：{exc}"},
+                )
+        self._dispatch_next()
+
     def _resize_terminal(self, rows: int, columns: int) -> None:
         rows = max(10, min(int(rows), 120))
         columns = max(40, min(int(columns), 240))
@@ -508,8 +654,25 @@ class HermesSession:
     def _dispatch_next(self) -> None:
         with self._lock:
             if self._closed or self._pending_interaction is not None or self._current_message is not None:
+                _log_state(
+                    "dispatch_skip",
+                    self.agent_id,
+                    closed=self._closed,
+                    pending=bool(self._pending_interaction),
+                    current=bool(self._current_message),
+                    queue=len(self._queue),
+                )
                 return
             if not self._queue:
+                if self._manual_terminal_active:
+                    store.update_agent(
+                        self.agent_id,
+                        status="busy",
+                        current_task="终端处理中",
+                        interaction_state="running",
+                    )
+                    _log_state("dispatch_idle_manual_active", self.agent_id)
+                    return
                 agent = store.find_agent(self.agent_id) or {}
                 orchestration_state = agent.get("orchestration_state")
                 active_tasks = store.count_active_user_tasks(self.agent_id)
@@ -525,6 +688,7 @@ class HermesSession:
                         current_task=current_task,
                         interaction_state="queued",
                     )
+                    _log_state("dispatch_idle_active_task", self.agent_id, active_tasks=active_tasks, orchestration_state=orchestration_state)
                 else:
                     current_task = (
                         "等待 worker 返回"
@@ -537,10 +701,13 @@ class HermesSession:
                         current_task=current_task,
                         interaction_state="idle",
                     )
+                    _log_state("dispatch_idle", self.agent_id, orchestration_state=orchestration_state)
                 return
             message = self._queue.popleft()
             self._current_message = message
             self._current_output = []
+            self._current_had_interrupt_hint = False
+            self._current_saw_substantive_output = False
             self._current_started_at = time.monotonic()
             self._last_output_at = self._current_started_at
         store.update_agent(
@@ -548,6 +715,15 @@ class HermesSession:
             status="busy",
             current_task="处理消息中",
             interaction_state="running",
+        )
+        _log_state(
+            "dispatch_start",
+            self.agent_id,
+            job_id=message.get("id"),
+            delegation_id=message.get("delegation_id"),
+            assignment_id=message.get("assignment_id"),
+            user_task_id=message.get("user_task_id"),
+            queue=len(self._queue),
         )
         self._update_queue_depth()
         try:
@@ -563,6 +739,8 @@ class HermesSession:
             reply = _clean_agent_reply("".join(self._current_output))
             self._current_message = None
             self._current_output = []
+            self._current_had_interrupt_hint = False
+            self._current_saw_substantive_output = False
 
         preview = (reply[:180] + "…") if len(reply) > 180 else (reply or "—")
         active_tasks = store.count_active_user_tasks(
@@ -583,6 +761,19 @@ class HermesSession:
             interaction_state=next_state,
             last_output=preview,
             last_output_at=time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        )
+        _log_state(
+            "finalize",
+            self.agent_id,
+            job_id=message.get("id"),
+            next_status=next_status,
+            next_state=next_state,
+            reply_len=len(reply),
+            queue=len(self._queue),
+            active_tasks=active_tasks,
+            delegation_id=message.get("delegation_id"),
+            assignment_id=message.get("assignment_id"),
+            user_task_id=message.get("user_task_id"),
         )
         store.push_event(
             "agent.output.final",
@@ -626,9 +817,26 @@ class HermesSession:
             self._raw_output = (self._raw_output + clean)[-MAX_RAW_OUTPUT_CHARS:]
             if running:
                 self._current_output.append(clean)
+                if _has_interrupt_hint(clean) or _has_interrupt_hint(terminal_snapshot):
+                    self._current_had_interrupt_hint = True
                 if _is_substantive_output(clean):
+                    self._current_saw_substantive_output = True
+                    self._last_output_at = now
+            manual_active = self._manual_terminal_active and not running
+            if manual_active:
+                self._manual_terminal_output.append(clean)
+                if _has_interrupt_hint(clean) or _has_interrupt_hint(terminal_snapshot):
+                    self._manual_terminal_had_interrupt_hint = True
+                if _is_substantive_output(clean):
+                    self._manual_terminal_saw_substantive_output = True
                     self._last_output_at = now
             pending = self._pending_interaction
+            current_text = "".join(self._current_output)[-2000:]
+            current_had_interrupt_hint = self._current_had_interrupt_hint
+            current_saw_substantive_output = self._current_saw_substantive_output
+            manual_text = "".join(self._manual_terminal_output)[-2000:]
+            manual_had_interrupt_hint = self._manual_terminal_had_interrupt_hint
+            manual_saw_substantive_output = self._manual_terminal_saw_substantive_output
 
         store.push_event(
             "agent.terminal.output",
@@ -654,6 +862,7 @@ class HermesSession:
                     current_task="处理消息中",
                     interaction_state="running",
                 )
+                _log_state("running_from_chunk", self.agent_id, chunk_len=len(chunk))
 
         if pending is not None:
             return
@@ -661,15 +870,37 @@ class HermesSession:
         recent = self._tail(2000)
         detection_text = f"{terminal_snapshot}\n{recent}"
         if not running:
-            self._detect_interaction(detection_text)
+            if self._detect_interaction(detection_text):
+                return
+            if (
+                manual_active
+                and manual_saw_substantive_output
+                and _looks_ready_for_next_input(manual_text, terminal_snapshot)
+                and not _has_interrupt_hint(manual_text)
+                and not _has_interrupt_hint(terminal_snapshot)
+            ):
+                _log_state(
+                    "terminal_manual_ready_detected",
+                    self.agent_id,
+                    current_tail=manual_text[-160:],
+                    had_interrupt_hint=manual_had_interrupt_hint,
+                )
+                self._finalize_manual_terminal()
             return
         if self._detect_interaction(detection_text):
             return
         if (
-            any(pattern.search(detection_text) for pattern in READY_PATTERNS)
-            and not _has_interrupt_hint(recent)
-            and "".join(self._current_output).strip()
+            current_saw_substantive_output
+            and _looks_ready_for_next_input(current_text, terminal_snapshot)
+            and not _has_interrupt_hint(current_text)
+            and not _has_interrupt_hint(terminal_snapshot)
         ):
+            _log_state(
+                "ready_detected",
+                self.agent_id,
+                current_tail=current_text[-160:],
+                had_interrupt_hint=current_had_interrupt_hint,
+            )
             self._finalize_current()
 
     def _reader_loop(self) -> None:
@@ -707,10 +938,43 @@ class HermesSession:
                     and self._current_started_at > 0
                     and (time.monotonic() - self._current_started_at) >= MAX_TURN_SECONDS
                 )
+                manual_timed_out = (
+                    self._manual_terminal_active
+                    and self._current_message is None
+                    and self._pending_interaction is None
+                    and bool("".join(self._manual_terminal_output).strip())
+                    and not _has_interrupt_hint(self._last_terminal_snapshot)
+                    and (time.monotonic() - self._last_output_at) >= SILENCE_TIMEOUT_SECONDS
+                )
+                manual_turn_expired = (
+                    self._manual_terminal_active
+                    and self._current_message is None
+                    and self._pending_interaction is None
+                    and self._manual_terminal_started_at > 0
+                    and (time.monotonic() - self._manual_terminal_started_at) >= MAX_TURN_SECONDS
+                )
             if timed_out or turn_expired:
                 if self._detect_interaction(interaction_text):
                     continue
+                _log_state(
+                    "timeout_finalize",
+                    self.agent_id,
+                    timed_out=timed_out,
+                    turn_expired=turn_expired,
+                    idle_for=round(time.monotonic() - self._last_output_at, 2),
+                )
                 self._finalize_current()
+            if manual_timed_out or manual_turn_expired:
+                if self._detect_interaction(interaction_text):
+                    continue
+                _log_state(
+                    "terminal_manual_timeout_finalize",
+                    self.agent_id,
+                    timed_out=manual_timed_out,
+                    turn_expired=manual_turn_expired,
+                    idle_for=round(time.monotonic() - self._last_output_at, 2),
+                )
+                self._finalize_manual_terminal()
 
     # ------------------------------------------------------------------ api
     def enqueue_message(
@@ -737,6 +1001,18 @@ class HermesSession:
         with self._lock:
             self._queue.append(item)
             current_busy = self._current_message is not None or self._pending_interaction is not None
+            queue_depth = len(self._queue)
+        _log_state(
+            "enqueue",
+            self.agent_id,
+            job_id=item["id"],
+            current_busy=current_busy,
+            queue=queue_depth,
+            delegation_id=delegation_id,
+            assignment_id=assignment_id,
+            user_task_id=user_task_id,
+            summarize_user_task_id=summarize_user_task_id,
+        )
         store.update_agent(
             self.agent_id,
             status="busy",
@@ -791,8 +1067,10 @@ class HermesSession:
     def send_terminal_data(self, data: str) -> None:
         if not data:
             raise ValueError("data is required")
-        self._send_terminal_data(data)
+        if "\r" in data or "\n" in data:
+            _log_state("terminal_submit", self.agent_id, bytes=len(data))
         self._track_terminal_interaction_data(data)
+        self._send_terminal_data(data)
 
     def resize_terminal(self, rows: int, columns: int) -> None:
         self._resize_terminal(rows, columns)
@@ -821,9 +1099,11 @@ class HermesSession:
 
     def current_user_task_id(self) -> str | None:
         with self._lock:
-            if self._current_message is None:
-                return None
-            return self._current_message.get("user_task_id")
+            if self._current_message is not None:
+                return self._current_message.get("user_task_id")
+            if self._manual_terminal_active:
+                return self._manual_terminal_user_task_id
+            return None
 
 
 class ACPPool:
@@ -934,6 +1214,14 @@ class ACPPool:
             session = self.clients.get(agent_id)
         if session is None or not session.proc.isalive():
             raise RuntimeError("agent session is not running; start it first")
+        _log_state(
+            "pool_prompt",
+            agent_id,
+            delegation_id=delegation_id,
+            assignment_id=assignment_id,
+            user_task_id=user_task_id,
+            summarize_user_task_id=summarize_user_task_id,
+        )
         session.enqueue_message(
             content,
             reply_to_leader=reply_to_leader,
@@ -992,6 +1280,7 @@ class ACPPool:
         failed: bool = False,
     ) -> None:
         if summarize_user_task_id:
+            _log_state("summary_final", agent_id, user_task_id=summarize_user_task_id, reply_len=len(reply or ""))
             try:
                 store.mark_user_task_completed(summarize_user_task_id)
             except Exception as exc:  # noqa: BLE001
@@ -1013,6 +1302,15 @@ class ACPPool:
                     {"text": f"标记批次总结完成失败：{exc}"},
                 )
         if leader_id and delegation_id and assignment_id:
+            _log_state(
+                "assignment_final",
+                agent_id,
+                delegation_id=delegation_id,
+                assignment_id=assignment_id,
+                user_task_id=user_task_id,
+                failed=failed,
+                reply_len=len(reply or ""),
+            )
             try:
                 completed = store.complete_assignment(
                     delegation_id,
@@ -1035,6 +1333,7 @@ class ACPPool:
                     self._prompt_leader_to_summarize(completed)
             return
         if user_task_id:
+            _log_state("user_task_dispatch_final", agent_id, user_task_id=user_task_id, reply_len=len(reply or ""))
             try:
                 completed = store.close_user_task_dispatch(user_task_id)
             except Exception as exc:  # noqa: BLE001

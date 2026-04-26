@@ -6,6 +6,7 @@ hermes CLI subprocess) call `list_agents` to discover available workers.
 from __future__ import annotations
 
 import asyncio
+import logging
 import threading
 
 from mcp.server.fastmcp import FastMCP
@@ -13,6 +14,7 @@ from mcp.server.fastmcp import FastMCP
 from .models.store import store
 
 mcp = FastMCP("hermes-agents", streamable_http_path="/")
+logger = logging.getLogger("hermes.agent_state")
 
 
 def _resolve_sender_agent_id(from_agent_id: str) -> str:
@@ -101,6 +103,12 @@ def dispatch_parallel(
         raise ValueError("assignments is required")
     sender_agent_id = _resolve_sender_agent_id(from_agent_id)
     user_task_id = pool.current_user_task_id(sender_agent_id)
+    logger.warning(
+        "[agent-mcp] dispatch_parallel from=%s user_task=%s assignments=%s",
+        sender_agent_id,
+        user_task_id,
+        len(assignments),
+    )
     for assignment in assignments:
         worker_id = (assignment.get("to_agent_id") or "").strip()
         if not worker_id:
@@ -123,11 +131,20 @@ def dispatch_parallel(
             delegation_id=delegation["delegation_id"],
             assignment_id=assignment["assignment_id"],
             user_task_id=user_task_id,
+            dispatch=False,
         )
         store.attach_assignment_message(
             delegation["delegation_id"],
             assignment["assignment_id"],
             message["message_id"],
+        )
+        pool.prompt(
+            assignment["worker_agent_id"],
+            message["prompt_content"],
+            reply_to_leader=sender_agent_id,
+            delegation_id=delegation["delegation_id"],
+            assignment_id=assignment["assignment_id"],
+            user_task_id=user_task_id,
         )
         dispatched.append(
             {

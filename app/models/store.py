@@ -1,12 +1,21 @@
 from __future__ import annotations
 
 import json
+import logging
 import queue
 import threading
 from collections import deque
 from itertools import count
 
 from ..config import now_iso
+
+
+logger = logging.getLogger("hermes.agent_state")
+
+
+def _log_store(event: str, **fields) -> None:
+    details = " ".join(f"{key}={value!r}" for key, value in fields.items())
+    logger.warning("[agent-store] %s %s", event, details)
 
 
 class RuntimeStore:
@@ -131,6 +140,7 @@ class RuntimeStore:
             task["user_task_id"],
             {"text": "用户任务已创建"},
         )
+        _log_store("user_task_created", user_task_id=task["user_task_id"], leader_agent_id=leader_agent_id)
         self.push_agents_changed()
         return task
 
@@ -190,6 +200,9 @@ class RuntimeStore:
                 user_task_id,
                 {"text": "用户任务已直接完成"},
             )
+            _log_store("user_task_completed_direct", user_task_id=user_task_id)
+        else:
+            _log_store("user_task_dispatch_closed", user_task_id=user_task_id, ready=bool(ready_task), status=task["status"])
         self.push_agents_changed()
         return ready_task
 
@@ -212,6 +225,7 @@ class RuntimeStore:
                 leader["queue_depth"] = max(leader.get("queue_depth") or 0, 1)
                 leader["last_active_at"] = now_iso()
             snapshot = dict(task)
+        _log_store("user_task_summarizing", user_task_id=user_task_id)
         self.push_agents_changed()
         return snapshot
 
@@ -244,6 +258,7 @@ class RuntimeStore:
             user_task_id,
             {"text": "用户任务汇总完成"},
         )
+        _log_store("user_task_completed", user_task_id=user_task_id, leader_agent_id=leader_id)
         self.push_agents_changed()
 
     # ------------------------------------------------------------------ delegations
@@ -315,21 +330,43 @@ class RuntimeStore:
             delegation_id,
             {"text": f"已创建并行批次 {delegation_id}"},
         )
+        _log_store(
+            "delegation_created",
+            delegation_id=delegation_id,
+            user_task_id=user_task_id,
+            leader_agent_id=leader_agent_id,
+            assignment_count=len(normalized_assignments),
+        )
         self.push_agents_changed()
         return delegation
 
     def attach_assignment_message(
         self, delegation_id: str, assignment_id: str, message_id: str
     ) -> None:
+        should_mark_started = False
         with self._lock:
             assignment = self._find_assignment_locked(delegation_id, assignment_id)
             assignment["message_id"] = message_id
-            assignment["status"] = "running"
-        self.push_event(
-            "delegation.assignment.started",
-            assignment["worker_agent_id"],
-            delegation_id,
-            {"text": f"{assignment['worker_name']} 已开始处理 {assignment_id}"},
+            if assignment["status"] not in {"completed", "failed"}:
+                assignment["status"] = "running"
+                should_mark_started = True
+            worker_agent_id = assignment["worker_agent_id"]
+            worker_name = assignment["worker_name"]
+            status = assignment["status"]
+        if should_mark_started:
+            self.push_event(
+                "delegation.assignment.started",
+                worker_agent_id,
+                delegation_id,
+                {"text": f"{worker_name} 已开始处理 {assignment_id}"},
+            )
+        _log_store(
+            "assignment_started",
+            delegation_id=delegation_id,
+            assignment_id=assignment_id,
+            message_id=message_id,
+            status=status,
+            emitted=should_mark_started,
         )
 
     def complete_assignment(
@@ -370,6 +407,14 @@ class RuntimeStore:
             assignment["worker_agent_id"],
             delegation_id,
             {"text": f"{assignment['worker_name']} 已完成 {assignment_id}"},
+        )
+        _log_store(
+            "assignment_completed",
+            delegation_id=delegation_id,
+            assignment_id=assignment_id,
+            status=assignment["status"],
+            completed_summary=bool(completed_summary),
+            completed_user_task=bool(completed_user_task),
         )
         if completed_summary is not None:
             self.push_event(

@@ -15,6 +15,7 @@ const terminalSnapshots = new Map();
 const terminalOutputLogs = new Map();
 const terminalHasLiveOutput = new Set();
 const maxTerminalLogLength = 200000;
+const hermesDebug = window.localStorage?.getItem("hermesDebug") !== "0";
 let agentContextMenu = null;
 let deletingAgentId = "";
 let dismissAgentModal = null;
@@ -23,6 +24,11 @@ let fitAddon = null;
 let resizeTimer = 0;
 let lastTerminalRows = 0;
 let lastTerminalCols = 0;
+
+function debugLog(event, payload) {
+  if (!hermesDebug) return;
+  console.debug(`[hermes-debug] ${event}`, payload);
+}
 
 function escapeHtml(value) {
   return String(value || "")
@@ -82,6 +88,15 @@ function buildAgentRow(agent, isActive) {
   row.dataset.agentOrchestrationState = agent.orchestration_state || "none";
   const runtimeStatus = agent.runtime_status || "stopped";
   const displayStatus = getAgentDisplayStatus(agent);
+  debugLog("agent-row", {
+    agent_id: agent.agent_id,
+    status: agent.status,
+    interaction_state: agent.interaction_state,
+    orchestration_state: agent.orchestration_state,
+    runtime_status: runtimeStatus,
+    queue_depth: agent.queue_depth || 0,
+    display: displayStatus.label,
+  });
   const btn = runtimeStatus === "running"
     ? `<button class="acp-btn acp-btn--stop" type="button" data-session-action="stop" data-agent-id="${agent.agent_id}">停止</button>`
     : `<button class="acp-btn acp-btn--start" type="button" data-session-action="start" data-agent-id="${agent.agent_id}">启动</button>`;
@@ -117,6 +132,15 @@ function renderInteractions(agents) {
 
 function renderAgents(agents, stats) {
   if (!agentList) return;
+  debugLog("render-agents", agents.map((agent) => ({
+    agent_id: agent.agent_id,
+    status: agent.status,
+    interaction_state: agent.interaction_state,
+    orchestration_state: agent.orchestration_state,
+    runtime_status: agent.runtime_status,
+    queue_depth: agent.queue_depth || 0,
+    current_task: agent.current_task,
+  })));
   closeAgentContextMenu();
   const selected = eventList?.dataset.selectedAgent || (agents[0] && agents[0].agent_id) || "";
   agentList.innerHTML = "";
@@ -324,11 +348,17 @@ function handleTerminalEvent(event) {
   const agentId = event.agent_id || "";
   if (event.event_type === "agent.terminal.snapshot") {
     terminalSnapshots.set(agentId, cleanTerminalText(event.data?.text || ""));
+    debugLog("terminal-snapshot", { agent_id: agentId, selected: eventList.dataset.selectedAgent || "" });
     return;
   }
   if (event.event_type !== "agent.terminal.output") return;
   terminalHasLiveOutput.add(agentId);
   appendTerminalOutput(agentId, String(event.data?.text || ""));
+  debugLog("terminal-output", {
+    agent_id: agentId,
+    selected: eventList.dataset.selectedAgent || "",
+    bytes: String(event.data?.text || "").length,
+  });
   if (agentId !== (eventList.dataset.selectedAgent || "")) return;
   if (term) term.write(String(event.data?.text || ""));
 }
@@ -590,6 +620,7 @@ stream.addEventListener("event", (event) => {
 });
 stream.addEventListener("agents", (event) => {
   const payload = JSON.parse(event.data);
+  debugLog("sse-agents", payload);
   renderAgents(payload.agents || [], payload.stats || []);
 });
 stream.onmessage = (event) => {
