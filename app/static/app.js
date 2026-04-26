@@ -45,6 +45,31 @@ function formatRuntimeStatus(value) {
   return "离岗";
 }
 
+function getAgentDisplayStatus(agent) {
+  const runtimeStatus = agent.runtime_status || "stopped";
+  const interactionState = agent.interaction_state || "idle";
+  const orchestrationState = agent.orchestration_state || "none";
+  const status = agent.status || "idle";
+
+  if (runtimeStatus === "stopped" || runtimeStatus === "crashed") {
+    return { label: "不可用", className: "offline" };
+  }
+  if (["awaiting_approval", "awaiting_selection", "awaiting_input"].includes(interactionState)) {
+    return { label: "需介入", className: "waiting" };
+  }
+  if (
+    status === "busy" ||
+    status === "waiting" ||
+    interactionState === "queued" ||
+    interactionState === "running" ||
+    orchestrationState === "waiting_workers" ||
+    orchestrationState === "summarizing"
+  ) {
+    return { label: "处理中", className: "busy" };
+  }
+  return { label: "空闲", className: "idle" };
+}
+
 function buildAgentRow(agent, isActive) {
   const row = document.createElement("div");
   row.setAttribute("role", "button");
@@ -56,12 +81,7 @@ function buildAgentRow(agent, isActive) {
   row.dataset.agentStatus = agent.status || "idle";
   row.dataset.agentOrchestrationState = agent.orchestration_state || "none";
   const runtimeStatus = agent.runtime_status || "stopped";
-  const displayStatus = agent.orchestration_state === "waiting_workers"
-    ? "waiting"
-    : (agent.orchestration_state === "summarizing" ? "busy" : (agent.status || "idle"));
-  const displayState = agent.orchestration_state && agent.orchestration_state !== "none"
-    ? agent.orchestration_state
-    : (agent.interaction_state || "idle");
+  const displayStatus = getAgentDisplayStatus(agent);
   const btn = runtimeStatus === "running"
     ? `<button class="acp-btn acp-btn--stop" type="button" data-session-action="stop" data-agent-id="${agent.agent_id}">停止</button>`
     : `<button class="acp-btn acp-btn--start" type="button" data-session-action="start" data-agent-id="${agent.agent_id}">启动</button>`;
@@ -71,7 +91,7 @@ function buildAgentRow(agent, isActive) {
         <strong>${escapeHtml(agent.name)}</strong>
         <p>${escapeHtml(agent.role)} · ${escapeHtml(agent.profile_name)}</p>
       </div>
-      <span class="status-badge status-${escapeHtml(displayStatus)}">${escapeHtml(displayState)}</span>
+      <span class="status-badge status-${escapeHtml(displayStatus.className)}">${escapeHtml(displayStatus.label)}</span>
     </div>
     <div class="agent-row__body">
       <div class="load-track"><span style="width: ${agent.load || 0}%"></span></div>

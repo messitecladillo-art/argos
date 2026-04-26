@@ -35,6 +35,23 @@
 
         <div class="agent-list" id="agent-list">
           {% for agent in agents %}
+          {% set runtime_status = agent.runtime_status or 'stopped' %}
+          {% set interaction_state = agent.interaction_state or 'idle' %}
+          {% set orchestration_state = agent.orchestration_state or 'none' %}
+          {% set agent_status = agent.status or 'idle' %}
+          {% if runtime_status in ['stopped', 'crashed'] %}
+            {% set display_status_label = '不可用' %}
+            {% set display_status_class = 'offline' %}
+          {% elif interaction_state in ['awaiting_approval', 'awaiting_selection', 'awaiting_input'] %}
+            {% set display_status_label = '需介入' %}
+            {% set display_status_class = 'waiting' %}
+          {% elif agent_status in ['busy', 'waiting'] or interaction_state in ['queued', 'running'] or orchestration_state in ['waiting_workers', 'summarizing'] %}
+            {% set display_status_label = '处理中' %}
+            {% set display_status_class = 'busy' %}
+          {% else %}
+            {% set display_status_label = '空闲' %}
+            {% set display_status_class = 'idle' %}
+          {% endif %}
           <div
             class="agent-row {% if message_target and agent.agent_id == message_target.agent_id %}is-active{% endif %}"
             role="button"
@@ -42,15 +59,15 @@
             data-agent-id="{{ agent.agent_id }}"
             data-agent-name="{{ agent.name }}"
             data-agent-role="{{ agent.role }}"
-            data-agent-status="{{ agent.status or 'idle' }}"
-            data-agent-orchestration-state="{{ agent.orchestration_state or 'none' }}"
+            data-agent-status="{{ agent_status }}"
+            data-agent-orchestration-state="{{ orchestration_state }}"
           >
             <div class="agent-row__top">
               <div>
                 <strong>{{ agent.name }}</strong>
                 <p>{{ agent.role }} · {{ agent.profile_name }}</p>
               </div>
-              <span class="status-badge status-{{ agent.status }}">{{ agent.status }}</span>
+              <span class="status-badge status-{{ display_status_class }}">{{ display_status_label }}</span>
             </div>
             <div class="agent-row__body">
               <div class="load-track">
@@ -67,7 +84,6 @@
                 </div>
               </dl>
               <div class="agent-row__session">
-                {% set runtime_status = agent.runtime_status or 'stopped' %}
                 <span class="acp-dot acp-{{ runtime_status }}"></span>
                 <span class="acp-label">
                   {% if runtime_status == 'running' %}在岗{% elif runtime_status == 'crashed' %}异常{% else %}离岗{% endif %}
@@ -151,6 +167,6 @@
     </script>
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
-    <script src="{{ url_for('static', filename='app.js') }}?v=xterm-terminal-4"></script>
+    <script src="{{ url_for('static', filename='app.js') }}?v=status-display-1"></script>
   </body>
 </html>
