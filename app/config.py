@@ -12,6 +12,10 @@ HERMES_HOME = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes")))
 AGENT_TEAM_WORKSPACE_ROOT = Path(
     os.environ.get("AGENT_TEAM_WORKSPACE_ROOT", "/Users/liuwenbin/agent_team")
 ).expanduser().resolve(strict=False)
+DATABASE_URL = os.environ.get(
+    "DATABASE_URL",
+    f"sqlite:///{(Path(__file__).resolve().parents[1] / 'data' / 'hermes_agent_team.db')}",
+)
 MCP_BUS_URL = os.environ.get(
     "HERMES_AGENTS_MCP_URL", "http://127.0.0.1:5050/mcp/"
 )

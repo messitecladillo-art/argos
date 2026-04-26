@@ -6,6 +6,7 @@ from flask import Flask
 from werkzeug.middleware.dispatcher import DispatcherMiddleware
 
 from .controllers import register_blueprints
+from .db import init_database
 from .mcp_server import mcp_asgi_app, start_session_manager
 from .models.store import store
 from .services import registry
@@ -18,6 +19,8 @@ def create_app() -> Flask:
         TEMPLATES_AUTO_RELOAD=True,
         SEND_FILE_MAX_AGE_DEFAULT=0,
     )
+    init_database()
+    store.load_persisted_state()
     registry.bootstrap(store)
     register_blueprints(app)
     start_session_manager()

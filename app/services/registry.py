@@ -135,4 +135,16 @@ def load_team_metas() -> list[dict]:
 def bootstrap(store) -> None:
     """Populate a RuntimeStore from disk. Called once on app startup."""
     for agent in load_team_metas():
+        if store.has_profile(agent["profile_name"]):
+            store.update_agent(
+                agent["agent_id"],
+                name=agent["name"],
+                role=agent["role"],
+                description=agent["description"],
+                is_leader=agent["is_leader"],
+                workspace_path=agent["workspace_path"],
+                readiness_status=agent["readiness_status"],
+                readiness_message=agent["readiness_message"],
+            )
+            continue
         store.register_agent(agent)

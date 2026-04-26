@@ -6,11 +6,20 @@ import queue
 import threading
 from collections import deque
 from itertools import count
+from typing import Any
 
 from ..config import now_iso
+from ..db import SQLitePersistence
 
 
 logger = logging.getLogger("hermes.agent_state")
+
+NON_PERSISTED_EVENT_TYPES = {
+    # High-volume terminal stream events are transport/UI state, not durable
+    # audit history. Persisting them can generate thousands of rows per task.
+    "agent.terminal.output",
+    "agent.terminal.snapshot",
+}
 
 
 def _log_store(event: str, **fields) -> None:
@@ -26,8 +35,9 @@ class RuntimeStore:
     disk I/O. This store holds runtime state only.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, persistence: SQLitePersistence | None = None) -> None:
         self._lock = threading.Lock()
+        self.persistence = persistence
         self._subscribers: list[queue.Queue[str]] = []
         self._event_ids = count(1)
         self._message_ids = count(1)
@@ -40,6 +50,30 @@ class RuntimeStore:
         self.delegations: list[dict] = []
         self.messages: deque = deque(maxlen=200)
         self.events: deque = deque(maxlen=400)
+
+    def _persist(self, method_name: str, *args: Any) -> None:
+        if self.persistence is None:
+            return
+        try:
+            getattr(self.persistence, method_name)(*args)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[agent-store] persistence_failed method=%s error=%s", method_name, exc)
+
+    def load_persisted_state(self) -> None:
+        if self.persistence is None:
+            return
+        state = self.persistence.load_runtime_state()
+        with self._lock:
+            self.agents = state["agents"]
+            self.user_tasks = state["user_tasks"]
+            self.delegations = state["delegations"]
+            self.messages = state["messages"]
+            self.events = state["events"]
+            self._event_ids = state["event_ids"]
+            self._message_ids = state["message_ids"]
+            self._user_task_ids = state["user_task_ids"]
+            self._delegation_ids = state["delegation_ids"]
+            self._assignment_ids = state["assignment_ids"]
 
     # ------------------------------------------------------------------ snapshot
     def snapshot(self) -> dict:
@@ -92,7 +126,22 @@ class RuntimeStore:
 
     def register_agent(self, agent: dict) -> None:
         with self._lock:
-            self.agents.append(agent)
+            existing = next(
+                (
+                    item
+                    for item in self.agents
+                    if item["agent_id"] == agent["agent_id"]
+                    or item["profile_name"] == agent["profile_name"]
+                ),
+                None,
+            )
+            if existing is None:
+                self.agents.append(agent)
+                snapshot = dict(agent)
+            else:
+                existing.update(agent)
+                snapshot = dict(existing)
+        self._persist("upsert_agent", snapshot)
 
     def find_agent(self, agent_id: str) -> dict | None:
         with self._lock:
@@ -105,6 +154,8 @@ class RuntimeStore:
                 return None
             agent.update(patch)
             agent["last_active_at"] = now_iso()
+            snapshot = dict(agent)
+        self._persist("upsert_agent", snapshot)
         self.push_agents_changed()
         return agent
 
@@ -117,8 +168,10 @@ class RuntimeStore:
             if idx is None:
                 return None
             removed = self.agents.pop(idx)
+            removed_snapshot = dict(removed)
+        self._persist("soft_delete_agent", agent_id, now_iso())
         self.push_agents_changed()
-        return removed
+        return removed_snapshot
 
     # ------------------------------------------------------------------ user tasks
     def create_user_task(self, *, leader_agent_id: str, content: str) -> dict:
@@ -142,6 +195,10 @@ class RuntimeStore:
             }
             self.user_tasks.append(task)
             leader["last_active_at"] = now
+            task_snapshot = dict(task)
+            leader_snapshot = dict(leader)
+        self._persist("upsert_user_task", task_snapshot)
+        self._persist("upsert_agent", leader_snapshot)
         self.push_event(
             "user_task.created",
             leader_agent_id,
@@ -201,6 +258,11 @@ class RuntimeStore:
                     leader["current_task"] = "等待 worker 返回"
                     leader["queue_depth"] = max(leader.get("queue_depth") or 0, 1)
                     leader["last_active_at"] = now_iso()
+            task_snapshot = dict(task)
+            leader_snapshot = dict(leader) if leader is not None else None
+        self._persist("upsert_user_task", task_snapshot)
+        if leader_snapshot is not None:
+            self._persist("upsert_agent", leader_snapshot)
         if completed_task is not None:
             self.push_event(
                 "user_task.completed",
@@ -233,6 +295,16 @@ class RuntimeStore:
                 leader["queue_depth"] = max(leader.get("queue_depth") or 0, 1)
                 leader["last_active_at"] = now_iso()
             snapshot = dict(task)
+            leader_snapshot = dict(leader) if leader is not None else None
+            delegation_snapshots = [
+                dict(self._find_delegation_locked(delegation_id))
+                for delegation_id in task["delegation_ids"]
+            ]
+        self._persist("upsert_user_task", snapshot)
+        if leader_snapshot is not None:
+            self._persist("upsert_agent", leader_snapshot)
+        for delegation_snapshot in delegation_snapshots:
+            self._persist("upsert_delegation", delegation_snapshot)
         _log_store("user_task_summarizing", user_task_id=user_task_id)
         self.push_agents_changed()
         return snapshot
@@ -260,6 +332,17 @@ class RuntimeStore:
                 leader["current_task"] = "空闲"
                 leader["queue_depth"] = 0
                 leader["last_active_at"] = now_iso()
+            task_snapshot = dict(task)
+            leader_snapshot = dict(leader) if leader is not None else None
+            delegation_snapshots = [
+                dict(self._find_delegation_locked(delegation_id))
+                for delegation_id in task["delegation_ids"]
+            ]
+        self._persist("upsert_user_task", task_snapshot)
+        if leader_snapshot is not None:
+            self._persist("upsert_agent", leader_snapshot)
+        for delegation_snapshot in delegation_snapshots:
+            self._persist("upsert_delegation", delegation_snapshot)
         self.push_event(
             "user_task.completed",
             leader_id,
@@ -332,6 +415,13 @@ class RuntimeStore:
             leader["current_task"] = f"等待 {len(normalized_assignments)} 个 worker 返回"
             leader["queue_depth"] = max(leader.get("queue_depth") or 0, 1)
             leader["last_active_at"] = now
+            delegation_snapshot = dict(delegation)
+            task_snapshot = dict(task) if user_task_id else None
+            leader_snapshot = dict(leader)
+        self._persist("upsert_delegation", delegation_snapshot)
+        if task_snapshot is not None:
+            self._persist("upsert_user_task", task_snapshot)
+        self._persist("upsert_agent", leader_snapshot)
         self.push_event(
             "delegation.created",
             leader_agent_id,
@@ -361,6 +451,8 @@ class RuntimeStore:
             worker_agent_id = assignment["worker_agent_id"]
             worker_name = assignment["worker_name"]
             status = assignment["status"]
+            assignment_snapshot = dict(assignment)
+        self._persist("upsert_assignment", delegation_id, assignment_snapshot)
         if should_mark_started:
             self.push_event(
                 "delegation.assignment.started",
@@ -410,6 +502,17 @@ class RuntimeStore:
                         completed_user_task = dict(task)
                 else:
                     completed_summary = dict(delegation)
+            assignment_snapshot = dict(assignment)
+            delegation_snapshot = dict(delegation)
+            user_task_snapshot = (
+                dict(self._find_user_task_locked(delegation.get("user_task_id")))
+                if delegation.get("user_task_id")
+                else None
+            )
+        self._persist("upsert_assignment", delegation_id, assignment_snapshot)
+        self._persist("upsert_delegation", delegation_snapshot)
+        if user_task_snapshot is not None:
+            self._persist("upsert_user_task", user_task_snapshot)
         self.push_event(
             "delegation.assignment.completed",
             assignment["worker_agent_id"],
@@ -452,6 +555,11 @@ class RuntimeStore:
                 leader["orchestration_state"] = "summarizing"
                 leader["current_task"] = "汇总 worker 结果中"
                 leader["last_active_at"] = now_iso()
+            delegation_snapshot = dict(delegation)
+            leader_snapshot = dict(leader) if leader is not None else None
+        self._persist("upsert_delegation", delegation_snapshot)
+        if leader_snapshot is not None:
+            self._persist("upsert_agent", leader_snapshot)
         if leader_id:
             self.push_agents_changed()
 
@@ -475,6 +583,11 @@ class RuntimeStore:
                 leader["orchestration_state"] = "waiting_workers"
                 leader["current_task"] = "等待 worker 返回"
                 leader["last_active_at"] = now_iso()
+            delegation_snapshot = dict(delegation)
+            leader_snapshot = dict(leader) if leader is not None else None
+        self._persist("upsert_delegation", delegation_snapshot)
+        if leader_snapshot is not None:
+            self._persist("upsert_agent", leader_snapshot)
         self.push_agents_changed()
 
     def _find_delegation_locked(self, delegation_id: str) -> dict:
@@ -544,6 +657,7 @@ class RuntimeStore:
                 "message_id": f"msg_{next(self._message_ids):04d}",
                 "from_agent_id": from_agent_id,
                 "from_name": from_name,
+                "to_agent_id": agent["agent_id"],
                 "to_name": agent["name"],
                 "content": content,
                 "delegation_id": delegation_id,
@@ -555,6 +669,10 @@ class RuntimeStore:
             agent["last_input"] = content
             agent["last_active_at"] = now_iso()
             agent_id = agent["agent_id"]
+            message_snapshot = dict(message)
+            agent_snapshot = dict(agent)
+        self._persist("insert_message", message_snapshot)
+        self._persist("upsert_agent", agent_snapshot)
         self.push_event("message.sent", agent_id, None, {"text": content})
         return message
 
@@ -589,6 +707,8 @@ class RuntimeStore:
         with self._lock:
             self.events.appendleft(event)
             self._broadcast(payload)
+        if event_type not in NON_PERSISTED_EVENT_TYPES:
+            self._persist("insert_event", event)
         return event
 
     def push_agents_changed(self) -> None:
@@ -598,4 +718,4 @@ class RuntimeStore:
             self._broadcast(payload)
 
 
-store = RuntimeStore()
+store = RuntimeStore(SQLitePersistence())
