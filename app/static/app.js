@@ -37,6 +37,12 @@ function formatAgentTime(value) {
   return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 }
 
+function formatRuntimeStatus(value) {
+  if (value === "running") return "在岗";
+  if (value === "crashed") return "异常";
+  return "离岗";
+}
+
 function buildAgentRow(agent, isActive) {
   const row = document.createElement("div");
   row.setAttribute("role", "button");
@@ -68,14 +74,12 @@ function buildAgentRow(agent, isActive) {
     <div class="agent-row__body">
       <div class="load-track"><span style="width: ${agent.load || 0}%"></span></div>
       <dl>
-        <div><dt>Task</dt><dd>${escapeHtml(agent.current_task || "—")}</dd></div>
-        <div><dt>Last Output</dt><dd>${escapeHtml(formatAgentTime(agent.last_output_at))}</dd></div>
-        <div><dt>State</dt><dd>${escapeHtml(displayState)}</dd></div>
-        <div><dt>Queue</dt><dd>${agent.queue_depth || 0}</dd></div>
+        <div><dt>最后消息</dt><dd>${escapeHtml(formatAgentTime(agent.last_output_at))}</dd></div>
+        <div><dt>任务数量</dt><dd>${agent.queue_depth || 0}</dd></div>
       </dl>
       <div class="agent-row__session">
         <span class="acp-dot acp-${runtimeStatus}"></span>
-        <span class="acp-label">Session ${escapeHtml(runtimeStatus)}</span>
+        <span class="acp-label">${escapeHtml(formatRuntimeStatus(runtimeStatus))}</span>
         ${btn}
       </div>
     </div>

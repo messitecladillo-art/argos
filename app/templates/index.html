@@ -58,25 +58,20 @@
               </div>
               <dl>
                 <div>
-                  <dt>Task</dt>
-                  <dd>{{ agent.current_task }}</dd>
-                </div>
-                <div>
-                  <dt>Last Output</dt>
+                  <dt>最后消息</dt>
                   <dd>{{ agent.last_output_at[11:19] if agent.last_output_at else '—' }}</dd>
                 </div>
                 <div>
-                  <dt>State</dt>
-                  <dd>{{ agent.interaction_state or 'idle' }}</dd>
-                </div>
-                <div>
-                  <dt>Queue</dt>
+                  <dt>任务数量</dt>
                   <dd>{{ agent.queue_depth or 0 }}</dd>
                 </div>
               </dl>
               <div class="agent-row__session">
-                <span class="acp-dot acp-{{ agent.runtime_status or 'stopped' }}"></span>
-                <span class="acp-label">Session {{ agent.runtime_status or 'stopped' }}</span>
+                {% set runtime_status = agent.runtime_status or 'stopped' %}
+                <span class="acp-dot acp-{{ runtime_status }}"></span>
+                <span class="acp-label">
+                  {% if runtime_status == 'running' %}在岗{% elif runtime_status == 'crashed' %}异常{% else %}离岗{% endif %}
+                </span>
                 {% if agent.runtime_status == 'running' %}
                 <button class="acp-btn acp-btn--stop" type="button" data-session-action="stop" data-agent-id="{{ agent.agent_id }}">停止</button>
                 {% else %}
