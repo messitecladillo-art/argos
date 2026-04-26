@@ -1124,6 +1124,9 @@ class ACPPool:
 
     def start(self, agent: dict) -> bool:
         agent_id = agent["agent_id"]
+        if (agent.get("readiness_status") or "ready") != "ready":
+            _log_state("start_skipped_not_ready", agent_id, readiness=agent.get("readiness_status"))
+            return False
         profile_name = agent["profile_name"]
         workspace_path = agent.get("workspace_path") or str(
             registry.workspace_path_for(profile_name)

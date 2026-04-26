@@ -41,8 +41,14 @@ def list_workers() -> list[dict]:
     返回的字段包含 agent_id / name / description / status / current_task / load，
     不包含 leader 自身，避免 leader 把任务派给自己。
     """
+    from .services.acp import pool
+
     return [
-        a for a in store.snapshot()["agents"] if a.get("role") == "worker"
+        a
+        for a in store.snapshot()["agents"]
+        if a.get("role") == "worker"
+        and (a.get("readiness_status") or "ready") == "ready"
+        and pool.is_running(a.get("agent_id") or "")
     ]
 
 
@@ -113,6 +119,11 @@ def dispatch_parallel(
         worker_id = (assignment.get("to_agent_id") or "").strip()
         if not worker_id:
             raise ValueError("assignment.to_agent_id is required")
+        worker = store.find_agent(worker_id)
+        if worker is None:
+            raise ValueError(f"target agent not found: {worker_id}")
+        if (worker.get("readiness_status") or "ready") != "ready":
+            raise ValueError(f"target agent is not ready: {worker_id}")
         if not pool.is_running(worker_id):
             raise ValueError(f"target agent session is not running: {worker_id}")
     delegation = store.create_delegation(

@@ -116,6 +116,13 @@ def generate_and_publish(
         soul_path.parent.mkdir(parents=True, exist_ok=True)
         soul_path.write_text(text, encoding="utf-8")
     except OSError as exc:
+        store.update_agent(
+            agent_id,
+            readiness_status="failed",
+            readiness_message="SOUL.md 写入失败",
+            runtime_status="stopped",
+            current_task="SOUL.md 写入失败",
+        )
         store.push_event(
             "agent.soul.failed",
             agent_id,
@@ -123,12 +130,23 @@ def generate_and_publish(
             {"text": f"SOUL.md 写入失败：{exc}"},
         )
         return
+    store.update_agent(
+        agent_id,
+        readiness_status="ready",
+        readiness_message=f"SOUL.md 已生成（{source}）",
+        current_task="空闲",
+    )
     store.push_event(
         "agent.soul.ready",
         agent_id,
         None,
         {"text": f"SOUL.md 已生成（{source}）→ {soul_path}"},
     )
+    from . import acp
+
+    agent = store.find_agent(agent_id)
+    if agent is not None:
+        acp.pool.start(agent)
 
 
 def spawn_generate(

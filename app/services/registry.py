@@ -26,6 +26,10 @@ def _meta_path(profile_name: str) -> Path:
     return HERMES_HOME / "profiles" / profile_name / META_FILENAME
 
 
+def soul_path_for(profile_name: str) -> Path:
+    return HERMES_HOME / "profiles" / profile_name / "SOUL.md"
+
+
 def workspace_path_for(profile_name: str) -> Path:
     return AGENT_TEAM_WORKSPACE_ROOT / profile_name
 
@@ -60,6 +64,13 @@ def _hydrate(profile_name: str, meta: dict) -> dict:
         if raw_workspace_path
         else str(workspace_path_for(profile_name))
     )
+    soul_path = soul_path_for(profile_name)
+    try:
+        has_soul = soul_path.exists() and bool(soul_path.read_text(encoding="utf-8").strip())
+    except OSError:
+        has_soul = False
+    readiness_status = "ready" if has_soul else "failed"
+    readiness_message = "SOUL.md 已就绪" if has_soul else "SOUL.md 缺失或为空"
     return {
         "agent_id": agent_id_for(profile_name),
         "profile_name": profile_name,
@@ -79,6 +90,8 @@ def _hydrate(profile_name: str, meta: dict) -> dict:
         "last_input": "",
         "last_output": "",
         "last_output_at": "",
+        "readiness_status": readiness_status,
+        "readiness_message": readiness_message,
         "created_at": created_at,
         "last_active_at": created_at,
     }

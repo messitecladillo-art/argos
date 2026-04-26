@@ -55,17 +55,25 @@ class RuntimeStore:
             }
 
     def _build_stats(self) -> list[dict]:
-        online = sum(1 for a in self.agents if a["status"] != "offline")
+        online = sum(
+            1
+            for a in self.agents
+            if a["status"] != "offline"
+            and (a.get("readiness_status") or "ready") == "ready"
+        )
         active = sum(
             1
             for a in self.agents
-            if a["status"] in {"busy", "waiting"}
-            or a.get("orchestration_state") == "waiting_workers"
-            or any(
-                item["leader_agent_id"] == a["agent_id"]
-                and item["status"]
-                in {"running", "waiting_workers", "ready_to_summarize", "summarizing"}
-                for item in self.user_tasks
+            if (a.get("readiness_status") or "ready") == "ready"
+            and (
+                a["status"] in {"busy", "waiting"}
+                or a.get("orchestration_state") == "waiting_workers"
+                or any(
+                    item["leader_agent_id"] == a["agent_id"]
+                    and item["status"]
+                    in {"running", "waiting_workers", "ready_to_summarize", "summarizing"}
+                    for item in self.user_tasks
+                )
             )
         )
         return [

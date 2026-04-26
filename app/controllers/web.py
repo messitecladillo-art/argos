@@ -12,8 +12,20 @@ bp = Blueprint("web", __name__)
 def index():
     snapshot = store.snapshot()
     leader = next(
-        (agent for agent in snapshot["agents"] if agent.get("role") == "leader"),
-        snapshot["agents"][0] if snapshot["agents"] else None,
+        (
+            agent
+            for agent in snapshot["agents"]
+            if agent.get("role") == "leader"
+            and (agent.get("readiness_status") or "ready") == "ready"
+        ),
+        next(
+            (
+                agent
+                for agent in snapshot["agents"]
+                if (agent.get("readiness_status") or "ready") == "ready"
+            ),
+            None,
+        ),
     )
     terminal_events = []
     seen_terminal_agents = set()

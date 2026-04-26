@@ -54,11 +54,18 @@ function formatRuntimeStatus(value) {
 }
 
 function getAgentDisplayStatus(agent) {
+  const readinessStatus = agent.readiness_status || "ready";
   const runtimeStatus = agent.runtime_status || "stopped";
   const interactionState = agent.interaction_state || "idle";
   const orchestrationState = agent.orchestration_state || "none";
   const status = agent.status || "idle";
 
+  if (readinessStatus === "preparing") {
+    return { label: "准备中", className: "preparing" };
+  }
+  if (readinessStatus === "failed") {
+    return { label: "未就绪", className: "unready" };
+  }
   if (runtimeStatus === "stopped" || runtimeStatus === "crashed") {
     return { label: "不可用", className: "offline" };
   }
@@ -80,14 +87,18 @@ function getAgentDisplayStatus(agent) {
 
 function buildAgentRow(agent, isActive) {
   const row = document.createElement("div");
+  const readinessStatus = agent.readiness_status || "ready";
+  const isReady = readinessStatus === "ready";
   row.setAttribute("role", "button");
-  row.tabIndex = 0;
-  row.className = "agent-row" + (isActive ? " is-active" : "");
+  row.setAttribute("aria-disabled", isReady ? "false" : "true");
+  row.tabIndex = isReady ? 0 : -1;
+  row.className = "agent-row" + (!isReady ? " is-disabled" : "") + (isReady && isActive ? " is-active" : "");
   row.dataset.agentId = agent.agent_id;
   row.dataset.agentName = agent.name;
   row.dataset.agentRole = agent.role;
   row.dataset.agentStatus = agent.status || "idle";
   row.dataset.agentOrchestrationState = agent.orchestration_state || "none";
+  row.dataset.readinessStatus = readinessStatus;
   const runtimeStatus = agent.runtime_status || "stopped";
   const displayStatus = getAgentDisplayStatus(agent);
   debugLog("agent-row", {
@@ -96,10 +107,13 @@ function buildAgentRow(agent, isActive) {
     interaction_state: agent.interaction_state,
     orchestration_state: agent.orchestration_state,
     runtime_status: runtimeStatus,
+    readiness_status: readinessStatus,
     queue_depth: agent.queue_depth || 0,
     display: displayStatus.label,
   });
-  const btn = runtimeStatus === "running"
+  const btn = !isReady
+    ? `<button class="acp-btn acp-btn--start" type="button" data-session-action="start" data-agent-id="${agent.agent_id}" disabled>启动</button>`
+    : runtimeStatus === "running"
     ? `<button class="acp-btn acp-btn--stop" type="button" data-session-action="stop" data-agent-id="${agent.agent_id}">停止</button>`
     : `<button class="acp-btn acp-btn--start" type="button" data-session-action="start" data-agent-id="${agent.agent_id}">启动</button>`;
   row.innerHTML = `
@@ -232,14 +246,21 @@ function renderAgents(agents, stats) {
     interaction_state: agent.interaction_state,
     orchestration_state: agent.orchestration_state,
     runtime_status: agent.runtime_status,
+    readiness_status: agent.readiness_status || "ready",
     queue_depth: agent.queue_depth || 0,
     current_task: agent.current_task,
   })));
   closeAgentContextMenu();
-  const selected = eventList?.dataset.selectedAgent || (agents[0] && agents[0].agent_id) || "";
+  const readyAgents = agents.filter((agent) => (agent.readiness_status || "ready") === "ready");
+  const currentSelected = eventList?.dataset.selectedAgent || "";
+  const selected = readyAgents.some((agent) => agent.agent_id === currentSelected)
+    ? currentSelected
+    : (readyAgents[0] && readyAgents[0].agent_id) || "";
   agentList.innerHTML = "";
   agents.forEach((agent) => {
-    ensureTerminalSession(agent.agent_id);
+    if ((agent.readiness_status || "ready") === "ready") {
+      ensureTerminalSession(agent.agent_id);
+    }
     agentList.appendChild(buildAgentRow(agent, agent.agent_id === selected));
   });
   requestAnimationFrame(() => requestAnimationFrame(fitAllTerminalSessions));
@@ -251,8 +272,8 @@ function renderAgents(agents, stats) {
       .map((s) => `<article class="mini-stat"><span>${escapeHtml(s.label)}</span><strong>${escapeHtml(s.value)}</strong></article>`)
       .join("");
   }
-  if (agents.length > 0) {
-    const active = agents.find((a) => a.agent_id === selected) || agents[0];
+  if (readyAgents.length > 0) {
+    const active = readyAgents.find((a) => a.agent_id === selected) || readyAgents[0];
     setSelectedAgent(active.agent_id);
   } else {
     if (eventList) eventList.dataset.selectedAgent = "";
@@ -439,6 +460,7 @@ function debounceTerminalFit(delay = 120) {
 function setSelectedAgent(agentId, agentName, force = false) {
   if (!agentList || !eventList) return;
   const row = agentList.querySelector(`.agent-row[data-agent-id="${CSS.escape(agentId)}"]`);
+  if (row?.dataset.readinessStatus && row.dataset.readinessStatus !== "ready") return;
   const name = agentName || row?.dataset.agentName || agentId || "尚未选择";
   const changed = eventList.dataset.selectedAgent !== agentId;
   agentList.querySelectorAll(".agent-row").forEach((item) => {
@@ -641,6 +663,7 @@ if (agentList) {
     const btn = event.target.closest("[data-session-action]");
     if (btn) {
       event.stopPropagation();
+      if (btn.disabled) return;
       const action = btn.dataset.sessionAction;
       const agentId = btn.dataset.agentId;
       btn.disabled = true;
@@ -651,6 +674,7 @@ if (agentList) {
     }
     const row = event.target.closest(".agent-row");
     if (!row) return;
+    if (row.dataset.readinessStatus && row.dataset.readinessStatus !== "ready") return;
     setSelectedAgent(row.dataset.agentId, row.dataset.agentName);
   });
 
@@ -791,6 +815,8 @@ hydrateTerminalSnapshots();
 initTerminal();
 if (eventList?.dataset.selectedAgent) {
   const row = agentList?.querySelector(`.agent-row[data-agent-id="${CSS.escape(eventList.dataset.selectedAgent)}"]`);
-  setSelectedAgent(eventList.dataset.selectedAgent, row?.dataset.agentName, true);
+  if (!row?.dataset.readinessStatus || row.dataset.readinessStatus === "ready") {
+    setSelectedAgent(eventList.dataset.selectedAgent, row?.dataset.agentName, true);
+  }
 }
 applyEventFilter();

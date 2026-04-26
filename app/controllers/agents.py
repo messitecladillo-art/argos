@@ -56,6 +56,8 @@ def start_agent(agent_id: str):
     agent = store.find_agent(agent_id)
     if agent is None:
         return jsonify({"ok": False, "error": "agent not found"}), 404
+    if (agent.get("readiness_status") or "ready") != "ready":
+        return jsonify({"ok": False, "error": "agent is not ready"}), 400
     ok = session_pool.start(agent)
     return jsonify({"ok": ok, "agent": store.find_agent(agent_id)})
 

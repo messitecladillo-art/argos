@@ -89,6 +89,8 @@ def create_agent(
         "last_input": "",
         "last_output": "",
         "last_output_at": "",
+        "readiness_status": "preparing",
+        "readiness_message": "正在生成 SOUL.md",
         "last_active_at": created_at,
         **meta,
     }
@@ -109,7 +111,6 @@ def create_agent(
         description=description,
         profile_name=profile_name,
     )
-    acp.pool.start(agent)
     return agent
 
 

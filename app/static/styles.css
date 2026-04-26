@@ -172,6 +172,23 @@ label span,
   transform: translateX(2px);
 }
 
+.agent-row.is-disabled {
+  border-color: rgba(163, 163, 163, 0.12);
+  background: rgba(148, 148, 148, 0.035);
+  color: rgba(232, 225, 209, 0.48);
+  cursor: not-allowed;
+}
+
+.agent-row.is-disabled:hover {
+  border-color: rgba(163, 163, 163, 0.12);
+  background: rgba(148, 148, 148, 0.035);
+  transform: none;
+}
+
+.agent-row.is-disabled .load-track span {
+  background: rgba(163, 163, 163, 0.45);
+}
+
 .agent-row__top,
 .section-head,
 .event-head,
@@ -219,6 +236,16 @@ label span,
 .status-waiting {
   background: rgba(217, 154, 33, 0.14);
   color: var(--accent-2);
+}
+
+.status-preparing {
+  background: rgba(148, 163, 184, 0.14);
+  color: rgba(226, 232, 240, 0.82);
+}
+
+.status-unready {
+  background: rgba(148, 163, 184, 0.12);
+  color: rgba(203, 213, 225, 0.72);
 }
 
 .status-offline {

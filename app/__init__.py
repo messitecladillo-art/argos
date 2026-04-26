@@ -26,6 +26,8 @@ def create_app() -> Flask:
     # Flask is accepting connections before starting long-lived CLI sessions.
     def _deferred_start() -> None:
         for agent in list(store.agents):
+            if (agent.get("readiness_status") or "ready") != "ready":
+                continue
             session_pool.start(agent)
 
     threading.Timer(2.0, _deferred_start).start()

@@ -11,11 +11,16 @@ logger = logging.getLogger("hermes.agent_state")
 
 def find_leader_agent_id(runtime_store: RuntimeStore) -> str:
     leader = next(
-        (agent for agent in runtime_store.snapshot()["agents"] if agent.get("role") == "leader"),
+        (
+            agent
+            for agent in runtime_store.snapshot()["agents"]
+            if agent.get("role") == "leader"
+            and (agent.get("readiness_status") or "ready") == "ready"
+        ),
         None,
     )
     if leader is None:
-        raise ValueError("leader agent not found")
+        raise ValueError("ready leader agent not found")
     return leader["agent_id"]
 
 
@@ -102,6 +107,11 @@ def send_message(
         raise ValueError("content is required")
     if not to_agent_id:
         raise ValueError("to_agent_id is required")
+    target = store.find_agent(to_agent_id)
+    if target is None:
+        raise ValueError("target agent not found")
+    if (target.get("readiness_status") or "ready") != "ready":
+        raise ValueError("target agent is not ready")
     if not pool.is_running(to_agent_id):
         raise ValueError("target agent session is not running")
     message = store.record_message(
