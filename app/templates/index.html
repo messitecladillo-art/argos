@@ -70,6 +70,7 @@
             data-agent-role="{{ agent.role }}"
             data-agent-status="{{ agent_status }}"
             data-agent-orchestration-state="{{ orchestration_state }}"
+            data-agent-runtime-status="{{ runtime_status }}"
             data-readiness-status="{{ readiness_status }}"
           >
             <div class="agent-row__top">
@@ -98,6 +99,7 @@
                 <span class="acp-label">
                   {% if runtime_status == 'running' %}在岗{% elif runtime_status == 'crashed' %}异常{% else %}离岗{% endif %}
                 </span>
+                <button class="acp-btn acp-btn--soul" type="button" data-soul-open data-agent-id="{{ agent.agent_id }}" {% if readiness_status == 'preparing' %}disabled title="SOUL.md 正在生成中"{% endif %}>SOUL</button>
                 {% if not is_agent_ready %}
                 <button class="acp-btn acp-btn--start" type="button" data-session-action="start" data-agent-id="{{ agent.agent_id }}" disabled>启动</button>
                 {% elif agent.runtime_status == 'running' %}
@@ -162,6 +164,41 @@
       </aside>
     </div>
 
+    <div class="soul-drawer" id="soul-drawer" hidden>
+      <div class="soul-drawer__backdrop" data-close-soul></div>
+      <aside
+        class="soul-drawer__panel panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="soul-drawer-title"
+      >
+        <div class="soul-drawer__head">
+          <div>
+            <h2 id="soul-drawer-title">SOUL.md</h2>
+            <p id="soul-drawer-agent">尚未选择 Agent</p>
+            <code id="soul-drawer-path">—</code>
+          </div>
+          <button class="modal__close" type="button" data-close-soul aria-label="close">×</button>
+        </div>
+        <p class="soul-status" id="soul-status" hidden></p>
+        <div class="soul-editor-grid">
+          <label class="soul-editor">
+            <span>Markdown 编辑</span>
+            <textarea id="soul-editor" spellcheck="false"></textarea>
+          </label>
+          <section class="soul-preview" aria-label="SOUL markdown preview">
+            <div class="soul-preview__label">预览</div>
+            <div class="soul-preview__body" id="soul-preview"></div>
+          </section>
+        </div>
+        <div class="soul-drawer__actions">
+          <span id="soul-dirty-hint" class="soul-dirty-hint" hidden>有未保存修改</span>
+          <button class="filter-chip" type="button" data-close-soul>关闭</button>
+          <button class="primary-button primary-button--sm" type="button" id="save-soul">保存</button>
+        </div>
+      </aside>
+    </div>
+
     <div class="modal" id="create-agent-modal" hidden>
       <div class="modal__backdrop" data-close-modal></div>
       <div class="modal__panel panel">
@@ -204,6 +241,6 @@
     </script>
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
-    <script src="{{ url_for('static', filename='app.js') }}?v=debug-state-1"></script>
+    <script src="{{ url_for('static', filename='app.js') }}?v=soul-editor-1"></script>
   </body>
 </html>

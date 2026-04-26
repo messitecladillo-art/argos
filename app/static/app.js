@@ -15,6 +15,14 @@ const historyDrawer = document.getElementById("history-drawer");
 const historyDrawerAgent = document.getElementById("history-drawer-agent");
 const historyEmpty = document.getElementById("history-empty");
 const interactionList = document.getElementById("interaction-list");
+const soulDrawer = document.getElementById("soul-drawer");
+const soulDrawerAgent = document.getElementById("soul-drawer-agent");
+const soulDrawerPath = document.getElementById("soul-drawer-path");
+const soulStatus = document.getElementById("soul-status");
+const soulEditor = document.getElementById("soul-editor");
+const soulPreview = document.getElementById("soul-preview");
+const soulDirtyHint = document.getElementById("soul-dirty-hint");
+const saveSoul = document.getElementById("save-soul");
 const terminalSnapshots = new Map();
 const terminalHasLiveOutput = new Set();
 const terminalSessions = new Map();
@@ -26,6 +34,14 @@ let agentContextMenu = null;
 let deletingAgentId = "";
 let dismissAgentModal = null;
 let resizeTimer = 0;
+const soulState = {
+  agentId: "",
+  runtimeStatus: "stopped",
+  originalContent: "",
+  saving: false,
+  scrollSyncSource: "",
+  scrollSyncTimer: 0,
+};
 
 function debugLog(event, payload) {
   if (!hermesDebug) return;
@@ -89,6 +105,7 @@ function buildAgentRow(agent, isActive) {
   const row = document.createElement("div");
   const readinessStatus = agent.readiness_status || "ready";
   const isReady = readinessStatus === "ready";
+  const runtimeStatus = agent.runtime_status || "stopped";
   row.setAttribute("role", "button");
   row.setAttribute("aria-disabled", isReady ? "false" : "true");
   row.tabIndex = isReady ? 0 : -1;
@@ -98,8 +115,8 @@ function buildAgentRow(agent, isActive) {
   row.dataset.agentRole = agent.role;
   row.dataset.agentStatus = agent.status || "idle";
   row.dataset.agentOrchestrationState = agent.orchestration_state || "none";
+  row.dataset.agentRuntimeStatus = runtimeStatus;
   row.dataset.readinessStatus = readinessStatus;
-  const runtimeStatus = agent.runtime_status || "stopped";
   const displayStatus = getAgentDisplayStatus(agent);
   debugLog("agent-row", {
     agent_id: agent.agent_id,
@@ -116,6 +133,7 @@ function buildAgentRow(agent, isActive) {
     : runtimeStatus === "running"
     ? `<button class="acp-btn acp-btn--stop" type="button" data-session-action="stop" data-agent-id="${agent.agent_id}">停止</button>`
     : `<button class="acp-btn acp-btn--start" type="button" data-session-action="start" data-agent-id="${agent.agent_id}">启动</button>`;
+  const soulDisabled = readinessStatus === "preparing" ? " disabled title=\"SOUL.md 正在生成中\"" : "";
   row.innerHTML = `
     <div class="agent-row__top">
       <div>
@@ -133,6 +151,7 @@ function buildAgentRow(agent, isActive) {
       <div class="agent-row__session">
         <span class="acp-dot acp-${runtimeStatus}"></span>
         <span class="acp-label">${escapeHtml(formatRuntimeStatus(runtimeStatus))}</span>
+        <button class="acp-btn acp-btn--soul" type="button" data-soul-open data-agent-id="${agent.agent_id}"${soulDisabled}>SOUL</button>
         ${btn}
       </div>
     </div>
@@ -236,6 +255,224 @@ function closeHistoryPanel() {
       historyDrawer.hidden = true;
     }
   }, 180);
+}
+
+function setSoulStatus(message, kind = "muted") {
+  if (!soulStatus) return;
+  soulStatus.textContent = message || "";
+  soulStatus.dataset.kind = kind;
+  soulStatus.hidden = !message;
+}
+
+function hasUnsavedSoulChanges() {
+  return Boolean(soulEditor && soulEditor.value !== soulState.originalContent);
+}
+
+function updateSoulDirtyState() {
+  const dirty = hasUnsavedSoulChanges();
+  if (soulDirtyHint) soulDirtyHint.hidden = !dirty;
+  if (saveSoul) saveSoul.disabled = soulState.saving || !dirty || !soulEditor?.value.trim();
+}
+
+function renderInlineMarkdown(value) {
+  return escapeHtml(value).replace(/`([^`]+)`/g, "<code>$1</code>");
+}
+
+function renderMarkdownPreview(markdown) {
+  if (!soulPreview) return;
+  const lines = String(markdown || "").split(/\r?\n/);
+  const html = [];
+  let inCode = false;
+  let codeLines = [];
+  let listOpen = false;
+  const closeList = () => {
+    if (listOpen) {
+      html.push("</ul>");
+      listOpen = false;
+    }
+  };
+  const flushCode = () => {
+    html.push(`<pre><code>${escapeHtml(codeLines.join("\n"))}</code></pre>`);
+    codeLines = [];
+  };
+
+  lines.forEach((line) => {
+    if (line.trim().startsWith("```")) {
+      if (inCode) {
+        flushCode();
+        inCode = false;
+      } else {
+        closeList();
+        inCode = true;
+        codeLines = [];
+      }
+      return;
+    }
+    if (inCode) {
+      codeLines.push(line);
+      return;
+    }
+
+    const heading = line.match(/^(#{1,3})\s+(.+)$/);
+    if (heading) {
+      closeList();
+      const level = heading[1].length;
+      html.push(`<h${level}>${renderInlineMarkdown(heading[2])}</h${level}>`);
+      return;
+    }
+
+    const listItem = line.match(/^\s*[-*]\s+(.+)$/);
+    if (listItem) {
+      if (!listOpen) {
+        html.push("<ul>");
+        listOpen = true;
+      }
+      html.push(`<li>${renderInlineMarkdown(listItem[1])}</li>`);
+      return;
+    }
+
+    closeList();
+    if (!line.trim()) {
+      html.push("");
+      return;
+    }
+    html.push(`<p>${renderInlineMarkdown(line)}</p>`);
+  });
+
+  if (inCode) flushCode();
+  closeList();
+  soulPreview.innerHTML = html.join("");
+}
+
+function getScrollRatio(element) {
+  const maxScroll = element.scrollHeight - element.clientHeight;
+  if (maxScroll <= 0) return 0;
+  return element.scrollTop / maxScroll;
+}
+
+function setScrollRatio(element, ratio) {
+  const maxScroll = element.scrollHeight - element.clientHeight;
+  element.scrollTop = maxScroll > 0 ? maxScroll * ratio : 0;
+}
+
+function syncSoulScroll(source, target, sourceName) {
+  if (!source || !target) return;
+  if (soulState.scrollSyncSource && soulState.scrollSyncSource !== sourceName) return;
+  soulState.scrollSyncSource = sourceName;
+  setScrollRatio(target, getScrollRatio(source));
+  clearTimeout(soulState.scrollSyncTimer);
+  soulState.scrollSyncTimer = window.setTimeout(() => {
+    soulState.scrollSyncSource = "";
+  }, 80);
+}
+
+function syncSoulPreviewToEditor() {
+  if (!soulEditor || !soulPreview) return;
+  setScrollRatio(soulPreview, getScrollRatio(soulEditor));
+}
+
+async function openSoulPanel(agentId) {
+  if (!soulDrawer || !agentId) return;
+  closeAgentContextMenu();
+  const requestedAgentId = agentId;
+  soulState.agentId = agentId;
+  soulState.originalContent = "";
+  soulState.runtimeStatus = "stopped";
+  if (soulEditor) {
+    soulEditor.value = "";
+    soulEditor.disabled = true;
+  }
+  renderMarkdownPreview("");
+  syncSoulPreviewToEditor();
+  setSoulStatus("正在加载 SOUL.md…", "muted");
+  updateSoulDirtyState();
+  soulDrawer.hidden = false;
+  requestAnimationFrame(() => soulDrawer.classList.add("is-open"));
+
+  try {
+    const response = await fetch(`/api/agents/${agentId}/soul`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || "SOUL.md 加载失败");
+    }
+    if (soulState.agentId !== requestedAgentId) return;
+    soulState.originalContent = data.content || "";
+    soulState.runtimeStatus = data.agent?.runtime_status || "stopped";
+    const isPreparing = data.agent?.readiness_status === "preparing";
+    if (soulDrawerAgent) {
+      soulDrawerAgent.textContent = `${data.agent?.name || agentId} · ${data.agent?.profile_name || ""}`;
+    }
+    if (soulDrawerPath) soulDrawerPath.textContent = data.path || "—";
+    if (soulEditor) {
+      soulEditor.disabled = isPreparing;
+      soulEditor.value = soulState.originalContent;
+      if (!isPreparing) soulEditor.focus();
+    }
+    renderMarkdownPreview(soulState.originalContent);
+    syncSoulPreviewToEditor();
+    setSoulStatus(isPreparing ? "SOUL.md 正在生成中，完成后才能编辑。" : (data.updated_at ? `最后保存：${formatAgentTime(data.updated_at)}` : "SOUL.md 尚未创建，保存后会写入文件。"), "muted");
+  } catch (error) {
+    if (soulState.agentId !== requestedAgentId) return;
+    setSoulStatus(error.message || "SOUL.md 加载失败", "error");
+  } finally {
+    if (soulState.agentId === requestedAgentId) updateSoulDirtyState();
+  }
+}
+
+function closeSoulPanel({ force = false } = {}) {
+  if (!soulDrawer || soulDrawer.hidden) return;
+  if (!force && hasUnsavedSoulChanges() && !window.confirm("SOUL.md 有未保存修改，确认关闭吗？")) {
+    return;
+  }
+  soulDrawer.classList.remove("is-open");
+  window.setTimeout(() => {
+    if (!soulDrawer.classList.contains("is-open")) {
+      soulDrawer.hidden = true;
+      soulState.agentId = "";
+      soulState.originalContent = "";
+      soulState.runtimeStatus = "stopped";
+      setSoulStatus("", "muted");
+    }
+  }, 180);
+}
+
+async function saveSoulContent() {
+  if (!soulState.agentId || !soulEditor || !saveSoul) return;
+  const content = soulEditor.value;
+  if (!content.trim()) {
+    setSoulStatus("SOUL.md 内容不能为空。", "error");
+    updateSoulDirtyState();
+    return;
+  }
+  soulState.saving = true;
+  saveSoul.textContent = "保存中…";
+  updateSoulDirtyState();
+  try {
+    const response = await fetch(`/api/agents/${soulState.agentId}/soul`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || "SOUL.md 保存失败");
+    }
+    soulState.originalContent = data.content || "";
+    soulState.runtimeStatus = data.agent?.runtime_status || soulState.runtimeStatus;
+    if (soulEditor.value !== soulState.originalContent) {
+      soulEditor.value = soulState.originalContent;
+      renderMarkdownPreview(soulEditor.value);
+      syncSoulPreviewToEditor();
+    }
+    const runningHint = soulState.runtimeStatus === "running" ? "，重启该 agent 后生效" : "";
+    setSoulStatus(`已保存${runningHint}。`, "success");
+  } catch (error) {
+    setSoulStatus(error.message || "SOUL.md 保存失败", "error");
+  } finally {
+    soulState.saving = false;
+    saveSoul.textContent = "保存";
+    updateSoulDirtyState();
+  }
 }
 
 function renderAgents(agents, stats) {
@@ -538,12 +775,21 @@ function ensureAgentContextMenu() {
   agentContextMenu.className = "agent-context-menu";
   agentContextMenu.hidden = true;
   agentContextMenu.innerHTML = `
+    <button class="agent-context-menu__item" type="button" data-agent-soul>
+      SOUL.md
+    </button>
     <button class="agent-context-menu__item agent-context-menu__item--danger" type="button" data-agent-delete>
       解雇
     </button>
   `;
   agentContextMenu.addEventListener("click", async (event) => {
     event.stopPropagation();
+    const soulBtn = event.target.closest("[data-agent-soul]");
+    if (soulBtn) {
+      const agentId = agentContextMenu.dataset.agentId || "";
+      if (agentId) openSoulPanel(agentId);
+      return;
+    }
     const btn = event.target.closest("[data-agent-delete]");
     if (!btn || btn.disabled) return;
     const agentId = agentContextMenu.dataset.agentId || "";
@@ -660,6 +906,12 @@ function ensureDismissAgentModal() {
 if (agentList) {
   agentList.addEventListener("click", (event) => {
     closeAgentContextMenu();
+    const soulBtn = event.target.closest("[data-soul-open]");
+    if (soulBtn) {
+      event.stopPropagation();
+      openSoulPanel(soulBtn.dataset.agentId || "");
+      return;
+    }
     const btn = event.target.closest("[data-session-action]");
     if (btn) {
       event.stopPropagation();
@@ -747,6 +999,30 @@ if (historyDrawer) {
     }
   });
 }
+if (soulDrawer) {
+  soulDrawer.addEventListener("click", (event) => {
+    if (event.target instanceof HTMLElement && event.target.dataset.closeSoul !== undefined) {
+      closeSoulPanel();
+    }
+  });
+}
+if (soulEditor) {
+  soulEditor.addEventListener("input", () => {
+    const scrollRatio = getScrollRatio(soulEditor);
+    renderMarkdownPreview(soulEditor.value);
+    if (soulPreview) setScrollRatio(soulPreview, scrollRatio);
+    updateSoulDirtyState();
+  });
+  soulEditor.addEventListener("scroll", () => {
+    syncSoulScroll(soulEditor, soulPreview, "editor");
+  });
+}
+if (soulPreview) {
+  soulPreview.addEventListener("scroll", () => {
+    syncSoulScroll(soulPreview, soulEditor, "preview");
+  });
+}
+if (saveSoul) saveSoul.addEventListener("click", saveSoulContent);
 if (modal) {
   modal.addEventListener("click", (event) => {
     if (event.target instanceof HTMLElement && event.target.dataset.closeModal !== undefined) {
@@ -756,6 +1032,7 @@ if (modal) {
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !modal.hidden) closeModal();
     if (e.key === "Escape") closeHistoryPanel();
+    if (e.key === "Escape") closeSoulPanel();
   });
 }
 

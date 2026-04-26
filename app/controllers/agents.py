@@ -1,14 +1,18 @@
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from flask import Blueprint, jsonify, request
 
 from ..models.store import store
+from ..services import registry
 from ..services import agents as agents_service
 from ..services.acp import pool as session_pool
 from ..services.profiles import ProfileError, list_hermes_profiles
 
 
 bp = Blueprint("agents", __name__, url_prefix="/api")
+MAX_SOUL_BYTES = 200_000
 
 
 @bp.get("/dashboard")
@@ -69,6 +73,97 @@ def stop_agent(agent_id: str):
         return jsonify({"ok": False, "error": "agent not found"}), 404
     session_pool.stop(agent_id)
     return jsonify({"ok": True, "agent": store.find_agent(agent_id)})
+
+
+@bp.get("/agents/<agent_id>/soul")
+def get_agent_soul(agent_id: str):
+    agent = store.find_agent(agent_id)
+    if agent is None:
+        return jsonify({"ok": False, "error": "agent not found"}), 404
+
+    soul_path = registry.soul_path_for(agent["profile_name"])
+    try:
+        if soul_path.exists():
+            content = soul_path.read_text(encoding="utf-8")
+            updated_at = datetime.fromtimestamp(
+                soul_path.stat().st_mtime,
+                timezone.utc,
+            ).isoformat().replace("+00:00", "Z")
+        else:
+            content = ""
+            updated_at = None
+    except OSError as exc:
+        return jsonify({"ok": False, "error": f"SOUL.md read failed: {exc}"}), 500
+
+    return jsonify(
+        {
+            "ok": True,
+            "content": content,
+            "path": str(soul_path),
+            "updated_at": updated_at,
+            "agent": {
+                "agent_id": agent["agent_id"],
+                "name": agent["name"],
+                "profile_name": agent["profile_name"],
+                "role": agent["role"],
+                "runtime_status": agent.get("runtime_status") or "stopped",
+                "readiness_status": agent.get("readiness_status") or "ready",
+            },
+        }
+    )
+
+
+@bp.put("/agents/<agent_id>/soul")
+def update_agent_soul(agent_id: str):
+    agent = store.find_agent(agent_id)
+    if agent is None:
+        return jsonify({"ok": False, "error": "agent not found"}), 404
+    if (agent.get("readiness_status") or "ready") == "preparing":
+        return jsonify({"ok": False, "error": "SOUL.md is still being generated"}), 409
+
+    payload = request.get_json(silent=True) or {}
+    content = payload.get("content")
+    if not isinstance(content, str):
+        return jsonify({"ok": False, "error": "content is required"}), 400
+    if not content.strip():
+        return jsonify({"ok": False, "error": "SOUL.md content cannot be empty"}), 400
+    if len(content.encode("utf-8")) > MAX_SOUL_BYTES:
+        return jsonify({"ok": False, "error": "SOUL.md content is too large"}), 400
+    if not content.endswith("\n"):
+        content += "\n"
+
+    soul_path = registry.soul_path_for(agent["profile_name"])
+    try:
+        soul_path.parent.mkdir(parents=True, exist_ok=True)
+        soul_path.write_text(content, encoding="utf-8")
+        updated_at = datetime.fromtimestamp(
+            soul_path.stat().st_mtime,
+            timezone.utc,
+        ).isoformat().replace("+00:00", "Z")
+    except OSError as exc:
+        return jsonify({"ok": False, "error": f"SOUL.md write failed: {exc}"}), 500
+
+    store.update_agent(
+        agent_id,
+        readiness_status="ready",
+        readiness_message="SOUL.md 已保存",
+        current_task="空闲" if agent.get("current_task") in {"SOUL.md 缺失或为空", "SOUL.md 写入失败"} else agent.get("current_task", "空闲"),
+    )
+    store.push_event(
+        "agent.soul.updated",
+        agent_id,
+        None,
+        {"text": f"SOUL.md 已保存 → {soul_path}"},
+    )
+    return jsonify(
+        {
+            "ok": True,
+            "content": content,
+            "path": str(soul_path),
+            "updated_at": updated_at,
+            "agent": store.find_agent(agent_id),
+        }
+    )
 
 
 @bp.post("/agents/<agent_id>/interactions/<request_id>/respond")
