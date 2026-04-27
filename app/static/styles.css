@@ -88,9 +88,10 @@ body {
 .section-kicker {
   margin: 0 0 8px;
   color: var(--accent);
-  letter-spacing: 0.16em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
-  font-size: 0.72rem;
+  font-size: 0.64rem;
+  white-space: nowrap;
 }
 
 .sidebar-copy,
@@ -863,6 +864,11 @@ label span,
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+}
+
+.sidebar-head__row > div {
+  flex: 1;
+  min-width: 0;
 }
 
 .primary-button--sm {
