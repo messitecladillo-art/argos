@@ -75,11 +75,17 @@ class RuntimeStore:
             self._delegation_ids = state["delegation_ids"]
             self._assignment_ids = state["assignment_ids"]
 
+    def _sorted_agents(self) -> list[dict]:
+        return sorted(
+            self.agents,
+            key=lambda agent: agent.get("role") != "leader",
+        )
+
     # ------------------------------------------------------------------ snapshot
     def snapshot(self) -> dict:
         with self._lock:
             return {
-                "agents": list(self.agents),
+                "agents": self._sorted_agents(),
                 "user_tasks": list(self.user_tasks),
                 "tasks": list(self.tasks),
                 "delegations": list(self.delegations),
@@ -712,9 +718,9 @@ class RuntimeStore:
         return event
 
     def push_agents_changed(self) -> None:
-        body = {"agents": list(self.agents), "stats": self._build_stats()}
-        payload = f"event: agents\ndata: {json.dumps(body, ensure_ascii=False)}\n\n"
         with self._lock:
+            body = {"agents": self._sorted_agents(), "stats": self._build_stats()}
+            payload = f"event: agents\ndata: {json.dumps(body, ensure_ascii=False)}\n\n"
             self._broadcast(payload)
 
 
