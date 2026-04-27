@@ -535,6 +535,7 @@ async function loadSkillDetail(slug) {
     if (!response.ok || !data.ok) throw new Error(data.error || "skill 加载失败");
     if (requestId !== skillsState.detailRequestId) return;
     setSelectedSkillDetail(data.skill);
+    setSkillsStatus("", "muted");
   } catch (error) {
     if (requestId !== skillsState.detailRequestId) return;
     setSkillsStatus(error.message || "skill 加载失败", "error");
