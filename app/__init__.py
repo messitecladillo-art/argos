@@ -1,13 +1,11 @@
 import atexit
 import threading
 
-from a2wsgi import ASGIMiddleware
 from flask import Flask
-from werkzeug.middleware.dispatcher import DispatcherMiddleware
 
 from .controllers import register_blueprints
 from .db import init_database
-from .mcp_server import mcp_asgi_app, start_session_manager
+from .mcp_server import start_session_manager
 from .models.store import store
 from .services import registry
 from .services.acp import pool as session_pool
@@ -35,8 +33,4 @@ def create_app() -> Flask:
 
     threading.Timer(2.0, _deferred_start).start()
     atexit.register(session_pool.stop_all)
-
-    app.wsgi_app = DispatcherMiddleware(
-        app.wsgi_app, {"/mcp": ASGIMiddleware(mcp_asgi_app)}
-    )
     return app

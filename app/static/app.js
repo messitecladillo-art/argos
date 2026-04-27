@@ -23,12 +23,11 @@ const soulEditor = document.getElementById("soul-editor");
 const soulPreview = document.getElementById("soul-preview");
 const soulDirtyHint = document.getElementById("soul-dirty-hint");
 const saveSoul = document.getElementById("save-soul");
-const terminalSnapshots = new Map();
-const terminalHasLiveOutput = new Set();
 const terminalSessions = new Map();
 const chatEventsByAgent = new Map();
 const defaultTerminalCols = 120;
 const defaultTerminalRows = 36;
+const terminalReconnectDelay = 900;
 const hermesDebug = window.localStorage?.getItem("hermesDebug") !== "0";
 let agentContextMenu = null;
 let deletingAgentId = "";
@@ -519,52 +518,15 @@ function renderAgents(agents, stats) {
   }
 }
 
-function cleanTerminalText(text) {
-  return String(text || "")
-    .replace(/\x1b\][^\x07]*(?:\x07|\x1b\\)/g, "")
-    .replace(/\x1b\[[0-9;?: ]*[A-Za-z~]/g, "")
-    .replace(/\x1b[()#][0-9A-Za-z]/g, "")
-    .replace(/\x1b./g, "")
-    .split("\n")
-    .filter((line) => {
-      const value = line.trim();
-      if (!value) return true;
-      if (/^[\s\-─━═│┃║┌┐└┘┏┓┗┛╭╮╰╯├┤┬┴┼╞╡╪╥╨╔╗╚╝╠╣╦╩╬]+$/.test(value)) return false;
-      if (/^[Jj0-9]{1,3}$/.test(value)) return false;
-      if (/^[$⚕]?\s*gpt-[\w.-]+\s*\|.*\|\s*\[.*\]\s*\d+%/i.test(value)) return false;
-      if (/\bgpt-[\w.-]+\b.*\[[█░▒▓\s]+\].*\d+%/i.test(value)) return false;
-      if (/Hermes/.test(value) && /[─━═╭╮╰╯┌┐└┘]/.test(value)) return false;
-      if (/type a message \+ Enter to interrupt/i.test(value)) return false;
-      if (/cursor position requests/i.test(value)) return false;
-      if (/^[\w.-]+\s+❯$/.test(value)) return false;
-      if (/^[⚕$]\s*❯/.test(value)) return false;
-      if (/\[\d+\s*q\s*\[\d+\s*q/.test(value)) return false;
-      return true;
-    })
-    .join("\n")
-    .trimEnd();
-}
-
-function bootstrapTerminalSnapshots() {
+function hydrateChatEvents() {
   const events = Array.isArray(window.__BOOTSTRAP__?.events) ? window.__BOOTSTRAP__.events : [];
   events.slice().reverse().forEach((event) => {
     rememberChatEvent(event);
-    const agentId = event.agent_id || "";
-    if (event.event_type === "agent.terminal.output") {
-      return;
-    }
-    if (event.event_type === "agent.terminal.snapshot") {
-      terminalSnapshots.set(agentId, cleanTerminalText(event.data?.text || ""));
-    }
   });
 }
 
 function applyEventFilter() {
   if (eventEmpty) eventEmpty.hidden = Boolean(eventList?.dataset.selectedAgent);
-}
-
-function hydrateTerminalSnapshots() {
-  bootstrapTerminalSnapshots();
 }
 
 function createTerminalInstance(agentId) {
@@ -602,16 +564,23 @@ function createTerminalInstance(agentId) {
   terminalViewport.appendChild(pane);
   term.open(pane);
   term.onData((data) => {
-    if (agentId !== "__empty__") sendTerminalData(agentId, data);
+    const session = terminalSessions.get(agentId);
+    if (session && agentId !== "__empty__") {
+      sendTerminalSocketMessage(session, { type: "input", data });
+    }
   });
   return {
     agentId,
     term,
     fitAddon,
     pane,
+    ws: null,
     lastRows: 0,
     lastCols: 0,
-    hasLiveOutput: false,
+    reconnectTimer: 0,
+    connectToken: 0,
+    reconnectEnabled: false,
+    hasRenderedOutput: false,
   };
 }
 
@@ -623,24 +592,143 @@ function ensureTerminalSession(agentId) {
   if (session) return session;
   session = createTerminalInstance(agentId);
   terminalSessions.set(agentId, session);
-  if (!terminalHasLiveOutput.has(agentId)) {
-    session.term.write("\x1b[90m等待 Agent 终端输出。启动会话后可直接输入。\x1b[0m\r\n");
-  }
   return session;
+}
+
+function writeTerminalNotice(session, message) {
+  if (!session || !message) return;
+  session.term.write(`\x1b[90m${message}\x1b[0m\r\n`);
+}
+
+function resetTerminalSessionView(session, message = "") {
+  if (!session) return;
+  session.term.reset();
+  session.term.clear();
+  session.hasRenderedOutput = false;
+  if (message) writeTerminalNotice(session, message);
+}
+
+function buildTerminalSocketUrl(agentId) {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}/api/agents/${encodeURIComponent(agentId)}/terminal/ws`;
+}
+
+function clearTerminalReconnect(session) {
+  if (!session?.reconnectTimer) return;
+  window.clearTimeout(session.reconnectTimer);
+  session.reconnectTimer = 0;
+}
+
+function disconnectTerminalSession(session) {
+  if (!session || session.agentId === "__empty__") return;
+  clearTerminalReconnect(session);
+  session.reconnectEnabled = false;
+  session.connectToken += 1;
+  const ws = session.ws;
+  session.ws = null;
+  if (ws && ws.readyState < WebSocket.CLOSING) {
+    ws.close();
+  }
+}
+
+function sendTerminalSocketMessage(session, payload) {
+  if (!session?.ws || session.ws.readyState !== WebSocket.OPEN) return false;
+  session.ws.send(JSON.stringify(payload));
+  return true;
+}
+
+function scheduleTerminalReconnect(session, delay = terminalReconnectDelay) {
+  if (!session || !session.reconnectEnabled || session.reconnectTimer) return;
+  if ((eventList?.dataset.selectedAgent || "") !== session.agentId) return;
+  session.reconnectTimer = window.setTimeout(() => {
+    session.reconnectTimer = 0;
+    connectTerminalSession(session);
+  }, delay);
+}
+
+function handleTerminalSocketMessage(session, payload) {
+  if (!session || !payload || typeof payload !== "object") return;
+  if (payload.type === "ready") {
+    session.reconnectEnabled = true;
+    if (typeof payload.rows === "number") session.lastRows = payload.rows;
+    if (typeof payload.cols === "number") session.lastCols = payload.cols;
+    if (!session.hasRenderedOutput) {
+      session.term.reset();
+      session.term.clear();
+    }
+    requestAnimationFrame(() => requestAnimationFrame(fitTerminal));
+    return;
+  }
+  if (payload.type === "output") {
+    if (!session.hasRenderedOutput) {
+      session.term.reset();
+      session.term.clear();
+      session.hasRenderedOutput = true;
+    }
+    session.term.write(String(payload.data || ""));
+    return;
+  }
+  if (payload.type === "status") {
+    session.reconnectEnabled = false;
+    resetTerminalSessionView(session, payload.message || "终端不可用");
+  }
+}
+
+function connectTerminalSession(session) {
+  if (!session || session.agentId === "__empty__") return;
+  if ((eventList?.dataset.selectedAgent || "") !== session.agentId) return;
+  if (session.ws && (session.ws.readyState === WebSocket.OPEN || session.ws.readyState === WebSocket.CONNECTING)) {
+    return;
+  }
+  clearTerminalReconnect(session);
+  session.reconnectEnabled = true;
+  const token = session.connectToken + 1;
+  session.connectToken = token;
+  resetTerminalSessionView(session, "正在连接终端…");
+  const ws = new WebSocket(buildTerminalSocketUrl(session.agentId));
+  session.ws = ws;
+
+  ws.addEventListener("open", () => {
+    if (session.connectToken !== token) return;
+    requestAnimationFrame(() => requestAnimationFrame(fitTerminal));
+  });
+
+  ws.addEventListener("message", (event) => {
+    if (session.connectToken !== token) return;
+    try {
+      handleTerminalSocketMessage(session, JSON.parse(event.data));
+    } catch (e) {
+      debugLog("terminal-ws-message-error", { agentId: session.agentId, error: String(e) });
+    }
+  });
+
+  ws.addEventListener("close", () => {
+    if (session.connectToken !== token) return;
+    session.ws = null;
+    if (session.reconnectEnabled) {
+      resetTerminalSessionView(session, "终端连接已断开，正在重连…");
+      scheduleTerminalReconnect(session);
+    }
+  });
+
+  ws.addEventListener("error", () => {
+    debugLog("terminal-ws-error", { agentId: session.agentId });
+  });
 }
 
 function writeEmptyTerminalHint() {
   if (!terminalViewport) return;
   terminalSessions.forEach((session) => {
+    if (session.agentId !== "__empty__") disconnectTerminalSession(session);
     session.pane.classList.remove("is-active");
   });
   let session = terminalSessions.get("__empty__");
   if (!session && window.Terminal && window.FitAddon) {
     session = createTerminalInstance("__empty__");
     terminalSessions.set("__empty__", session);
-    session.term.write("\x1b[90m还没有 Agent。创建并启动 Agent 后，这里会显示交互终端。\x1b[0m\r\n");
   }
   if (session) {
+    resetTerminalSessionView(session, "还没有 Agent。创建并启动 Agent 后，这里会显示交互终端。");
     session.pane.classList.add("is-active");
     scheduleTerminalFit(0);
   }
@@ -654,7 +742,11 @@ function fitTerminalSession(session) {
     if (session.term.rows !== session.lastRows || session.term.cols !== session.lastCols) {
       session.lastRows = session.term.rows;
       session.lastCols = session.term.cols;
-      sendTerminalResize(session.agentId, session.term.rows, session.term.cols);
+      sendTerminalSocketMessage(session, {
+        type: "resize",
+        rows: session.term.rows,
+        cols: session.term.cols,
+      });
     }
   } catch (e) {
     /* xterm can throw while hidden or before fonts/layout are ready */
@@ -669,7 +761,8 @@ function initTerminal() {
   if (!terminalViewport || !window.Terminal || !window.FitAddon) return;
   const selectedAgentId = eventList?.dataset.selectedAgent || "";
   if (selectedAgentId) {
-    ensureTerminalSession(selectedAgentId);
+    const session = ensureTerminalSession(selectedAgentId);
+    if (session) connectTerminalSession(session);
   } else {
     writeEmptyTerminalHint();
   }
@@ -709,59 +802,22 @@ function setSelectedAgent(agentId, agentName, force = false) {
   const session = ensureTerminalSession(agentId);
   terminalSessions.forEach((item, key) => {
     item.pane.classList.toggle("is-active", key === agentId);
+    if (key !== agentId) disconnectTerminalSession(item);
   });
-  if (session && (changed || force)) {
+  if (session && (changed || force || !session.ws || session.ws.readyState > WebSocket.OPEN)) {
+    connectTerminalSession(session);
     requestAnimationFrame(() => requestAnimationFrame(fitTerminal));
   }
   scheduleTerminalFit(0);
   applyEventFilter();
 }
 
-async function sendTerminalData(agentId, data) {
-  if (!agentId || !data) return false;
-  const response = await fetch(`/api/agents/${agentId}/terminal-data`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ data }),
-  });
-  return response.ok;
-}
-
-async function sendTerminalResize(agentId, rows, cols) {
-  if (!agentId || !rows || !cols) return false;
-  const response = await fetch(`/api/agents/${agentId}/terminal-resize`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ rows, cols }),
-  });
-  return response.ok;
-}
-
-function handleTerminalEvent(event) {
+function handleRuntimeEvent(event) {
   if (!eventList) return;
-  if (rememberChatEvent(event)) renderInteractions();
-  const agentId = event.agent_id || "";
-  if (event.event_type === "agent.terminal.snapshot") {
-    terminalSnapshots.set(agentId, cleanTerminalText(event.data?.text || ""));
-    debugLog("terminal-snapshot", { agent_id: agentId, selected: eventList.dataset.selectedAgent || "" });
+  if (event.event_type === "agent.terminal.output" || event.event_type === "agent.terminal.snapshot") {
     return;
   }
-  if (event.event_type !== "agent.terminal.output") return;
-  terminalHasLiveOutput.add(agentId);
-  const session = ensureTerminalSession(agentId);
-  if (session) {
-    if (!session.hasLiveOutput) {
-      session.term.reset();
-      session.term.clear();
-    }
-    session.hasLiveOutput = true;
-    session.term.write(String(event.data?.text || ""));
-  }
-  debugLog("terminal-output", {
-    agent_id: agentId,
-    selected: eventList.dataset.selectedAgent || "",
-    bytes: String(event.data?.text || "").length,
-  });
+  if (rememberChatEvent(event)) renderInteractions();
 }
 
 function isIdleAgentRow(row) {
@@ -1072,7 +1128,7 @@ if (createAgentForm) {
 const stream = new EventSource("/api/events/stream");
 stream.addEventListener("event", (event) => {
   const payload = JSON.parse(event.data);
-  handleTerminalEvent(payload);
+  handleRuntimeEvent(payload);
 });
 stream.addEventListener("agents", (event) => {
   const payload = JSON.parse(event.data);
@@ -1082,13 +1138,13 @@ stream.addEventListener("agents", (event) => {
 stream.onmessage = (event) => {
   try {
     const payload = JSON.parse(event.data);
-    if (payload && payload.event_type) handleTerminalEvent(payload);
+    if (payload && payload.event_type) handleRuntimeEvent(payload);
   } catch (e) {
     /* ignore */
   }
 };
 
-hydrateTerminalSnapshots();
+hydrateChatEvents();
 initTerminal();
 if (eventList?.dataset.selectedAgent) {
   const row = agentList?.querySelector(`.agent-row[data-agent-id="${CSS.escape(eventList.dataset.selectedAgent)}"]`);

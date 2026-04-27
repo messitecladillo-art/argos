@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import re
 import logging
+import queue
 import threading
 import time
 from collections import deque
@@ -30,6 +31,9 @@ MAX_TURN_SECONDS = 120.0
 READ_CHUNK_SIZE = 1024
 READ_LOOP_INTERVAL = 0.2
 MAX_RAW_OUTPUT_CHARS = 12000
+MAX_TERMINAL_BUFFER_CHARS = 64000
+MAX_TERMINAL_SUBSCRIBER_QUEUE = 256
+TERMINAL_QUEUE_CLOSE_SENTINEL = {"type": "__close__"}
 TERMINAL_COLUMNS = 120
 TERMINAL_LINES = 36
 RESOLVED_INTERACTION_SUPPRESS_SECONDS = 30.0
@@ -250,6 +254,11 @@ class HermesSession:
         self._closed = False
         self._last_output_at = time.monotonic()
         self._current_started_at = 0.0
+        self._terminal_rows = TERMINAL_LINES
+        self._terminal_columns = TERMINAL_COLUMNS
+        self._terminal_subscribers: set[queue.Queue[dict[str, Any]]] = set()
+        self._terminal_buffer: deque[str] = deque()
+        self._terminal_buffer_chars = 0
 
         self.proc = pexpect.spawn(
             "hermes",
@@ -267,6 +276,57 @@ class HermesSession:
     def _tail(self, limit: int = 800) -> str:
         with self._lock:
             return self._raw_output[-limit:]
+
+    def _remember_terminal_chunk_locked(self, chunk: str) -> None:
+        if not chunk:
+            return
+        self._terminal_buffer.append(chunk)
+        self._terminal_buffer_chars += len(chunk)
+        while self._terminal_buffer and self._terminal_buffer_chars > MAX_TERMINAL_BUFFER_CHARS:
+            removed = self._terminal_buffer.popleft()
+            self._terminal_buffer_chars -= len(removed)
+
+    def _broadcast_terminal_message(self, message: dict[str, Any]) -> None:
+        with self._lock:
+            subscribers = list(self._terminal_subscribers)
+        for subscriber in subscribers:
+            try:
+                subscriber.put_nowait(message)
+            except queue.Full:
+                try:
+                    subscriber.get_nowait()
+                    subscriber.put_nowait(message)
+                except (queue.Empty, queue.Full):  # noqa: PERF203
+                    continue
+            except Exception:  # noqa: BLE001
+                continue
+
+    def open_terminal_stream(self) -> tuple[queue.Queue[dict[str, Any]], dict[str, Any]]:
+        subscriber: queue.Queue[dict[str, Any]] = queue.Queue(
+            maxsize=MAX_TERMINAL_SUBSCRIBER_QUEUE
+        )
+        with self._lock:
+            if self._closed or not self.proc.isalive():
+                raise RuntimeError("agent session is not running; start it first")
+            self._terminal_subscribers.add(subscriber)
+            state = {
+                "rows": self._terminal_rows,
+                "cols": self._terminal_columns,
+                "buffer": list(self._terminal_buffer),
+            }
+        return subscriber, state
+
+    def close_terminal_stream(self, subscriber: queue.Queue[dict[str, Any]]) -> None:
+        with self._lock:
+            self._terminal_subscribers.discard(subscriber)
+        try:
+            subscriber.put_nowait(TERMINAL_QUEUE_CLOSE_SENTINEL)
+        except queue.Full:
+            try:
+                subscriber.get_nowait()
+                subscriber.put_nowait(TERMINAL_QUEUE_CLOSE_SENTINEL)
+            except (queue.Empty, queue.Full):  # noqa: PERF203
+                pass
 
     def _update_queue_depth(self) -> None:
         with self._lock:
@@ -414,6 +474,13 @@ class HermesSession:
             self.agent_id,
             None,
             {"text": f"Hermes session ended: {reason}"},
+        )
+        self._broadcast_terminal_message(
+            {
+                "type": "status",
+                "status": "error",
+                "message": f"Hermes session ended: {reason}",
+            }
         )
         if (
             failed_message
@@ -649,6 +716,8 @@ class HermesSession:
         except Exception:  # noqa: BLE001
             pass
         with self._lock:
+            self._terminal_rows = rows
+            self._terminal_columns = columns
             try:
                 self._terminal_screen.resize(rows, columns)
             except Exception:  # noqa: BLE001
@@ -812,6 +881,7 @@ class HermesSession:
         clean = _strip_ansi(chunk.replace("\r", ""))
         now = time.monotonic()
         with self._lock:
+            self._remember_terminal_chunk_locked(terminal_chunk)
             running = self._current_message is not None
             self._terminal_stream.feed(terminal_chunk)
             terminal_snapshot = _compact_screen_text(self._terminal_screen)
@@ -841,6 +911,10 @@ class HermesSession:
             manual_text = "".join(self._manual_terminal_output)[-2000:]
             manual_had_interrupt_hint = self._manual_terminal_had_interrupt_hint
             manual_saw_substantive_output = self._manual_terminal_saw_substantive_output
+
+        self._broadcast_terminal_message(
+            {"type": "output", "data": terminal_chunk}
+        )
 
         store.push_event(
             "agent.terminal.output",
@@ -1081,6 +1155,9 @@ class HermesSession:
 
     def close(self) -> None:
         self._closed = True
+        self._broadcast_terminal_message(
+            {"type": "status", "status": "closed", "message": "Hermes session 已关闭"}
+        )
         try:
             if self.proc.isalive():
                 self.proc.close(force=True)
@@ -1278,6 +1355,20 @@ class ACPPool:
         if session is None or not session.proc.isalive():
             raise RuntimeError("agent session is not running; start it first")
         session.resize_terminal(rows, columns)
+
+    def attach_terminal(self, agent_id: str) -> tuple[queue.Queue[dict[str, Any]], dict[str, Any]]:
+        with self._lock:
+            session = self.clients.get(agent_id)
+        if session is None or not session.proc.isalive():
+            raise RuntimeError("agent session is not running; start it first")
+        return session.open_terminal_stream()
+
+    def detach_terminal(self, agent_id: str, subscriber: queue.Queue[dict[str, Any]]) -> None:
+        with self._lock:
+            session = self.clients.get(agent_id)
+        if session is None:
+            return
+        session.close_terminal_stream(subscriber)
 
     def _on_final(
         self,
