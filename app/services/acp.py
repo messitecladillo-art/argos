@@ -110,6 +110,51 @@ def _compact_screen_text(screen: pyte.Screen) -> str:
     return "\n".join(line.rstrip() for line in screen.display).rstrip()
 
 
+def _terminal_ansi_count(text: str) -> int:
+    return len(
+        re.findall(
+            r"\x1b(?:\[[0-9;?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[@-Z\\-_])",
+            text,
+        )
+    )
+
+
+def _terminal_control_codes(text: str) -> list[int]:
+    codes: list[int] = []
+    for char in text:
+        code = ord(char)
+        if (code < 32 and char not in "\n\r\t\x1b") or code == 127:
+            codes.append(code)
+    return codes
+
+
+def _terminal_preview(text: str, limit: int = 180) -> str:
+    snippet = text[:limit]
+    return snippet.encode("unicode_escape", "backslashreplace").decode("ascii")
+
+
+def _is_suspicious_terminal_text(text: str) -> bool:
+    if not text:
+        return False
+    if "\ufffd" in text:
+        return True
+    return bool(_terminal_control_codes(text))
+
+
+def _log_terminal_debug(event: str, agent_id: str, text: str, **fields: Any) -> None:
+    controls = _terminal_control_codes(text)
+    payload = {
+        "len": len(text),
+        "ansi": _terminal_ansi_count(text),
+        "controls": controls[:12],
+        "has_replacement": "\ufffd" in text,
+        "preview": _terminal_preview(text),
+        **fields,
+    }
+    details = " ".join(f"{key}={value!r}" for key, value in payload.items())
+    logger.warning("[terminal-debug] %s agent=%s %s", event, agent_id, details)
+
+
 def _is_substantive_output(text: str) -> bool:
     stripped = _strip_ansi(text).strip()
     if not stripped:
@@ -259,6 +304,8 @@ class HermesSession:
         self._terminal_subscribers: set[queue.Queue[dict[str, Any]]] = set()
         self._terminal_buffer: deque[str] = deque()
         self._terminal_buffer_chars = 0
+        self._terminal_debug_chunk_samples = 0
+        self._last_terminal_warning_at = 0.0
 
         self.proc = pexpect.spawn(
             "hermes",
@@ -881,6 +928,13 @@ class HermesSession:
         clean = _strip_ansi(chunk.replace("\r", ""))
         now = time.monotonic()
         with self._lock:
+            should_log_sample = self._terminal_debug_chunk_samples < 5
+            suspicious_chunk = _is_suspicious_terminal_text(terminal_chunk)
+            should_log_warning = suspicious_chunk and (now - self._last_terminal_warning_at >= 1.5)
+            if should_log_sample:
+                self._terminal_debug_chunk_samples += 1
+            if should_log_warning:
+                self._last_terminal_warning_at = now
             self._remember_terminal_chunk_locked(terminal_chunk)
             running = self._current_message is not None
             self._terminal_stream.feed(terminal_chunk)
@@ -912,6 +966,23 @@ class HermesSession:
             manual_had_interrupt_hint = self._manual_terminal_had_interrupt_hint
             manual_saw_substantive_output = self._manual_terminal_saw_substantive_output
 
+        if should_log_sample:
+            _log_terminal_debug(
+                "chunk_sample",
+                self.agent_id,
+                terminal_chunk,
+                clean_preview=_terminal_preview(clean),
+                running=running,
+            )
+        if should_log_warning:
+            _log_terminal_debug(
+                "chunk_suspicious",
+                self.agent_id,
+                terminal_chunk,
+                clean_preview=_terminal_preview(clean),
+                running=running,
+            )
+
         self._broadcast_terminal_message(
             {"type": "output", "data": terminal_chunk}
         )
@@ -924,6 +995,8 @@ class HermesSession:
         )
 
         if snapshot_changed:
+            if _is_suspicious_terminal_text(terminal_snapshot):
+                _log_terminal_debug("snapshot_suspicious", self.agent_id, terminal_snapshot)
             store.push_event(
                 "agent.terminal.snapshot",
                 self.agent_id,

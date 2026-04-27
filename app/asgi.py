@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from contextlib import suppress
 
 from starlette.applications import Starlette
@@ -13,16 +14,20 @@ from .mcp_server import mcp_asgi_app
 from .models.store import store
 from .services.acp import TERMINAL_QUEUE_CLOSE_SENTINEL, pool as session_pool
 
+logger = logging.getLogger("hermes.agent_state")
+
 
 async def terminal_ws(websocket: WebSocket) -> None:
     agent_id = websocket.path_params["agent_id"]
     await websocket.accept()
+    logger.warning("[terminal-ws] accept agent=%s client=%s", agent_id, getattr(websocket, "client", None))
 
     agent = store.find_agent(agent_id)
     if agent is None:
         await websocket.send_json(
             {"type": "status", "status": "error", "message": "agent not found"}
         )
+        logger.warning("[terminal-ws] missing agent=%s", agent_id)
         await websocket.close(code=4404)
         return
 
@@ -32,6 +37,7 @@ async def terminal_ws(websocket: WebSocket) -> None:
         await websocket.send_json(
             {"type": "status", "status": "not_running", "message": str(exc)}
         )
+        logger.warning("[terminal-ws] attach failed agent=%s error=%s", agent_id, exc)
         await websocket.close(code=4409)
         return
 
@@ -39,8 +45,11 @@ async def terminal_ws(websocket: WebSocket) -> None:
         while True:
             message = await asyncio.to_thread(subscriber.get)
             if message == TERMINAL_QUEUE_CLOSE_SENTINEL:
+                logger.warning("[terminal-ws] close sentinel agent=%s", agent_id)
                 return
             await websocket.send_json(message)
+            if message.get("type") != "output":
+                logger.warning("[terminal-ws] send agent=%s type=%s", agent_id, message.get("type"))
             if message.get("type") == "status":
                 return
 
@@ -51,6 +60,13 @@ async def terminal_ws(websocket: WebSocket) -> None:
                 "rows": state["rows"],
                 "cols": state["cols"],
             }
+        )
+        logger.warning(
+            "[terminal-ws] ready agent=%s rows=%s cols=%s buffered_chunks=%s",
+            agent_id,
+            state["rows"],
+            state["cols"],
+            len(state["buffer"]),
         )
         for chunk in state["buffer"]:
             await websocket.send_json({"type": "output", "data": chunk})
@@ -73,9 +89,20 @@ async def terminal_ws(websocket: WebSocket) -> None:
             payload = receive_task.result()
             message_type = payload.get("type")
             if message_type == "input":
+                logger.warning(
+                    "[terminal-ws] input agent=%s bytes=%s",
+                    agent_id,
+                    len(str(payload.get("data") or "")),
+                )
                 session_pool.send_terminal_data(agent_id, str(payload.get("data") or ""))
                 continue
             if message_type == "resize":
+                logger.warning(
+                    "[terminal-ws] resize agent=%s rows=%s cols=%s",
+                    agent_id,
+                    payload.get("rows"),
+                    payload.get("cols"),
+                )
                 session_pool.resize_terminal(
                     agent_id,
                     int(payload.get("rows") or 0),
@@ -85,7 +112,7 @@ async def terminal_ws(websocket: WebSocket) -> None:
             if message_type == "ping":
                 await websocket.send_json({"type": "pong"})
     except WebSocketDisconnect:
-        pass
+        logger.warning("[terminal-ws] disconnect agent=%s", agent_id)
     finally:
         session_pool.detach_terminal(agent_id, subscriber)
         if "output_task" in locals():

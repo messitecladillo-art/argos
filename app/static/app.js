@@ -47,6 +47,42 @@ function debugLog(event, payload) {
   console.debug(`[hermes-debug] ${event}`, payload);
 }
 
+function summarizeTerminalText(value) {
+  const text = String(value || "");
+  const ansiMatches = text.match(/\x1b(?:\[[0-9;?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\)|[@-Z\\-_])/g) || [];
+  const suspiciousControls = Array.from(text).filter((char) => {
+    const code = char.charCodeAt(0);
+    return (code < 32 && !["\n", "\r", "\t", "\x1b"].includes(char)) || code === 127;
+  });
+  return {
+    length: text.length,
+    ansiCount: ansiMatches.length,
+    suspiciousControlCount: suspiciousControls.length,
+    hasReplacementChar: text.includes("\ufffd"),
+    preview: JSON.stringify(text.slice(0, 160)),
+    tailPreview: JSON.stringify(text.slice(-160)),
+    suspiciousControls: suspiciousControls.slice(0, 12).map((char) => char.charCodeAt(0)),
+  };
+}
+
+function logTerminalPayload(event, session, payload) {
+  if (!hermesDebug || !session) return;
+  const data = typeof payload?.data === "string" ? payload.data : "";
+  const summary = summarizeTerminalText(data);
+  debugLog(event, {
+    agentId: session.agentId,
+    type: payload?.type,
+    ...summary,
+  });
+  if (summary.hasReplacementChar || summary.suspiciousControlCount > 0) {
+    console.warn(`[hermes-terminal] suspicious ${event}`, {
+      agentId: session.agentId,
+      type: payload?.type,
+      ...summary,
+    });
+  }
+}
+
 function escapeHtml(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -649,6 +685,11 @@ function scheduleTerminalReconnect(session, delay = terminalReconnectDelay) {
 function handleTerminalSocketMessage(session, payload) {
   if (!session || !payload || typeof payload !== "object") return;
   if (payload.type === "ready") {
+    debugLog("terminal-ready", {
+      agentId: session.agentId,
+      rows: payload.rows,
+      cols: payload.cols,
+    });
     session.reconnectEnabled = true;
     if (typeof payload.rows === "number") session.lastRows = payload.rows;
     if (typeof payload.cols === "number") session.lastCols = payload.cols;
@@ -660,6 +701,7 @@ function handleTerminalSocketMessage(session, payload) {
     return;
   }
   if (payload.type === "output") {
+    logTerminalPayload("terminal-output", session, payload);
     if (!session.hasRenderedOutput) {
       session.term.reset();
       session.term.clear();
@@ -690,13 +732,22 @@ function connectTerminalSession(session) {
 
   ws.addEventListener("open", () => {
     if (session.connectToken !== token) return;
+    debugLog("terminal-ws-open", { agentId: session.agentId });
     requestAnimationFrame(() => requestAnimationFrame(fitTerminal));
   });
 
   ws.addEventListener("message", (event) => {
     if (session.connectToken !== token) return;
     try {
-      handleTerminalSocketMessage(session, JSON.parse(event.data));
+      const payload = JSON.parse(event.data);
+      if (payload?.type !== "output") {
+        debugLog("terminal-ws-message", {
+          agentId: session.agentId,
+          type: payload?.type,
+          payload,
+        });
+      }
+      handleTerminalSocketMessage(session, payload);
     } catch (e) {
       debugLog("terminal-ws-message-error", { agentId: session.agentId, error: String(e) });
     }
@@ -704,6 +755,7 @@ function connectTerminalSession(session) {
 
   ws.addEventListener("close", () => {
     if (session.connectToken !== token) return;
+    debugLog("terminal-ws-close", { agentId: session.agentId, reconnect: session.reconnectEnabled });
     session.ws = null;
     if (session.reconnectEnabled) {
       resetTerminalSessionView(session, "终端连接已断开，正在重连…");
