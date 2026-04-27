@@ -110,6 +110,97 @@ def _compact_screen_text(screen: pyte.Screen) -> str:
     return "\n".join(line.rstrip() for line in screen.display).rstrip()
 
 
+def _char_style_sgr(char: Any) -> str:
+    fg_map = {
+        "black": 30,
+        "red": 31,
+        "green": 32,
+        "brown": 33,
+        "blue": 34,
+        "magenta": 35,
+        "cyan": 36,
+        "white": 37,
+        "default": 39,
+    }
+    bg_map = {
+        "black": 40,
+        "red": 41,
+        "green": 42,
+        "brown": 43,
+        "blue": 44,
+        "magenta": 45,
+        "cyan": 46,
+        "white": 47,
+        "default": 49,
+    }
+    codes = [
+        1 if getattr(char, "bold", False) else 22,
+        3 if getattr(char, "italics", False) else 23,
+        4 if getattr(char, "underscore", False) else 24,
+        5 if getattr(char, "blink", False) else 25,
+        7 if getattr(char, "reverse", False) else 27,
+        9 if getattr(char, "strikethrough", False) else 29,
+        fg_map.get(getattr(char, "fg", "default"), 39),
+        bg_map.get(getattr(char, "bg", "default"), 49),
+    ]
+    return f"\x1b[{';'.join(str(code) for code in codes)}m"
+
+
+def _is_default_char(char: Any) -> bool:
+    return (
+        getattr(char, "data", " ") == " "
+        and getattr(char, "fg", "default") == "default"
+        and getattr(char, "bg", "default") == "default"
+        and not getattr(char, "bold", False)
+        and not getattr(char, "italics", False)
+        and not getattr(char, "underscore", False)
+        and not getattr(char, "strikethrough", False)
+        and not getattr(char, "reverse", False)
+        and not getattr(char, "blink", False)
+    )
+
+
+def _screen_to_ansi(screen: pyte.Screen) -> str:
+    default_char = pyte.screens.Char(" ")
+    rows: list[str] = []
+    last_non_empty_row = -1
+
+    for row_index in range(screen.lines):
+        row = screen.buffer.get(row_index)
+        if row is None:
+            rows.append("")
+            continue
+        last_non_empty_col = -1
+        for col_index in range(screen.columns):
+            char = row.get(col_index, default_char)
+            if not _is_default_char(char):
+                last_non_empty_col = col_index
+        if last_non_empty_col < 0:
+            rows.append("")
+            continue
+
+        parts: list[str] = []
+        current_style: str | None = None
+        for col_index in range(last_non_empty_col + 1):
+            char = row.get(col_index, default_char)
+            style = _char_style_sgr(char)
+            if style != current_style:
+                parts.append(style)
+                current_style = style
+            parts.append(getattr(char, "data", " "))
+        if current_style is not None:
+            parts.append("\x1b[0m")
+        rows.append("".join(parts))
+        last_non_empty_row = row_index
+
+    visible_rows = rows[: last_non_empty_row + 1]
+    body = "\r\n".join(visible_rows)
+    cursor_y = max(0, min(int(getattr(screen.cursor, "y", 0)), screen.lines - 1))
+    cursor_x = max(0, min(int(getattr(screen.cursor, "x", 0)), screen.columns - 1))
+    cursor_seq = f"\x1b[{cursor_y + 1};{cursor_x + 1}H"
+    return f"\x1b[0m\x1b[2J\x1b[H{body}\x1b[0m{cursor_seq}"
+
+
 def _terminal_ansi_count(text: str) -> int:
     return len(
         re.findall(
@@ -356,10 +447,12 @@ class HermesSession:
             if self._closed or not self.proc.isalive():
                 raise RuntimeError("agent session is not running; start it first")
             self._terminal_subscribers.add(subscriber)
+            raw_snapshot = "".join(self._terminal_buffer)
             state = {
                 "rows": self._terminal_rows,
                 "cols": self._terminal_columns,
-                "buffer": list(self._terminal_buffer),
+                "snapshot_text": self._last_terminal_snapshot,
+                "snapshot_ansi": raw_snapshot or _screen_to_ansi(self._terminal_screen),
             }
         return subscriber, state
 

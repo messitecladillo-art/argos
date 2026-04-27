@@ -44,7 +44,7 @@ const soulState = {
 
 function debugLog(event, payload) {
   if (!hermesDebug) return;
-  console.debug(`[hermes-debug] ${event}`, payload);
+  console.log(`[hermes-debug] ${event}`, payload);
 }
 
 function summarizeTerminalText(value) {
@@ -81,6 +81,22 @@ function logTerminalPayload(event, session, payload) {
       ...summary,
     });
   }
+}
+
+function restoreTerminalSnapshot(session, payload) {
+  if (!session) return false;
+  const snapshotAnsi = String(payload?.snapshot_ansi || "");
+  if (!snapshotAnsi) return false;
+  debugLog("terminal-snapshot-restore", {
+    agentId: session.agentId,
+    ansiSummary: summarizeTerminalText(snapshotAnsi),
+    textLength: String(payload?.snapshot_text || "").length,
+  });
+  session.term.reset();
+  session.term.clear();
+  session.term.write(snapshotAnsi);
+  session.hasRenderedOutput = true;
+  return true;
 }
 
 function escapeHtml(value) {
@@ -689,15 +705,40 @@ function handleTerminalSocketMessage(session, payload) {
       agentId: session.agentId,
       rows: payload.rows,
       cols: payload.cols,
+      snapshotTextLength: String(payload.snapshot_text || "").length,
+      snapshotAnsiLength: String(payload.snapshot_ansi || "").length,
     });
     session.reconnectEnabled = true;
-    if (typeof payload.rows === "number") session.lastRows = payload.rows;
-    if (typeof payload.cols === "number") session.lastCols = payload.cols;
-    if (!session.hasRenderedOutput) {
+    const snapRows = typeof payload.rows === "number" ? payload.rows : 0;
+    const snapCols = typeof payload.cols === "number" ? payload.cols : 0;
+    const ansi = String(payload.snapshot_ansi || "");
+    debugLog("terminal-ready-detail", {
+      agentId: session.agentId,
+      payloadRows: snapRows,
+      payloadCols: snapCols,
+      termBefore: { rows: session.term.rows, cols: session.term.cols },
+      paneSize: session.pane ? { w: session.pane.offsetWidth, h: session.pane.offsetHeight, active: session.pane.classList.contains("is-active") } : null,
+      ansiLen: ansi.length,
+      ansiHead: JSON.stringify(ansi.slice(0, 240)),
+      ansiTail: JSON.stringify(ansi.slice(-240)),
+    });
+    if (snapRows > 0 && snapCols > 0) {
+      try { session.term.resize(snapCols, snapRows); } catch (_) {}
+      session.lastRows = snapRows;
+      session.lastCols = snapCols;
+    }
+    if (!restoreTerminalSnapshot(session, payload) && !session.hasRenderedOutput) {
       session.term.reset();
       session.term.clear();
     }
-    requestAnimationFrame(() => requestAnimationFrame(fitTerminal));
+    debugLog("terminal-ready-after", {
+      agentId: session.agentId,
+      termAfter: { rows: session.term.rows, cols: session.term.cols },
+    });
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      fitTerminal();
+      fitTerminal();
+    }));
     return;
   }
   if (payload.type === "output") {
@@ -786,22 +827,47 @@ function writeEmptyTerminalHint() {
   }
 }
 
-function fitTerminalSession(session) {
+function fitTerminalSession(session, tag = "") {
   if (!session) return;
+  const pane = session.pane;
+  const beforeRows = session.term.rows;
+  const beforeCols = session.term.cols;
+  const paneInfo = pane ? {
+    offsetW: pane.offsetWidth,
+    offsetH: pane.offsetHeight,
+    clientW: pane.clientWidth,
+    clientH: pane.clientHeight,
+    isActive: pane.classList.contains("is-active"),
+  } : null;
   try {
     session.fitAddon.fit();
+    debugLog("terminal-fit", {
+      tag,
+      agentId: session.agentId,
+      pane: paneInfo,
+      before: { rows: beforeRows, cols: beforeCols },
+      after: { rows: session.term.rows, cols: session.term.cols },
+      last: { rows: session.lastRows, cols: session.lastCols },
+    });
     if (session.agentId === "__empty__") return;
     if (session.term.rows !== session.lastRows || session.term.cols !== session.lastCols) {
       session.lastRows = session.term.rows;
       session.lastCols = session.term.cols;
-      sendTerminalSocketMessage(session, {
+      const sent = sendTerminalSocketMessage(session, {
         type: "resize",
         rows: session.term.rows,
         cols: session.term.cols,
       });
+      debugLog("terminal-resize-sent", {
+        tag,
+        agentId: session.agentId,
+        rows: session.term.rows,
+        cols: session.term.cols,
+        sent,
+      });
     }
   } catch (e) {
-    /* xterm can throw while hidden or before fonts/layout are ready */
+    debugLog("terminal-fit-error", { tag, agentId: session.agentId, error: String(e), pane: paneInfo });
   }
 }
 
@@ -856,9 +922,20 @@ function setSelectedAgent(agentId, agentName, force = false) {
     item.pane.classList.toggle("is-active", key === agentId);
     if (key !== agentId) disconnectTerminalSession(item);
   });
+  debugLog("terminal-switch", {
+    agentId,
+    changed,
+    force,
+    sessionExists: !!session,
+    paneSize: session?.pane ? { w: session.pane.offsetWidth, h: session.pane.offsetHeight } : null,
+    termSize: session ? { rows: session.term.rows, cols: session.term.cols } : null,
+  });
   if (session && (changed || force || !session.ws || session.ws.readyState > WebSocket.OPEN)) {
-    connectTerminalSession(session);
-    requestAnimationFrame(() => requestAnimationFrame(fitTerminal));
+    requestAnimationFrame(() => {
+      fitTerminalSession(session, "switch-pre-connect");
+      connectTerminalSession(session);
+      requestAnimationFrame(() => requestAnimationFrame(fitTerminal));
+    });
   }
   scheduleTerminalFit(0);
   applyEventFilter();

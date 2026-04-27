@@ -59,17 +59,18 @@ async def terminal_ws(websocket: WebSocket) -> None:
                 "type": "ready",
                 "rows": state["rows"],
                 "cols": state["cols"],
+                "snapshot_text": state["snapshot_text"],
+                "snapshot_ansi": state["snapshot_ansi"],
             }
         )
         logger.warning(
-            "[terminal-ws] ready agent=%s rows=%s cols=%s buffered_chunks=%s",
+            "[terminal-ws] ready agent=%s rows=%s cols=%s snapshot_text_len=%s snapshot_ansi_len=%s",
             agent_id,
             state["rows"],
             state["cols"],
-            len(state["buffer"]),
+            len(state["snapshot_text"]),
+            len(state["snapshot_ansi"]),
         )
-        for chunk in state["buffer"]:
-            await websocket.send_json({"type": "output", "data": chunk})
 
         output_task = asyncio.create_task(pump_terminal_output())
         while True:
