@@ -447,7 +447,8 @@ label span,
 }
 
 .history-drawer,
-.soul-drawer {
+.soul-drawer,
+.skills-drawer {
   position: fixed;
   inset: 0;
   z-index: 80;
@@ -455,7 +456,8 @@ label span,
 }
 
 .history-drawer__backdrop,
-.soul-drawer__backdrop {
+.soul-drawer__backdrop,
+.skills-drawer__backdrop {
   position: absolute;
   inset: 0;
   background: rgba(2, 2, 1, 0);
@@ -463,7 +465,8 @@ label span,
 }
 
 .history-drawer__panel,
-.soul-drawer__panel {
+.soul-drawer__panel,
+.skills-drawer__panel {
   position: absolute;
   top: 0;
   right: 0;
@@ -480,22 +483,26 @@ label span,
 }
 
 .history-drawer.is-open,
-.soul-drawer.is-open {
+.soul-drawer.is-open,
+.skills-drawer.is-open {
   pointer-events: auto;
 }
 
 .history-drawer.is-open .history-drawer__backdrop,
-.soul-drawer.is-open .soul-drawer__backdrop {
+.soul-drawer.is-open .soul-drawer__backdrop,
+.skills-drawer.is-open .skills-drawer__backdrop {
   background: rgba(2, 2, 1, 0.48);
 }
 
 .history-drawer.is-open .history-drawer__panel,
-.soul-drawer.is-open .soul-drawer__panel {
+.soul-drawer.is-open .soul-drawer__panel,
+.skills-drawer.is-open .skills-drawer__panel {
   transform: translateX(0);
 }
 
 .history-drawer__head,
-.soul-drawer__head {
+.soul-drawer__head,
+.skills-drawer__head {
   display: flex;
   justify-content: space-between;
   gap: 16px;
@@ -503,13 +510,15 @@ label span,
 }
 
 .history-drawer__head h2,
-.soul-drawer__head h2 {
+.soul-drawer__head h2,
+.skills-drawer__head h2 {
   margin: 0;
   font-size: 1.35rem;
 }
 
 .history-drawer__head p,
-.soul-drawer__head p {
+.soul-drawer__head p,
+.skills-drawer__head p {
   margin: 4px 0 0;
   color: var(--muted);
   font-size: 0.82rem;
@@ -527,9 +536,18 @@ label span,
   display: none;
 }
 
+.skills-drawer[hidden] {
+  display: none;
+}
+
 .soul-drawer__panel {
   width: min(980px, calc(100vw - 28px));
   grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.skills-drawer__panel {
+  width: min(1100px, calc(100vw - 28px));
+  grid-template-rows: auto auto auto minmax(0, 1fr);
 }
 
 .soul-drawer__head > div {
@@ -685,6 +703,137 @@ label span,
   gap: 10px;
 }
 
+.skills-layout {
+  display: grid;
+  grid-template-columns: 320px minmax(0, 1fr);
+  gap: 16px;
+  min-height: 0;
+}
+
+.skills-list-panel,
+.skills-detail-panel {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  gap: 12px;
+}
+
+.skills-list-panel {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.skills-detail-panel {
+  grid-template-rows: auto auto minmax(0, 1fr);
+  padding-left: 16px;
+  border-left: 1px solid rgba(246, 207, 117, 0.16);
+}
+
+.skills-list-head,
+.skills-detail-head,
+.skills-detail-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.skills-list-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.skills-alpha-nav {
+  display: flex;
+  flex-wrap: nowrap;
+  gap: 8px;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: 4px;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.skills-alpha-nav::-webkit-scrollbar {
+  display: none;
+}
+
+.skill-alpha-chip {
+  flex: 0 0 auto;
+  min-width: 38px;
+  padding-inline: 10px;
+}
+
+.skill-alpha-chip:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.skills-install-form {
+  display: grid;
+  gap: 10px;
+}
+
+.skills-list {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 10px;
+}
+
+.skill-row {
+  appearance: none;
+  width: 100%;
+  text-align: left;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(246, 207, 117, 0.12);
+  background: rgba(246, 207, 117, 0.04);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.skill-row.is-active,
+.skill-row:hover {
+  border-color: rgba(246, 207, 117, 0.36);
+  background: rgba(217, 154, 33, 0.1);
+}
+
+.skill-row strong,
+.skill-row span,
+.skill-row small {
+  display: block;
+}
+
+.skill-row span,
+.skill-row small,
+.skills-detail-head p {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.skills-detail-panel code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.skills-preview {
+  min-height: 0;
+}
+
+.skills-preview pre {
+  white-space: pre-wrap;
+  overflow-x: hidden;
+  overflow-wrap: anywhere;
+}
+
+.skills-preview pre code {
+  white-space: inherit;
+}
+
 .soul-dirty-hint {
   margin-right: auto;
   color: var(--warning);
@@ -829,13 +978,23 @@ label span,
   }
 
   .history-drawer__panel,
-  .soul-drawer__panel {
+  .soul-drawer__panel,
+  .skills-drawer__panel {
     width: 100vw;
   }
 
-  .soul-editor-grid {
+  .soul-editor-grid,
+  .skills-layout {
     grid-template-columns: 1fr;
   }
+
+  .skills-detail-panel {
+    padding-left: 0;
+    border-left: 0;
+    padding-top: 16px;
+    border-top: 1px solid rgba(246, 207, 117, 0.16);
+  }
+
 }
 
 @media (max-width: 640px) {
@@ -890,7 +1049,7 @@ label span,
 .modal {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 120;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1093,6 +1252,7 @@ label span,
 .acp-btn:hover { background: rgba(217, 154, 33, 0.1); }
 .acp-btn--stop { border-color: #ff5a5a55; color: #ff8a8a; }
 .acp-btn--start { border-color: #2dd46f55; color: #7fe9a7; }
+.acp-btn--skills { border-color: rgba(97, 226, 148, 0.28); color: var(--success); }
 .acp-btn--soul { border-color: rgba(246, 207, 117, 0.32); color: var(--accent-2); }
 .acp-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
@@ -1146,31 +1306,40 @@ label span,
   background: transparent;
 }
 
-.dismiss-agent-modal__panel {
+.confirm-modal__panel {
   width: min(420px, 100%);
-  border-color: rgba(255, 127, 122, 0.28);
 }
 
-.dismiss-agent-modal__message {
+.confirm-modal__message {
   margin: 0;
   color: var(--text);
   font-size: 1rem;
   line-height: 1.6;
 }
 
-.dismiss-agent-modal__confirm {
+.confirm-modal__confirm {
   appearance: none;
   min-height: 38px;
-  border: 1px solid rgba(255, 127, 122, 0.42);
+  border: 1px solid rgba(246, 207, 117, 0.32);
   border-radius: 999px;
-  background: rgba(255, 127, 122, 0.12);
-  color: var(--danger);
+  background: rgba(246, 207, 117, 0.12);
+  color: var(--accent-2);
   padding: 8px 16px;
   font: inherit;
   font-weight: 700;
   cursor: pointer;
 }
 
-.dismiss-agent-modal__confirm:hover {
+.confirm-modal__confirm:hover {
+  background: rgba(246, 207, 117, 0.18);
+}
+
+.confirm-modal__confirm[data-variant="danger"] {
+  border-color: rgba(255, 127, 122, 0.42);
+  background: rgba(255, 127, 122, 0.12);
+  color: var(--danger);
+}
+
+.confirm-modal__confirm[data-variant="danger"]:hover {
   background: rgba(255, 127, 122, 0.18);
 }

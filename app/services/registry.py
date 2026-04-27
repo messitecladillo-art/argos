@@ -30,6 +30,18 @@ def soul_path_for(profile_name: str) -> Path:
     return HERMES_HOME / "profiles" / profile_name / "SOUL.md"
 
 
+def skills_dir_for(profile_name: str) -> Path:
+    return HERMES_HOME / "profiles" / profile_name / "skills"
+
+
+def skill_dir(profile_name: str, slug: str) -> Path:
+    return skills_dir_for(profile_name) / slug
+
+
+def skill_md_path(profile_name: str, slug: str) -> Path:
+    return skill_dir(profile_name, slug) / "SKILL.md"
+
+
 def workspace_path_for(profile_name: str) -> Path:
     return AGENT_TEAM_WORKSPACE_ROOT / profile_name
 

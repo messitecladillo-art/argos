@@ -115,3 +115,19 @@ class EventRecord(Base):
     task_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
     data_json: Mapped[str] = mapped_column(Text, default="{}")
     created_at: Mapped[str] = mapped_column(String(40), index=True)
+
+
+class AgentSkillInstallRecord(TimestampMixin, Base):
+    __tablename__ = "agent_skill_installs"
+    __table_args__ = (UniqueConstraint("profile_name", "slug"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    profile_name: Mapped[str] = mapped_column(String(120), index=True)
+    slug: Mapped[str] = mapped_column(String(80))
+    source_type: Mapped[str] = mapped_column(String(20), default="git")
+    source_url: Mapped[str] = mapped_column(Text, default="")
+    source_ref: Mapped[str] = mapped_column(String(120), default="")
+    resolved_commit_sha: Mapped[str] = mapped_column(String(120), default="")
+    subdir: Mapped[str] = mapped_column(Text, default="")
+    installed_at: Mapped[str] = mapped_column(String(40), default="")
+    last_error: Mapped[str] = mapped_column(Text, default="")

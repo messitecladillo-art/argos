@@ -23,6 +23,22 @@ const soulEditor = document.getElementById("soul-editor");
 const soulPreview = document.getElementById("soul-preview");
 const soulDirtyHint = document.getElementById("soul-dirty-hint");
 const saveSoul = document.getElementById("save-soul");
+const skillsDrawer = document.getElementById("skills-drawer");
+const skillsDrawerAgent = document.getElementById("skills-drawer-agent");
+const skillsStatus = document.getElementById("skills-status");
+const openSkillsInstall = document.getElementById("open-skills-install");
+const skillsInstallModal = document.getElementById("skills-install-modal");
+const skillsInstallForm = document.getElementById("skills-install-form");
+const skillsAlphaNav = document.getElementById("skills-alpha-nav");
+const skillsList = document.getElementById("skills-list");
+const skillsEmpty = document.getElementById("skills-empty");
+const skillsRefresh = document.getElementById("skills-refresh");
+const skillsDetailTitle = document.getElementById("skills-detail-title");
+const skillsDetailMeta = document.getElementById("skills-detail-meta");
+const skillsDetailPath = document.getElementById("skills-detail-path");
+const skillsPreview = document.getElementById("skills-preview");
+const skillsReinstall = document.getElementById("skills-reinstall");
+const skillsUninstall = document.getElementById("skills-uninstall");
 const terminalSessions = new Map();
 const chatEventsByAgent = new Map();
 const defaultTerminalCols = 120;
@@ -31,7 +47,7 @@ const terminalReconnectDelay = 900;
 const hermesDebug = window.localStorage?.getItem("hermesDebug") !== "0";
 let agentContextMenu = null;
 let deletingAgentId = "";
-let dismissAgentModal = null;
+let confirmModal = null;
 let resizeTimer = 0;
 const soulState = {
   agentId: "",
@@ -41,6 +57,17 @@ const soulState = {
   scrollSyncSource: "",
   scrollSyncTimer: 0,
 };
+const skillsState = {
+  agentId: "",
+  agentName: "",
+  items: [],
+  selectedSlug: "",
+  loading: false,
+  detailRequestId: 0,
+  activeLetter: "ALL",
+};
+
+const SKILL_ALPHA_OPTIONS = ["ALL", ...Array.from({ length: 26 }, (_item, index) => String.fromCharCode(65 + index))];
 
 function debugLog(event, payload) {
   if (!hermesDebug) return;
@@ -202,6 +229,7 @@ function buildAgentRow(agent, isActive) {
       <div class="agent-row__session">
         <span class="acp-dot acp-${runtimeStatus}"></span>
         <span class="acp-label">${escapeHtml(formatRuntimeStatus(runtimeStatus))}</span>
+        <button class="acp-btn acp-btn--skills" type="button" data-skills-open data-agent-id="${agent.agent_id}">Skills</button>
         <button class="acp-btn acp-btn--soul" type="button" data-soul-open data-agent-id="${agent.agent_id}"${soulDisabled}>SOUL</button>
         ${btn}
       </div>
@@ -315,6 +343,13 @@ function setSoulStatus(message, kind = "muted") {
   soulStatus.hidden = !message;
 }
 
+function setSkillsStatus(message, kind = "muted") {
+  if (!skillsStatus) return;
+  skillsStatus.textContent = message || "";
+  skillsStatus.dataset.kind = kind;
+  skillsStatus.hidden = !message;
+}
+
 function hasUnsavedSoulChanges() {
   return Boolean(soulEditor && soulEditor.value !== soulState.originalContent);
 }
@@ -422,6 +457,257 @@ function syncSoulPreviewToEditor() {
   setScrollRatio(soulPreview, getScrollRatio(soulEditor));
 }
 
+function skillLetterForSlug(slug) {
+  const first = String(slug || "").trim().charAt(0).toUpperCase();
+  return /^[A-Z]$/.test(first) ? first : "#";
+}
+
+function getFilteredSkills() {
+  if (skillsState.activeLetter === "ALL") return skillsState.items;
+  return skillsState.items.filter((skill) => skillLetterForSlug(skill.slug) === skillsState.activeLetter);
+}
+
+function renderSkillAlphaNav() {
+  if (!skillsAlphaNav) return;
+  const availableLetters = new Set(skillsState.items.map((skill) => skillLetterForSlug(skill.slug)));
+  skillsAlphaNav.innerHTML = "";
+  SKILL_ALPHA_OPTIONS.forEach((letter) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "skill-alpha-chip filter-chip" + (skillsState.activeLetter === letter ? " is-active" : "");
+    button.dataset.letter = letter;
+    button.textContent = letter === "ALL" ? "全部" : letter;
+    if (letter !== "ALL" && !availableLetters.has(letter)) {
+      button.disabled = true;
+    }
+    skillsAlphaNav.appendChild(button);
+  });
+}
+
+function renderSkillItems() {
+  if (!skillsList) return;
+  const filteredItems = getFilteredSkills();
+  skillsList.innerHTML = "";
+  if (skillsEmpty) {
+    skillsEmpty.hidden = filteredItems.length > 0;
+    skillsEmpty.textContent = skillsState.activeLetter === "ALL" ? "还没有安装 skill。" : `没有 ${skillsState.activeLetter} 开头的 skill。`;
+  }
+  filteredItems.forEach((skill) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "skill-row" + (skill.slug === skillsState.selectedSlug ? " is-active" : "");
+    button.dataset.slug = skill.slug;
+    button.innerHTML = `
+      <strong>${escapeHtml(skill.slug)}</strong>
+      <span>${escapeHtml(skill.description || skill.name || skill.slug)}</span>
+      <small>${escapeHtml(skill.source_type || "local")}</small>
+    `;
+    skillsList.appendChild(button);
+  });
+}
+
+function setSelectedSkillDetail(skill) {
+  skillsState.selectedSlug = skill?.slug || "";
+  if (skillsDetailTitle) skillsDetailTitle.textContent = skill?.slug || "选择一个 skill";
+  if (skillsDetailMeta) {
+    const sourceType = skill?.source_type || "—";
+    const sourceRef = skill?.source_ref ? ` · ${skill.source_ref}` : "";
+    skillsDetailMeta.textContent = skill ? `${sourceType}${sourceRef}` : "—";
+  }
+  if (skillsDetailPath) skillsDetailPath.textContent = skill?.path || "—";
+  if (skillsPreview) {
+    const content = String(skill?.content || skill?.body || "").trim();
+    skillsPreview.innerHTML = content ? `<pre><code>${escapeHtml(content)}</code></pre>` : "<p>暂无内容。</p>";
+  }
+  if (skillsReinstall) skillsReinstall.disabled = !skill || !skill.has_db_record;
+  if (skillsUninstall) skillsUninstall.disabled = !skill;
+  renderSkillItems();
+}
+
+async function loadSkillDetail(slug) {
+  if (!skillsState.agentId || !slug) return;
+  skillsState.selectedSlug = slug;
+  renderSkillItems();
+  const requestId = ++skillsState.detailRequestId;
+  try {
+    const response = await fetch(`/api/agents/${skillsState.agentId}/skills/${encodeURIComponent(slug)}`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "skill 加载失败");
+    if (requestId !== skillsState.detailRequestId) return;
+    setSelectedSkillDetail(data.skill);
+  } catch (error) {
+    if (requestId !== skillsState.detailRequestId) return;
+    setSkillsStatus(error.message || "skill 加载失败", "error");
+  }
+}
+
+async function refreshSkills(selectSlug = "") {
+  if (!skillsState.agentId) return;
+  skillsState.loading = true;
+  setSkillsStatus("正在刷新 skills…", "muted");
+  try {
+    const response = await fetch(`/api/agents/${skillsState.agentId}/skills`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "skills 列表加载失败");
+    skillsState.items = Array.isArray(data.skills) ? data.skills : [];
+    renderSkillAlphaNav();
+    renderSkillItems();
+    const filteredItems = getFilteredSkills();
+    let nextSlug = selectSlug || skillsState.selectedSlug || filteredItems[0]?.slug || "";
+    if (nextSlug && !filteredItems.some((skill) => skill.slug === nextSlug)) {
+      nextSlug = filteredItems[0]?.slug || "";
+    }
+    if (nextSlug) {
+      await loadSkillDetail(nextSlug);
+    } else {
+      setSelectedSkillDetail(null);
+      setSkillsStatus("", "muted");
+    }
+  } catch (error) {
+    setSkillsStatus(error.message || "skills 列表加载失败", "error");
+  } finally {
+    skillsState.loading = false;
+  }
+}
+
+async function openSkillsPanel(agentId) {
+  if (!skillsDrawer || !agentId) return;
+  closeAgentContextMenu();
+  skillsState.agentId = agentId;
+  skillsState.agentName = agentList?.querySelector(`.agent-row[data-agent-id="${CSS.escape(agentId)}"]`)?.dataset.agentName || agentId;
+  skillsState.items = [];
+  skillsState.selectedSlug = "";
+  skillsState.activeLetter = "ALL";
+  if (skillsDrawerAgent) skillsDrawerAgent.textContent = skillsState.agentName;
+  setSelectedSkillDetail(null);
+  renderSkillAlphaNav();
+  renderSkillItems();
+  setSkillsStatus("正在加载 skills…", "muted");
+  skillsDrawer.hidden = false;
+  requestAnimationFrame(() => skillsDrawer.classList.add("is-open"));
+  await refreshSkills();
+}
+
+function closeSkillsPanel() {
+  if (!skillsDrawer || skillsDrawer.hidden) return;
+  skillsDrawer.classList.remove("is-open");
+  window.setTimeout(() => {
+    if (!skillsDrawer.classList.contains("is-open")) {
+      skillsDrawer.hidden = true;
+      skillsState.agentId = "";
+      skillsState.agentName = "";
+      skillsState.items = [];
+      skillsState.selectedSlug = "";
+      skillsState.activeLetter = "ALL";
+      setSkillsStatus("", "muted");
+    }
+  }, 180);
+}
+
+async function setSkillsLetterFilter(letter) {
+  const nextLetter = SKILL_ALPHA_OPTIONS.includes(letter) ? letter : "ALL";
+  if (skillsState.activeLetter === nextLetter) return;
+  skillsState.activeLetter = nextLetter;
+  renderSkillAlphaNav();
+  renderSkillItems();
+  const filteredItems = getFilteredSkills();
+  const nextSlug = filteredItems.some((skill) => skill.slug === skillsState.selectedSlug)
+    ? skillsState.selectedSlug
+    : filteredItems[0]?.slug || "";
+  if (nextSlug) {
+    await loadSkillDetail(nextSlug);
+  } else {
+    setSelectedSkillDetail(null);
+  }
+}
+
+function openSkillsInstallModal() {
+  if (!skillsInstallModal) return;
+  skillsInstallModal.hidden = false;
+  skillsInstallForm?.querySelector('input[name="repo_url"]')?.focus();
+}
+
+function closeSkillsInstallModal() {
+  if (!skillsInstallModal) return;
+  skillsInstallModal.hidden = true;
+  skillsInstallForm?.reset();
+}
+
+async function installSkillFromForm(event) {
+  event.preventDefault();
+  if (!skillsState.agentId || !skillsInstallForm) return;
+  const formData = new FormData(skillsInstallForm);
+  const payload = {
+    repo_url: formData.get("repo_url"),
+    ref: formData.get("ref"),
+    subdir: formData.get("subdir"),
+    slug: formData.get("slug"),
+  };
+  const submitBtn = skillsInstallForm.querySelector('button[type="submit"]');
+  if (submitBtn) submitBtn.disabled = true;
+  setSkillsStatus("正在安装 skill…", "muted");
+  try {
+    const response = await fetch(`/api/agents/${skillsState.agentId}/skills/install`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "skill 安装失败");
+    skillsInstallForm.reset();
+    closeSkillsInstallModal();
+    setSkillsStatus("安装成功。", "success");
+    await refreshSkills(data.skill?.slug || "");
+  } catch (error) {
+    setSkillsStatus(error.message || "skill 安装失败", "error");
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+async function reinstallSelectedSkill() {
+  if (!skillsState.agentId || !skillsState.selectedSlug) return;
+  setSkillsStatus("正在重装 skill…", "muted");
+  try {
+    const response = await fetch(
+      `/api/agents/${skillsState.agentId}/skills/${encodeURIComponent(skillsState.selectedSlug)}/reinstall`,
+      { method: "POST" },
+    );
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "skill 重装失败");
+    setSkillsStatus("重装成功。", "success");
+    await refreshSkills(data.skill?.slug || skillsState.selectedSlug);
+  } catch (error) {
+    setSkillsStatus(error.message || "skill 重装失败", "error");
+  }
+}
+
+async function uninstallSelectedSkill() {
+  if (!skillsState.agentId || !skillsState.selectedSlug) return;
+  const confirmed = await confirmAction({
+    title: "确认卸载",
+    message: `确认卸载 ${skillsState.selectedSlug} 吗？`,
+    confirmText: "卸载",
+    confirmVariant: "danger",
+  });
+  if (!confirmed) return;
+  setSkillsStatus("正在卸载 skill…", "muted");
+  try {
+    const response = await fetch(
+      `/api/agents/${skillsState.agentId}/skills/${encodeURIComponent(skillsState.selectedSlug)}`,
+      { method: "DELETE" },
+    );
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "skill 卸载失败");
+    const removedSlug = skillsState.selectedSlug;
+    setSelectedSkillDetail(null);
+    await refreshSkills();
+    setSkillsStatus(`${removedSlug} 已卸载。`, "success");
+  } catch (error) {
+    setSkillsStatus(error.message || "skill 卸载失败", "error");
+  }
+}
+
 async function openSoulPanel(agentId) {
   if (!soulDrawer || !agentId) return;
   closeAgentContextMenu();
@@ -470,10 +756,16 @@ async function openSoulPanel(agentId) {
   }
 }
 
-function closeSoulPanel({ force = false } = {}) {
+async function closeSoulPanel({ force = false } = {}) {
   if (!soulDrawer || soulDrawer.hidden) return;
-  if (!force && hasUnsavedSoulChanges() && !window.confirm("SOUL.md 有未保存修改，确认关闭吗？")) {
-    return;
+  if (!force && hasUnsavedSoulChanges()) {
+    const confirmed = await confirmAction({
+      title: "确认关闭",
+      message: "SOUL.md 有未保存修改，确认关闭吗？",
+      confirmText: "关闭",
+      confirmVariant: "warning",
+    });
+    if (!confirmed) return;
   }
   soulDrawer.classList.remove("is-open");
   window.setTimeout(() => {
@@ -1037,33 +1329,30 @@ function closeAgentContextMenu() {
 }
 
 function confirmAgentDismissal(agentName) {
-  const modal = ensureDismissAgentModal();
   const name = agentName || "该 Agent";
-  modal.querySelector("[data-dismiss-agent-message]").textContent = `你要解雇 ${name} 吗？`;
-  modal.hidden = false;
-  const confirmBtn = modal.querySelector("[data-dismiss-agent-confirm]");
-  confirmBtn.focus();
-
-  return new Promise((resolve) => {
-    dismissAgentModal.resolve = resolve;
+  return confirmAction({
+    title: "确认解雇",
+    message: `你要解雇 ${name} 吗？`,
+    confirmText: "解雇",
+    confirmVariant: "danger",
   });
 }
 
-function ensureDismissAgentModal() {
-  if (dismissAgentModal) return dismissAgentModal;
+function ensureConfirmModal() {
+  if (confirmModal) return confirmModal;
   const modalEl = document.createElement("div");
-  modalEl.className = "modal dismiss-agent-modal";
+  modalEl.className = "modal confirm-modal";
   modalEl.hidden = true;
   modalEl.innerHTML = `
-    <div class="modal__backdrop" data-dismiss-agent-cancel></div>
-    <div class="modal__panel panel dismiss-agent-modal__panel" role="dialog" aria-modal="true" aria-labelledby="dismiss-agent-title">
+    <div class="modal__backdrop" data-confirm-cancel></div>
+    <div class="modal__panel panel confirm-modal__panel" role="dialog" aria-modal="true" aria-labelledby="confirm-modal-title">
       <div class="modal__head">
-        <h2 id="dismiss-agent-title">确认解雇</h2>
+        <h2 id="confirm-modal-title" data-confirm-title>确认操作</h2>
       </div>
-      <p class="dismiss-agent-modal__message" data-dismiss-agent-message></p>
+      <p class="confirm-modal__message" data-confirm-message></p>
       <div class="modal__actions">
-        <button type="button" class="filter-chip" data-dismiss-agent-cancel>取消</button>
-        <button type="button" class="dismiss-agent-modal__confirm" data-dismiss-agent-confirm>解雇</button>
+        <button type="button" class="filter-chip" data-confirm-cancel>取消</button>
+        <button type="button" class="confirm-modal__confirm" data-confirm-submit>确定</button>
       </div>
     </div>
   `;
@@ -1075,22 +1364,43 @@ function ensureDismissAgentModal() {
     if (resolve) resolve(value);
   };
   modalEl.addEventListener("click", (event) => {
-    if (event.target.closest("[data-dismiss-agent-confirm]")) {
+    if (event.target.closest("[data-confirm-submit]")) {
       closeWith(true);
       return;
     }
-    if (event.target.closest("[data-dismiss-agent-cancel]")) {
+    if (event.target.closest("[data-confirm-cancel]")) {
       closeWith(false);
     }
   });
   document.body.appendChild(modalEl);
-  dismissAgentModal = modalEl;
-  return dismissAgentModal;
+  confirmModal = modalEl;
+  return confirmModal;
+}
+
+function confirmAction({ title = "确认操作", message = "", confirmText = "确定", confirmVariant = "danger" } = {}) {
+  const modal = ensureConfirmModal();
+  modal.querySelector("[data-confirm-title]").textContent = title;
+  modal.querySelector("[data-confirm-message]").textContent = message;
+  const confirmBtn = modal.querySelector("[data-confirm-submit]");
+  confirmBtn.textContent = confirmText;
+  confirmBtn.dataset.variant = confirmVariant;
+  modal.hidden = false;
+  confirmBtn.focus();
+
+  return new Promise((resolve) => {
+    modal.resolve = resolve;
+  });
 }
 
 if (agentList) {
   agentList.addEventListener("click", (event) => {
     closeAgentContextMenu();
+    const skillsBtn = event.target.closest("[data-skills-open]");
+    if (skillsBtn) {
+      event.stopPropagation();
+      openSkillsPanel(skillsBtn.dataset.agentId || "");
+      return;
+    }
     const soulBtn = event.target.closest("[data-soul-open]");
     if (soulBtn) {
       event.stopPropagation();
@@ -1131,11 +1441,14 @@ document.addEventListener("click", (event) => {
 });
 
 document.addEventListener("keydown", (event) => {
-  if (event.key === "Escape" && dismissAgentModal && !dismissAgentModal.hidden) {
-    dismissAgentModal.hidden = true;
-    const resolve = dismissAgentModal.resolve;
-    dismissAgentModal.resolve = null;
+  if (event.key === "Escape" && confirmModal && !confirmModal.hidden) {
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    confirmModal.hidden = true;
+    const resolve = confirmModal.resolve;
+    confirmModal.resolve = null;
     if (resolve) resolve(false);
+    return;
   }
   if (event.key === "Escape") closeAgentContextMenu();
 });
@@ -1187,10 +1500,43 @@ if (historyDrawer) {
 if (soulDrawer) {
   soulDrawer.addEventListener("click", (event) => {
     if (event.target instanceof HTMLElement && event.target.dataset.closeSoul !== undefined) {
-      closeSoulPanel();
+      void closeSoulPanel();
     }
   });
 }
+if (skillsDrawer) {
+  skillsDrawer.addEventListener("click", (event) => {
+    if (event.target instanceof HTMLElement && event.target.dataset.closeSkills !== undefined) {
+      closeSkillsPanel();
+    }
+  });
+}
+if (openSkillsInstall) openSkillsInstall.addEventListener("click", openSkillsInstallModal);
+if (skillsInstallModal) {
+  skillsInstallModal.addEventListener("click", (event) => {
+    if (event.target instanceof HTMLElement && event.target.dataset.closeSkillsInstall !== undefined) {
+      closeSkillsInstallModal();
+    }
+  });
+}
+if (skillsList) {
+  skillsList.addEventListener("click", (event) => {
+    const row = event.target.closest(".skill-row");
+    if (!row) return;
+    loadSkillDetail(row.dataset.slug || "");
+  });
+}
+if (skillsAlphaNav) {
+  skillsAlphaNav.addEventListener("click", (event) => {
+    const button = event.target.closest(".skill-alpha-chip");
+    if (!button || button.disabled) return;
+    setSkillsLetterFilter(button.dataset.letter || "ALL");
+  });
+}
+if (skillsInstallForm) skillsInstallForm.addEventListener("submit", installSkillFromForm);
+if (skillsRefresh) skillsRefresh.addEventListener("click", () => refreshSkills());
+if (skillsReinstall) skillsReinstall.addEventListener("click", reinstallSelectedSkill);
+if (skillsUninstall) skillsUninstall.addEventListener("click", uninstallSelectedSkill);
 if (soulEditor) {
   soulEditor.addEventListener("input", () => {
     const scrollRatio = getScrollRatio(soulEditor);
@@ -1216,8 +1562,13 @@ if (modal) {
   });
   document.addEventListener("keydown", (e) => {
     if (e.key === "Escape" && !modal.hidden) closeModal();
+    if (e.key === "Escape" && skillsInstallModal && !skillsInstallModal.hidden) {
+      closeSkillsInstallModal();
+      return;
+    }
     if (e.key === "Escape") closeHistoryPanel();
-    if (e.key === "Escape") closeSoulPanel();
+    if (e.key === "Escape") void closeSoulPanel();
+    if (e.key === "Escape") closeSkillsPanel();
   });
 }
 

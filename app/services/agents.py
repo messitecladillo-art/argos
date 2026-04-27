@@ -57,6 +57,7 @@ def create_agent(
     workspace_path = registry.ensure_workspace(profile_name)
 
     profiles.create_hermes_profile(profile_name)
+    registry.skills_dir_for(profile_name).mkdir(parents=True, exist_ok=True)
 
     if role == "leader":
         profiles.attach_mcp_server(

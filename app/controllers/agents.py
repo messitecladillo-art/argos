@@ -7,6 +7,7 @@ from flask import Blueprint, jsonify, request
 from ..models.store import store
 from ..services import registry
 from ..services import agents as agents_service
+from ..services import skill_installer
 from ..services.acp import pool as session_pool
 from ..services.profiles import ProfileError, list_hermes_profiles
 
@@ -207,6 +208,88 @@ def send_terminal_data(agent_id: str):
     except (RuntimeError, ValueError) as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
     return jsonify({"ok": True, "agent": store.find_agent(agent_id)})
+
+
+def _get_agent_or_404(agent_id: str) -> dict | None:
+    agent = store.find_agent(agent_id)
+    if agent is None:
+        return None
+    return agent
+
+
+@bp.get("/agents/<agent_id>/skills")
+def list_agent_skills(agent_id: str):
+    agent = _get_agent_or_404(agent_id)
+    if agent is None:
+        return jsonify({"ok": False, "error": "agent not found"}), 404
+    return jsonify(
+        {
+            "ok": True,
+            "skills": skill_installer.list_installed(agent["profile_name"]),
+            "agent": {
+                "agent_id": agent["agent_id"],
+                "profile_name": agent["profile_name"],
+                "name": agent["name"],
+            },
+        }
+    )
+
+
+@bp.post("/agents/<agent_id>/skills/install")
+def install_agent_skill(agent_id: str):
+    agent = _get_agent_or_404(agent_id)
+    if agent is None:
+        return jsonify({"ok": False, "error": "agent not found"}), 404
+    payload = request.get_json(silent=True) or {}
+    try:
+        skill = skill_installer.install_from_git(
+            agent_id,
+            repo_url=payload.get("repo_url") or "",
+            ref=payload.get("ref") or "main",
+            subdir=payload.get("subdir") or "",
+            slug=payload.get("slug"),
+        )
+    except skill_installer.SkillError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), exc.status_code
+    return jsonify({"ok": True, "skill": skill}), 201
+
+
+@bp.get("/agents/<agent_id>/skills/<path:slug>")
+def get_agent_skill(agent_id: str, slug: str):
+    agent = _get_agent_or_404(agent_id)
+    if agent is None:
+        return jsonify({"ok": False, "error": "agent not found"}), 404
+    try:
+        skill = skill_installer.get_skill(agent["profile_name"], slug)
+    except skill_installer.SkillError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), exc.status_code
+    if skill is None:
+        return jsonify({"ok": False, "error": "skill not found"}), 404
+    return jsonify({"ok": True, "skill": skill})
+
+
+@bp.delete("/agents/<agent_id>/skills/<path:slug>")
+def uninstall_agent_skill(agent_id: str, slug: str):
+    agent = _get_agent_or_404(agent_id)
+    if agent is None:
+        return jsonify({"ok": False, "error": "agent not found"}), 404
+    try:
+        skill_installer.uninstall(agent_id, slug)
+    except skill_installer.SkillError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), exc.status_code
+    return jsonify({"ok": True})
+
+
+@bp.post("/agents/<agent_id>/skills/<path:slug>/reinstall")
+def reinstall_agent_skill(agent_id: str, slug: str):
+    agent = _get_agent_or_404(agent_id)
+    if agent is None:
+        return jsonify({"ok": False, "error": "agent not found"}), 404
+    try:
+        skill = skill_installer.reinstall(agent_id, slug)
+    except skill_installer.SkillError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), exc.status_code
+    return jsonify({"ok": True, "skill": skill})
 
 
 @bp.post("/agents/<agent_id>/terminal-resize")

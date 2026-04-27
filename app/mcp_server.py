@@ -42,14 +42,20 @@ def list_workers() -> list[dict]:
     不包含 leader 自身，避免 leader 把任务派给自己。
     """
     from .services.acp import pool
+    from .services import skill_installer
 
-    return [
-        a
-        for a in store.snapshot()["agents"]
-        if a.get("role") == "worker"
-        and (a.get("readiness_status") or "ready") == "ready"
-        and pool.is_running(a.get("agent_id") or "")
-    ]
+    workers = []
+    for agent in store.snapshot()["agents"]:
+        if agent.get("role") != "worker":
+            continue
+        if (agent.get("readiness_status") or "ready") != "ready":
+            continue
+        if not pool.is_running(agent.get("agent_id") or ""):
+            continue
+        item = dict(agent)
+        item["skills"] = skill_installer.skill_summary(agent["profile_name"])
+        workers.append(item)
+    return workers
 
 
 @mcp.tool()

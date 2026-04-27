@@ -99,6 +99,7 @@
                 <span class="acp-label">
                   {% if runtime_status == 'running' %}在岗{% elif runtime_status == 'crashed' %}异常{% else %}离岗{% endif %}
                 </span>
+                <button class="acp-btn acp-btn--skills" type="button" data-skills-open data-agent-id="{{ agent.agent_id }}">Skills</button>
                 <button class="acp-btn acp-btn--soul" type="button" data-soul-open data-agent-id="{{ agent.agent_id }}" {% if readiness_status == 'preparing' %}disabled title="SOUL.md 正在生成中"{% endif %}>SOUL</button>
                 {% if not is_agent_ready %}
                 <button class="acp-btn acp-btn--start" type="button" data-session-action="start" data-agent-id="{{ agent.agent_id }}" disabled>启动</button>
@@ -199,6 +200,85 @@
       </aside>
     </div>
 
+    <div class="skills-drawer" id="skills-drawer" hidden>
+      <div class="skills-drawer__backdrop" data-close-skills></div>
+      <aside
+        class="skills-drawer__panel panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="skills-drawer-title"
+      >
+        <div class="skills-drawer__head">
+          <div>
+            <h2 id="skills-drawer-title">Skills</h2>
+            <p id="skills-drawer-agent">尚未选择 Agent</p>
+          </div>
+          <button class="modal__close" type="button" data-close-skills aria-label="close">×</button>
+        </div>
+        <p class="soul-status" id="skills-status" hidden></p>
+        <div class="skills-layout">
+          <section class="skills-list-panel">
+            <div class="skills-list-head">
+              <strong>已安装</strong>
+              <div class="skills-list-actions">
+                <button class="primary-button primary-button--sm" type="button" id="open-skills-install">+技能</button>
+                <button class="filter-chip" type="button" id="skills-refresh">刷新</button>
+              </div>
+            </div>
+            <div class="skills-alpha-nav" id="skills-alpha-nav"></div>
+            <div class="skills-list" id="skills-list"></div>
+            <p class="empty-hint" id="skills-empty" hidden>还没有安装 skill。</p>
+          </section>
+          <section class="skills-detail-panel">
+            <div class="skills-detail-head">
+              <div>
+                <strong id="skills-detail-title">选择一个 skill</strong>
+                <p id="skills-detail-meta">—</p>
+              </div>
+              <div class="skills-detail-actions">
+                <button class="filter-chip" type="button" id="skills-reinstall" disabled>重装</button>
+                <button class="filter-chip" type="button" id="skills-uninstall" disabled>卸载</button>
+              </div>
+            </div>
+            <code id="skills-detail-path">—</code>
+            <div class="soul-preview__body skills-preview" id="skills-preview"></div>
+          </section>
+        </div>
+      </aside>
+    </div>
+
+    <div class="modal" id="skills-install-modal" hidden>
+      <div class="modal__backdrop" data-close-skills-install></div>
+      <div class="modal__panel panel">
+        <div class="modal__head">
+          <h2>安装技能</h2>
+          <button class="modal__close" type="button" data-close-skills-install aria-label="close">×</button>
+        </div>
+        <form class="modal__form" id="skills-install-form">
+          <label>
+            <span>Git 仓库</span>
+            <input name="repo_url" type="url" placeholder="https://github.com/org/repo.git" required>
+          </label>
+          <label>
+            <span>分支/标签</span>
+            <input name="ref" placeholder="默认 main">
+          </label>
+          <label>
+            <span>子目录</span>
+            <input name="subdir" placeholder="可选">
+          </label>
+          <label>
+            <span>Slug</span>
+            <input name="slug" placeholder="可选">
+          </label>
+          <div class="modal__actions">
+            <button type="button" class="filter-chip" data-close-skills-install>取消</button>
+            <button class="primary-button" type="submit">安装</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <div class="modal" id="create-agent-modal" hidden>
       <div class="modal__backdrop" data-close-modal></div>
       <div class="modal__panel panel">
@@ -247,6 +327,6 @@
     </script>
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
-    <script src="{{ url_for('static', filename='app.js') }}?v=web-terminal-snapshot-3"></script>
+    <script src="{{ url_for('static', filename='app.js') }}?v=skills-management-1"></script>
   </body>
 </html>
