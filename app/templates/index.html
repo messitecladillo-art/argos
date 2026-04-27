@@ -215,13 +215,19 @@
             <span>英文名称</span>
             <input name="profile_name" required placeholder="全部小写，不能有空格" pattern="[a-z0-9][a-z0-9_-]*">
           </label>
-          <label>
+          <div class="modal__form-row">
             <span>角色</span>
-            <select name="role">
-              <option value="leader">leader</option>
-              <option value="worker" selected>worker</option>
-            </select>
-          </label>
+            <div class="role-radio-group" role="radiogroup" aria-label="角色">
+              <label class="role-radio">
+                <input type="radio" name="role" value="leader">
+                <span>leader</span>
+              </label>
+              <label class="role-radio">
+                <input type="radio" name="role" value="worker" checked>
+                <span>worker</span>
+              </label>
+            </div>
+          </div>
           <p class="form-hint form-hint--role">注意：系统内只能存在一个 leader。</p>
           <label>
             <span>描述</span>

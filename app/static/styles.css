@@ -935,20 +935,22 @@ label span,
   display: grid;
   gap: 16px;
 }
-.modal__form label {
+.modal__form > label,
+.modal__form-row {
   display: grid;
   grid-template-columns: 150px minmax(0, 1fr);
   align-items: center;
   gap: 14px;
 }
 
-.modal__form label span {
+.modal__form > label > span,
+.modal__form-row > span {
   color: var(--muted);
   font-weight: 700;
   line-height: 1.2;
 }
 
-.modal__form input,
+.modal__form input:not([type="radio"]),
 .modal__form select,
 .modal__form textarea {
   width: 100%;
@@ -961,6 +963,43 @@ label span,
   padding: 12px 14px;
   font: inherit;
 }
+
+.role-radio-group {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.role-radio {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  border-radius: 12px;
+  border: 1px solid rgba(246, 207, 117, 0.24);
+  background: rgba(8, 7, 5, 0.94);
+  padding: 12px 14px;
+  cursor: pointer;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.role-radio:has(input:checked) {
+  border-color: rgba(246, 207, 117, 0.56);
+  background: rgba(217, 154, 33, 0.12);
+}
+
+.role-radio input[type="radio"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #f6cf75;
+}
+
+.role-radio span {
+  color: var(--text);
+  font-weight: 600;
+}
+
 .modal__form textarea {
   min-height: 86px;
   resize: vertical;
@@ -995,9 +1034,14 @@ label span,
     padding: 20px;
   }
 
-  .modal__form label {
+  .modal__form > label,
+  .modal__form-row {
     grid-template-columns: 1fr;
     gap: 8px;
+  }
+
+  .role-radio-group {
+    grid-template-columns: 1fr;
   }
 
   .form-hint--role {
