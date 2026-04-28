@@ -1453,6 +1453,11 @@ class ACPPool:
             {"text": "Hermes session 已停止"},
         )
 
+    def restart(self, agent: dict) -> bool:
+        agent_id = agent["agent_id"]
+        self.stop(agent_id)
+        return self.start(agent)
+
     def prompt(
         self,
         agent_id: str,

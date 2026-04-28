@@ -99,14 +99,13 @@
                 <span class="acp-label">
                   {% if runtime_status == 'running' %}在岗{% elif runtime_status == 'crashed' %}异常{% else %}离岗{% endif %}
                 </span>
-                <button class="acp-btn acp-btn--skills" type="button" data-skills-open data-agent-id="{{ agent.agent_id }}">Skills</button>
-                <button class="acp-btn acp-btn--soul" type="button" data-soul-open data-agent-id="{{ agent.agent_id }}" {% if readiness_status == 'preparing' %}disabled title="SOUL.md 正在生成中"{% endif %}>SOUL</button>
+                <button class="acp-btn acp-btn--config" type="button" data-agent-config data-agent-id="{{ agent.agent_id }}">配置 ▾</button>
                 {% if not is_agent_ready %}
-                <button class="acp-btn acp-btn--start" type="button" data-session-action="start" data-agent-id="{{ agent.agent_id }}" disabled>启动</button>
+                <button class="acp-btn acp-btn--start acp-btn--runtime" type="button" data-session-action="start" data-agent-id="{{ agent.agent_id }}" disabled>启动</button>
                 {% elif agent.runtime_status == 'running' %}
-                <button class="acp-btn acp-btn--stop" type="button" data-session-action="stop" data-agent-id="{{ agent.agent_id }}">停止</button>
+                <button class="acp-btn acp-btn--stop acp-btn--runtime" type="button" data-session-action="stop" data-agent-id="{{ agent.agent_id }}">停止</button>
                 {% else %}
-                <button class="acp-btn acp-btn--start" type="button" data-session-action="start" data-agent-id="{{ agent.agent_id }}">启动</button>
+                <button class="acp-btn acp-btn--start acp-btn--runtime" type="button" data-session-action="start" data-agent-id="{{ agent.agent_id }}">启动</button>
                 {% endif %}
               </div>
             </div>
@@ -279,6 +278,80 @@
       </div>
     </div>
 
+    <div class="skills-drawer mcp-drawer" id="mcp-drawer" hidden>
+      <div class="skills-drawer__backdrop" data-close-mcp></div>
+      <aside class="skills-drawer__panel panel" role="dialog" aria-modal="true" aria-labelledby="mcp-drawer-title">
+        <div class="skills-drawer__head">
+          <div>
+            <h2 id="mcp-drawer-title">MCP Servers</h2>
+            <p id="mcp-drawer-agent">尚未选择 Agent</p>
+          </div>
+          <button class="modal__close" type="button" data-close-mcp aria-label="close">×</button>
+        </div>
+        <p class="soul-status" id="mcp-status" hidden></p>
+        <div class="mcp-toolbar">
+          <button class="primary-button primary-button--sm" type="button" id="open-mcp-edit">+ 新增 MCP</button>
+          <button class="filter-chip" type="button" id="mcp-refresh">刷新</button>
+        </div>
+        <div class="mcp-list" id="mcp-list"></div>
+        <p class="empty-hint" id="mcp-empty" hidden>还没有安装 MCP。</p>
+      </aside>
+    </div>
+
+    <div class="modal" id="mcp-edit-modal" hidden>
+      <div class="modal__backdrop" data-close-mcp-edit></div>
+      <div class="modal__panel panel">
+        <div class="modal__head">
+          <h2 id="mcp-edit-title">新增 MCP</h2>
+          <button class="modal__close" type="button" data-close-mcp-edit aria-label="close">×</button>
+        </div>
+        <form class="modal__form" id="mcp-edit-form">
+          <input type="hidden" name="original_name">
+          <label>
+            <span>类型</span>
+            <select name="transport">
+              <option value="http">HTTP/SSE</option>
+              <option value="stdio">stdio</option>
+            </select>
+          </label>
+          <label>
+            <span>名称</span>
+            <input name="name" required pattern="[a-z0-9][a-z0-9_-]{0,40}" placeholder="figma">
+          </label>
+          <label class="mcp-http-field">
+            <span>URL</span>
+            <input name="url" type="url" placeholder="https://mcp.example.com/sse">
+          </label>
+          <label class="mcp-http-field">
+            <span>Headers</span>
+            <textarea name="headers" rows="3" placeholder="Authorization: Bearer xxx"></textarea>
+          </label>
+          <label class="mcp-stdio-field" hidden>
+            <span>Command</span>
+            <input name="command" placeholder="npx">
+          </label>
+          <label class="mcp-stdio-field" hidden>
+            <span>Args</span>
+            <textarea name="args" rows="3" placeholder="-y&#10;@playwright/mcp@latest"></textarea>
+          </label>
+          <label class="mcp-stdio-field" hidden>
+            <span>Env</span>
+            <textarea name="env" rows="3" placeholder="PWDEBUG=1"></textarea>
+          </label>
+          <label>
+            <span>描述</span>
+            <textarea name="description" rows="2" placeholder="用于 Leader 派发时识别能力"></textarea>
+          </label>
+          <p class="form-hint">Headers / Env 每行一个 `key: value` 或 `key=value`。Secret 留空表示清空，保留 `****` 表示不变。</p>
+          <div class="modal__actions">
+            <button type="button" class="filter-chip" data-close-mcp-edit>取消</button>
+            <button class="filter-chip" type="button" id="mcp-save-test">测试后保存</button>
+            <button class="primary-button" type="submit">直接保存</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <div class="modal" id="create-agent-modal" hidden>
       <div class="modal__backdrop" data-close-modal></div>
       <div class="modal__panel panel">
@@ -327,6 +400,6 @@
     </script>
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
-    <script src="{{ url_for('static', filename='app.js') }}?v=skills-management-3"></script>
+    <script src="{{ url_for('static', filename='app.js') }}?v=mcp-management-1"></script>
   </body>
 </html>

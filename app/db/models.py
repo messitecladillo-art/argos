@@ -131,3 +131,19 @@ class AgentSkillInstallRecord(TimestampMixin, Base):
     subdir: Mapped[str] = mapped_column(Text, default="")
     installed_at: Mapped[str] = mapped_column(String(40), default="")
     last_error: Mapped[str] = mapped_column(Text, default="")
+
+
+class AgentMcpServerRecord(TimestampMixin, Base):
+    __tablename__ = "agent_mcp_servers"
+    __table_args__ = (UniqueConstraint("profile_name", "name"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    profile_name: Mapped[str] = mapped_column(String(120), index=True)
+    name: Mapped[str] = mapped_column(String(80))
+    transport: Mapped[str] = mapped_column(String(16))
+    source_type: Mapped[str] = mapped_column(String(20), default="manual")
+    description: Mapped[str] = mapped_column(Text, default="")
+    managed: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_test_status: Mapped[str] = mapped_column(String(16), default="")
+    last_test_at: Mapped[str] = mapped_column(String(40), default="")
+    last_error: Mapped[str] = mapped_column(Text, default="")

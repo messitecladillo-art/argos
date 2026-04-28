@@ -39,6 +39,17 @@ const skillsDetailPath = document.getElementById("skills-detail-path");
 const skillsPreview = document.getElementById("skills-preview");
 const skillsReinstall = document.getElementById("skills-reinstall");
 const skillsUninstall = document.getElementById("skills-uninstall");
+const mcpDrawer = document.getElementById("mcp-drawer");
+const mcpDrawerAgent = document.getElementById("mcp-drawer-agent");
+const mcpStatus = document.getElementById("mcp-status");
+const mcpList = document.getElementById("mcp-list");
+const mcpEmpty = document.getElementById("mcp-empty");
+const mcpRefresh = document.getElementById("mcp-refresh");
+const openMcpEdit = document.getElementById("open-mcp-edit");
+const mcpEditModal = document.getElementById("mcp-edit-modal");
+const mcpEditForm = document.getElementById("mcp-edit-form");
+const mcpEditTitle = document.getElementById("mcp-edit-title");
+const mcpSaveTest = document.getElementById("mcp-save-test");
 const terminalSessions = new Map();
 const chatEventsByAgent = new Map();
 const defaultTerminalCols = 120;
@@ -65,6 +76,12 @@ const skillsState = {
   loading: false,
   detailRequestId: 0,
   activeLetter: "ALL",
+};
+const mcpState = {
+  agentId: "",
+  agentName: "",
+  items: [],
+  editingName: "",
 };
 
 const SKILL_ALPHA_OPTIONS = ["ALL", ...Array.from({ length: 26 }, (_item, index) => String.fromCharCode(65 + index))];
@@ -207,11 +224,10 @@ function buildAgentRow(agent, isActive) {
     display: displayStatus.label,
   });
   const btn = !isReady
-    ? `<button class="acp-btn acp-btn--start" type="button" data-session-action="start" data-agent-id="${agent.agent_id}" disabled>启动</button>`
+    ? `<button class="acp-btn acp-btn--start acp-btn--runtime" type="button" data-session-action="start" data-agent-id="${agent.agent_id}" disabled>启动</button>`
     : runtimeStatus === "running"
-    ? `<button class="acp-btn acp-btn--stop" type="button" data-session-action="stop" data-agent-id="${agent.agent_id}">停止</button>`
-    : `<button class="acp-btn acp-btn--start" type="button" data-session-action="start" data-agent-id="${agent.agent_id}">启动</button>`;
-  const soulDisabled = readinessStatus === "preparing" ? " disabled title=\"SOUL.md 正在生成中\"" : "";
+    ? `<button class="acp-btn acp-btn--stop acp-btn--runtime" type="button" data-session-action="stop" data-agent-id="${agent.agent_id}">停止</button>`
+    : `<button class="acp-btn acp-btn--start acp-btn--runtime" type="button" data-session-action="start" data-agent-id="${agent.agent_id}">启动</button>`;
   row.innerHTML = `
     <div class="agent-row__top">
       <div>
@@ -229,8 +245,7 @@ function buildAgentRow(agent, isActive) {
       <div class="agent-row__session">
         <span class="acp-dot acp-${runtimeStatus}"></span>
         <span class="acp-label">${escapeHtml(formatRuntimeStatus(runtimeStatus))}</span>
-        <button class="acp-btn acp-btn--skills" type="button" data-skills-open data-agent-id="${agent.agent_id}">Skills</button>
-        <button class="acp-btn acp-btn--soul" type="button" data-soul-open data-agent-id="${agent.agent_id}"${soulDisabled}>SOUL</button>
+        <button class="acp-btn acp-btn--config" type="button" data-agent-config data-agent-id="${agent.agent_id}">配置 ▾</button>
         ${btn}
       </div>
     </div>
@@ -365,6 +380,47 @@ function setSkillsStatus(message, kind = "muted", options = {}) {
 
 function showSkillsRestartPrompt(message, kind = "success") {
   setSkillsStatus(`${message} 重启当前 Agent 后生效。`, kind, { restartAction: true });
+}
+
+function setMcpStatus(message, kind = "muted", options = {}) {
+  if (!mcpStatus) return;
+  mcpStatus.innerHTML = "";
+  mcpStatus.dataset.kind = kind;
+  mcpStatus.classList.toggle("has-action", Boolean(options.restartAction));
+  mcpStatus.hidden = !message;
+  if (!message) return;
+  const text = document.createElement("span");
+  text.textContent = message;
+  mcpStatus.appendChild(text);
+  if (options.restartAction) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "filter-chip skills-status__action";
+    button.dataset.mcpRestartAgent = "true";
+    button.textContent = "重启当前 Agent";
+    mcpStatus.appendChild(button);
+  }
+}
+
+function showMcpRestartPrompt(message, kind = "success") {
+  setMcpStatus(`${message} 重启当前 Agent 后生效。`, kind, { restartAction: true });
+}
+
+async function restartCurrentMcpAgent(triggerButton = null) {
+  const agentId = mcpState.agentId;
+  if (!agentId) return;
+  if (triggerButton) triggerButton.disabled = true;
+  setMcpStatus("正在重启当前 Agent…", "muted");
+  try {
+    const response = await fetch(`/api/agents/${agentId}/restart`, { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "重启 Agent 失败");
+    setMcpStatus("当前 Agent 已重启，MCP 已生效。", "success");
+  } catch (error) {
+    showMcpRestartPrompt(`重启失败：${error.message || "未知错误"}`, "error");
+  } finally {
+    if (triggerButton) triggerButton.disabled = false;
+  }
 }
 
 async function restartCurrentSkillsAgent(triggerButton = null) {
@@ -640,6 +696,269 @@ function closeSkillsPanel() {
       setSkillsStatus("", "muted");
     }
   }, 180);
+}
+
+function mcpEndpoint(name = "") {
+  const base = `/api/agents/${mcpState.agentId}/mcps`;
+  return name ? `${base}/${encodeURIComponent(name)}` : base;
+}
+
+function parseKeyValueLines(value) {
+  const result = {};
+  String(value || "").split(/\r?\n/).forEach((line) => {
+    const text = line.trim();
+    if (!text) return;
+    const colonIndex = text.indexOf(":");
+    const equalsIndex = text.indexOf("=");
+    const indexes = [colonIndex, equalsIndex].filter((index) => index >= 0);
+    const index = indexes.length ? Math.min(...indexes) : -1;
+    if (index <= 0) return;
+    const key = text.slice(0, index).trim();
+    const item = text.slice(index + 1).trim();
+    if (key) result[key] = item;
+  });
+  return result;
+}
+
+function stringifyKeyValues(value) {
+  return Object.entries(value || {}).map(([key, item]) => `${key}: ${item}`).join("\n");
+}
+
+function renderMcpItems() {
+  if (!mcpList) return;
+  mcpList.innerHTML = "";
+  if (mcpEmpty) mcpEmpty.hidden = mcpState.items.length > 0;
+  mcpState.items.forEach((mcp) => {
+    const card = document.createElement("article");
+    card.className = "mcp-card";
+    const target = mcp.transport === "stdio"
+      ? [mcp.command, ...(mcp.args || [])].filter(Boolean).join(" ")
+      : mcp.url || "—";
+    const testLabel = mcp.last_test_status === "ok" ? "测试:✓" : mcp.last_test_status === "fail" ? "测试:×" : "未测试";
+    const managed = Boolean(mcp.managed);
+    card.innerHTML = `
+      <div class="mcp-card__head">
+        <div>
+          <strong>${escapeHtml(mcp.name)}</strong>
+          <div class="mcp-card__badges">
+            <span class="mcp-badge">${escapeHtml(mcp.transport)}</span>
+            <span class="mcp-badge">${escapeHtml(mcp.source_type || "manual")}</span>
+            <span class="mcp-badge">${escapeHtml(testLabel)}</span>
+          </div>
+        </div>
+        <small>${managed ? "🔒 平台托管" : ""}</small>
+      </div>
+      <p>${escapeHtml(mcp.description || "暂无描述")}</p>
+      <code>${escapeHtml(target)}</code>
+      <div class="mcp-card__actions">
+        <div></div>
+        <div>
+          <button class="filter-chip" type="button" data-mcp-reveal="${escapeHtml(mcp.name)}">显示</button>
+          <button class="filter-chip" type="button" data-mcp-edit="${escapeHtml(mcp.name)}" ${managed ? "disabled title=\"平台托管\"" : ""}>编辑</button>
+          <button class="filter-chip" type="button" data-mcp-test="${escapeHtml(mcp.name)}">测试</button>
+          <button class="filter-chip" type="button" data-mcp-delete="${escapeHtml(mcp.name)}" ${managed ? "disabled title=\"平台托管\"" : ""}>删除</button>
+        </div>
+      </div>
+    `;
+    mcpList.appendChild(card);
+  });
+}
+
+async function refreshMcps() {
+  if (!mcpState.agentId) return;
+  setMcpStatus("正在刷新 MCP…", "muted");
+  try {
+    const response = await fetch(mcpEndpoint());
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "MCP 列表加载失败");
+    mcpState.items = Array.isArray(data.mcps) ? data.mcps : [];
+    renderMcpItems();
+    setMcpStatus("", "muted");
+  } catch (error) {
+    setMcpStatus(error.message || "MCP 列表加载失败", "error");
+  }
+}
+
+async function openMcpPanel(agentId) {
+  if (!mcpDrawer || !agentId) return;
+  closeAgentContextMenu();
+  mcpState.agentId = agentId;
+  mcpState.agentName = agentList?.querySelector(`.agent-row[data-agent-id="${CSS.escape(agentId)}"]`)?.dataset.agentName || agentId;
+  mcpState.items = [];
+  if (mcpDrawerAgent) mcpDrawerAgent.textContent = mcpState.agentName;
+  renderMcpItems();
+  setMcpStatus("正在加载 MCP…", "muted");
+  mcpDrawer.hidden = false;
+  requestAnimationFrame(() => mcpDrawer.classList.add("is-open"));
+  await refreshMcps();
+}
+
+function closeMcpPanel() {
+  if (!mcpDrawer || mcpDrawer.hidden) return;
+  mcpDrawer.classList.remove("is-open");
+  window.setTimeout(() => {
+    if (!mcpDrawer.classList.contains("is-open")) {
+      mcpDrawer.hidden = true;
+      mcpState.agentId = "";
+      mcpState.agentName = "";
+      mcpState.items = [];
+      setMcpStatus("", "muted");
+    }
+  }, 180);
+}
+
+function toggleMcpTransportFields() {
+  if (!mcpEditForm) return;
+  const transport = mcpEditForm.elements.transport.value;
+  mcpEditForm.querySelectorAll(".mcp-http-field").forEach((item) => { item.hidden = transport !== "http"; });
+  mcpEditForm.querySelectorAll(".mcp-stdio-field").forEach((item) => { item.hidden = transport !== "stdio"; });
+}
+
+function openMcpEditModal(mcp = null) {
+  if (!mcpEditModal || !mcpEditForm) return;
+  mcpState.editingName = mcp?.name || "";
+  mcpEditForm.reset();
+  mcpEditForm.elements.original_name.value = mcp?.name || "";
+  mcpEditForm.elements.transport.value = mcp?.transport || "http";
+  mcpEditForm.elements.name.value = mcp?.name || "";
+  mcpEditForm.elements.name.disabled = Boolean(mcp);
+  mcpEditForm.elements.url.value = mcp?.url || "";
+  mcpEditForm.elements.headers.value = stringifyKeyValues(mcp?.headers || {});
+  mcpEditForm.elements.command.value = mcp?.command || "";
+  mcpEditForm.elements.args.value = (mcp?.args || []).join("\n");
+  mcpEditForm.elements.env.value = stringifyKeyValues(mcp?.env || {});
+  mcpEditForm.elements.description.value = mcp?.description || "";
+  if (mcpEditTitle) mcpEditTitle.textContent = mcp ? `编辑 MCP：${mcp.name}` : "新增 MCP";
+  toggleMcpTransportFields();
+  mcpEditModal.hidden = false;
+  mcpEditForm.elements.name.focus();
+}
+
+function closeMcpEditModal() {
+  if (!mcpEditModal) return;
+  mcpEditModal.hidden = true;
+  mcpState.editingName = "";
+  mcpEditForm?.reset();
+}
+
+function buildMcpPayload() {
+  const formData = new FormData(mcpEditForm);
+  const transport = formData.get("transport") || "http";
+  const payload = {
+    name: String(formData.get("name") || "").trim(),
+    transport,
+    description: String(formData.get("description") || "").trim(),
+  };
+  if (transport === "http") {
+    payload.url = String(formData.get("url") || "").trim();
+    payload.headers = parseKeyValueLines(formData.get("headers"));
+  } else {
+    payload.command = String(formData.get("command") || "").trim();
+    payload.args = String(formData.get("args") || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    payload.env = parseKeyValueLines(formData.get("env"));
+  }
+  return payload;
+}
+
+async function saveMcpFromForm({ testAfter = false } = {}) {
+  if (!mcpState.agentId || !mcpEditForm) return;
+  const payload = buildMcpPayload();
+  const editingName = mcpState.editingName;
+  const method = editingName ? "PUT" : "POST";
+  const url = editingName ? mcpEndpoint(editingName) : mcpEndpoint();
+  setMcpStatus(editingName ? "正在保存 MCP…" : "正在新增 MCP…", "muted");
+  try {
+    let response = await fetch(url, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    let data = await response.json().catch(() => ({}));
+    if (response.status === 409 && !editingName) {
+      const takeover = await confirmAction({
+        title: "接管外部 MCP",
+        message: "检测到 config.yaml 已有同名外部 MCP，是否接管并覆盖为平台可管理？",
+        confirmText: "接管编辑",
+        confirmVariant: "default",
+      });
+      if (!takeover) return;
+      response = await fetch(url, {
+        method,
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...payload, takeover: true }),
+      });
+      data = await response.json().catch(() => ({}));
+    }
+    if (!response.ok || !data.ok) throw new Error(data.error || "MCP 保存失败");
+    closeMcpEditModal();
+      await refreshMcps();
+    if (testAfter) {
+      const testOk = await testMcp(editingName || payload.name);
+      if (!testOk) return;
+    }
+    showMcpRestartPrompt("MCP 已保存。");
+  } catch (error) {
+    setMcpStatus(error.message || "MCP 保存失败", "error");
+  }
+}
+
+async function revealMcp(name) {
+  const confirmed = await confirmAction({ title: "显示 Secret", message: "确认在当前屏幕显示明文 secret 吗？", confirmText: "显示", confirmVariant: "default" });
+  if (!confirmed) return;
+  try {
+    const response = await fetch(`${mcpEndpoint(name)}?reveal=1`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "MCP 加载失败");
+    openMcpEditModal(data.mcp);
+  } catch (error) {
+    setMcpStatus(error.message || "MCP 加载失败", "error");
+  }
+}
+
+async function editMcp(name) {
+  try {
+    const response = await fetch(mcpEndpoint(name));
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "MCP 加载失败");
+    openMcpEditModal(data.mcp);
+  } catch (error) {
+    setMcpStatus(error.message || "MCP 加载失败", "error");
+  }
+}
+
+async function testMcp(name) {
+  const item = mcpState.items.find((mcp) => mcp.name === name);
+  if (item?.transport === "stdio") {
+    const confirmed = await confirmAction({ title: "执行本机命令", message: "stdio MCP 测试会在本机启动配置的 command，确认继续？", confirmText: "执行测试", confirmVariant: "danger" });
+    if (!confirmed) return false;
+  }
+  setMcpStatus(`正在测试 ${name}…`, "muted");
+  try {
+    const response = await fetch(`${mcpEndpoint(name)}/test`, { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || data.ok === false) throw new Error(data.error || data.detail || "MCP 测试失败");
+    await refreshMcps();
+    setMcpStatus(`${name}: ${data.detail || data.status}`, data.status === "ok" ? "success" : "error");
+    return data.status === "ok";
+  } catch (error) {
+    setMcpStatus(error.message || "MCP 测试失败", "error");
+    return false;
+  }
+}
+
+async function deleteMcp(name) {
+  const confirmed = await confirmAction({ title: "确认删除", message: `将从 config.yaml 移除 ${name}，确认继续？`, confirmText: "删除", confirmVariant: "danger" });
+  if (!confirmed) return;
+  setMcpStatus(`正在删除 ${name}…`, "muted");
+  try {
+    const response = await fetch(`${mcpEndpoint(name)}?confirm=1`, { method: "DELETE" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "MCP 删除失败");
+    await refreshMcps();
+    showMcpRestartPrompt(`${name} 已删除。`);
+  } catch (error) {
+    setMcpStatus(error.message || "MCP 删除失败", "error");
+  }
 }
 
 async function setSkillsLetterFilter(letter) {
@@ -1294,10 +1613,18 @@ function ensureAgentContextMenu() {
   agentContextMenu = document.createElement("div");
   agentContextMenu.className = "agent-context-menu";
   agentContextMenu.hidden = true;
+  agentContextMenu.dataset.mode = "danger";
   agentContextMenu.innerHTML = `
     <button class="agent-context-menu__item" type="button" data-agent-soul>
       SOUL.md
     </button>
+    <button class="agent-context-menu__item" type="button" data-agent-skills>
+      Skills
+    </button>
+    <button class="agent-context-menu__item" type="button" data-agent-mcp>
+      MCP Servers
+    </button>
+    <div class="agent-context-menu__separator" data-config-separator></div>
     <button class="agent-context-menu__item agent-context-menu__item--danger" type="button" data-agent-delete>
       解雇
     </button>
@@ -1308,6 +1635,21 @@ function ensureAgentContextMenu() {
     if (soulBtn) {
       const agentId = agentContextMenu.dataset.agentId || "";
       if (agentId) openSoulPanel(agentId);
+      closeAgentContextMenu();
+      return;
+    }
+    const skillsBtn = event.target.closest("[data-agent-skills]");
+    if (skillsBtn) {
+      const agentId = agentContextMenu.dataset.agentId || "";
+      if (agentId) openSkillsPanel(agentId);
+      closeAgentContextMenu();
+      return;
+    }
+    const mcpBtn = event.target.closest("[data-agent-mcp]");
+    if (mcpBtn) {
+      const agentId = agentContextMenu.dataset.agentId || "";
+      if (agentId) openMcpPanel(agentId);
+      closeAgentContextMenu();
       return;
     }
     const btn = event.target.closest("[data-agent-delete]");
@@ -1351,17 +1693,34 @@ function positionAgentContextMenu(menu, clientX, clientY) {
   menu.style.top = `${Math.max(padding, top)}px`;
 }
 
-function showAgentContextMenu(row, clientX, clientY) {
+function showAgentConfigMenu(row, trigger) {
   const menu = ensureAgentContextMenu();
+  const soulBtn = menu.querySelector("[data-agent-soul]");
+  const skillsBtn = menu.querySelector("[data-agent-skills]");
+  const mcpBtn = menu.querySelector("[data-agent-mcp]");
+  const separator = menu.querySelector("[data-config-separator]");
   const deleteBtn = menu.querySelector("[data-agent-delete]");
   const canDelete = isIdleAgentRow(row);
-  menu.dataset.agentId = row.dataset.agentId || "";
+  const rect = trigger.getBoundingClientRect();
+  menu.dataset.agentId = row.dataset.agentId || trigger.dataset.agentId || "";
   menu.dataset.agentName = row.dataset.agentName || "";
+  menu.dataset.mode = "config";
+  if (soulBtn) {
+    const soulDisabled = (row.dataset.readinessStatus || "ready") === "preparing";
+    soulBtn.hidden = false;
+    soulBtn.disabled = soulDisabled;
+    soulBtn.title = soulDisabled ? "SOUL.md 正在生成中" : "";
+    soulBtn.textContent = soulDisabled ? "SOUL.md 生成中" : "SOUL.md";
+  }
+  if (skillsBtn) skillsBtn.hidden = false;
+  if (mcpBtn) mcpBtn.hidden = false;
+  if (separator) separator.hidden = false;
   if (deleteBtn) {
+    deleteBtn.hidden = false;
     deleteBtn.disabled = !canDelete;
     deleteBtn.textContent = canDelete ? "解雇" : "仅 idle 可解雇";
   }
-  positionAgentContextMenu(menu, clientX, clientY);
+  positionAgentContextMenu(menu, rect.left, rect.bottom + 8);
 }
 
 function closeAgentContextMenu() {
@@ -1438,10 +1797,23 @@ function confirmAction({ title = "确认操作", message = "", confirmText = "�
 if (agentList) {
   agentList.addEventListener("click", (event) => {
     closeAgentContextMenu();
+    const configBtn = event.target.closest("[data-agent-config]");
+    if (configBtn) {
+      event.stopPropagation();
+      const row = configBtn.closest(".agent-row");
+      if (row) showAgentConfigMenu(row, configBtn);
+      return;
+    }
     const skillsBtn = event.target.closest("[data-skills-open]");
     if (skillsBtn) {
       event.stopPropagation();
       openSkillsPanel(skillsBtn.dataset.agentId || "");
+      return;
+    }
+    const mcpBtn = event.target.closest("[data-mcp-open]");
+    if (mcpBtn) {
+      event.stopPropagation();
+      openMcpPanel(mcpBtn.dataset.agentId || "");
       return;
     }
     const soulBtn = event.target.closest("[data-soul-open]");
@@ -1466,13 +1838,6 @@ if (agentList) {
     if (!row) return;
     if (row.dataset.readinessStatus && row.dataset.readinessStatus !== "ready") return;
     setSelectedAgent(row.dataset.agentId, row.dataset.agentName);
-  });
-
-  agentList.addEventListener("contextmenu", (event) => {
-    const row = event.target.closest(".agent-row");
-    if (!row) return;
-    event.preventDefault();
-    showAgentContextMenu(row, event.clientX, event.clientY);
   });
 
   agentList.addEventListener("scroll", closeAgentContextMenu, { passive: true });
@@ -1560,6 +1925,58 @@ if (skillsDrawer) {
     }
   });
 }
+if (mcpDrawer) {
+  mcpDrawer.addEventListener("click", (event) => {
+    const restartBtn = event.target.closest("[data-mcp-restart-agent]");
+    if (restartBtn) {
+      event.preventDefault();
+      restartCurrentMcpAgent(restartBtn);
+      return;
+    }
+    const revealBtn = event.target.closest("[data-mcp-reveal]");
+    if (revealBtn) {
+      revealMcp(revealBtn.dataset.mcpReveal || "");
+      return;
+    }
+    const editBtn = event.target.closest("[data-mcp-edit]");
+    if (editBtn && !editBtn.disabled) {
+      editMcp(editBtn.dataset.mcpEdit || "");
+      return;
+    }
+    const testBtn = event.target.closest("[data-mcp-test]");
+    if (testBtn) {
+      testMcp(testBtn.dataset.mcpTest || "");
+      return;
+    }
+    const deleteBtn = event.target.closest("[data-mcp-delete]");
+    if (deleteBtn && !deleteBtn.disabled) {
+      deleteMcp(deleteBtn.dataset.mcpDelete || "");
+      return;
+    }
+    if (event.target instanceof HTMLElement && event.target.dataset.closeMcp !== undefined) {
+      closeMcpPanel();
+    }
+  });
+}
+if (openMcpEdit) openMcpEdit.addEventListener("click", () => openMcpEditModal());
+if (mcpRefresh) mcpRefresh.addEventListener("click", () => refreshMcps());
+if (mcpEditModal) {
+  mcpEditModal.addEventListener("click", (event) => {
+    if (event.target instanceof HTMLElement && event.target.dataset.closeMcpEdit !== undefined) {
+      closeMcpEditModal();
+    }
+  });
+}
+if (mcpEditForm) {
+  mcpEditForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveMcpFromForm();
+  });
+  mcpEditForm.elements.transport.addEventListener("change", toggleMcpTransportFields);
+}
+if (mcpSaveTest) {
+  mcpSaveTest.addEventListener("click", () => saveMcpFromForm({ testAfter: true }));
+}
 if (openSkillsInstall) openSkillsInstall.addEventListener("click", openSkillsInstallModal);
 if (skillsInstallModal) {
   skillsInstallModal.addEventListener("click", (event) => {
@@ -1613,6 +2030,10 @@ if (modal) {
     if (e.key === "Escape" && !modal.hidden) closeModal();
     if (e.key === "Escape" && skillsInstallModal && !skillsInstallModal.hidden) {
       closeSkillsInstallModal();
+      return;
+    }
+    if (e.key === "Escape" && mcpEditModal && !mcpEditModal.hidden) {
+      closeMcpEditModal();
       return;
     }
     if (e.key === "Escape") closeHistoryPanel();

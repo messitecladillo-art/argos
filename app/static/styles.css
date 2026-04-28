@@ -298,6 +298,14 @@ label span,
   align-items: center;
   gap: 10px;
   margin-top: 12px;
+  min-width: 0;
+  flex-wrap: nowrap;
+}
+
+.agent-row__session .acp-label {
+  margin-right: auto;
+  min-width: 2.5em;
+  white-space: nowrap;
 }
 
 .main-panel {
@@ -540,6 +548,10 @@ label span,
   display: none;
 }
 
+.mcp-drawer[hidden] {
+  display: none;
+}
+
 .soul-drawer__panel {
   width: min(980px, calc(100vw - 28px));
   grid-template-rows: auto auto minmax(0, 1fr) auto;
@@ -755,6 +767,61 @@ label span,
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.mcp-toolbar {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.mcp-list {
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.mcp-card {
+  border: 1px solid rgba(246, 207, 117, 0.14);
+  border-radius: 16px;
+  background: rgba(246, 207, 117, 0.045);
+  padding: 14px;
+}
+
+.mcp-card__head,
+.mcp-card__actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.mcp-card__head small,
+.mcp-card p,
+.mcp-card code {
+  color: var(--muted);
+}
+
+.mcp-card code {
+  display: block;
+  margin: 8px 0;
+  overflow-wrap: anywhere;
+}
+
+.mcp-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mcp-badge {
+  border: 1px solid rgba(246, 207, 117, 0.18);
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: var(--muted);
+  font-size: 0.72rem;
 }
 
 .skills-alpha-nav {
@@ -1177,6 +1244,10 @@ label span,
   min-height: 86px;
   resize: vertical;
 }
+
+.modal__form .form-hint {
+  grid-column: 1 / -1;
+}
 .modal__actions {
   display: flex;
   justify-content: flex-end;
@@ -1262,12 +1333,13 @@ label span,
   border-radius: 6px;
   cursor: pointer;
   font-size: 0.75rem;
+  white-space: nowrap;
 }
 .acp-btn:hover { background: rgba(217, 154, 33, 0.1); }
 .acp-btn--stop { border-color: #ff5a5a55; color: #ff8a8a; }
 .acp-btn--start { border-color: #2dd46f55; color: #7fe9a7; }
-.acp-btn--skills { border-color: rgba(97, 226, 148, 0.28); color: var(--success); }
-.acp-btn--soul { border-color: rgba(246, 207, 117, 0.32); color: var(--accent-2); }
+.acp-btn--config { border-color: rgba(125, 211, 252, 0.28); color: #7dd3fc; }
+.acp-btn--runtime { min-width: 52px; }
 .acp-btn:disabled { opacity: 0.5; cursor: not-allowed; }
 
 .agent-context-menu[hidden] {
@@ -1305,6 +1377,12 @@ label span,
 
 .agent-context-menu__item:hover {
   background: rgba(217, 154, 33, 0.1);
+}
+
+.agent-context-menu__separator {
+  height: 1px;
+  margin: 6px 4px;
+  background: rgba(246, 207, 117, 0.12);
 }
 
 .agent-context-menu__item--danger {

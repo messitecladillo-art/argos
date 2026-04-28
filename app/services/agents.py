@@ -5,7 +5,7 @@ from pathlib import Path
 
 from ..config import AGENT_TEAM_WORKSPACE_ROOT, MCP_BUS_URL, PROFILE_NAME_RE, now_iso
 from ..models.store import RuntimeStore
-from . import acp, profiles, registry, soul
+from . import acp, mcp_installer, profiles, registry, soul
 
 
 VALID_ROLES = {"leader", "worker"}
@@ -63,6 +63,7 @@ def create_agent(
         profiles.attach_mcp_server(
             profile_name, name="agent_bus", url=MCP_BUS_URL
         )
+        mcp_installer.upsert_builtin_agent_bus(profile_name)
         profiles.disable_conflicting_toolsets(profile_name)
 
     created_at = now_iso()
@@ -128,6 +129,7 @@ def delete_agent(store: RuntimeStore, agent_id: str) -> dict:
     acp.pool.stop(agent_id)
     profiles.delete_hermes_profile(profile_name)
     registry.delete_team_meta(profile_name)  # no-op if the profile dir was already gone
+    mcp_installer.delete_records_for_profile(profile_name)
     _delete_workspace(workspace_path)
     store.remove_agent(agent_id)
     store.push_event(

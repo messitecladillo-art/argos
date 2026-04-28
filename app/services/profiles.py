@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import os
 import subprocess
+from pathlib import Path
 
 import yaml
 
@@ -9,6 +11,10 @@ from ..config import HERMES_HOME, PROFILE_NAME_RE
 
 class ProfileError(RuntimeError):
     """Raised when the hermes CLI fails for a non-business reason."""
+
+
+def _profile_config_path(profile_name: str) -> Path:
+    return HERMES_HOME / "profiles" / profile_name / "config.yaml"
 
 
 def create_hermes_profile(profile_name: str) -> None:
@@ -82,20 +88,55 @@ def attach_mcp_server(profile_name: str, *, name: str, url: str) -> None:
     (see hermes_cli/mcp_config.py). We merge in place so the rest of the file
     (model, providers, …) is preserved.
     """
-    cfg_path = HERMES_HOME / "profiles" / profile_name / "config.yaml"
+    upsert_mcp_server(profile_name, name, {"url": url, "enabled": True})
+
+
+def read_profile_config(profile_name: str) -> dict:
+    cfg_path = _profile_config_path(profile_name)
     if not cfg_path.exists():
         raise ProfileError(f"profile config not found: {cfg_path}")
-
     data = yaml.safe_load(cfg_path.read_text(encoding="utf-8")) or {}
+    return data if isinstance(data, dict) else {}
+
+
+def write_profile_config(profile_name: str, data: dict) -> None:
+    cfg_path = _profile_config_path(profile_name)
+    if not cfg_path.exists():
+        raise ProfileError(f"profile config not found: {cfg_path}")
+    tmp_path = cfg_path.with_name(f"{cfg_path.name}.tmp")
+    content = yaml.safe_dump(data, allow_unicode=True, sort_keys=False)
+    try:
+        with tmp_path.open("w", encoding="utf-8") as handle:
+            handle.write(content)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(tmp_path, cfg_path)
+    except OSError as exc:
+        try:
+            tmp_path.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise ProfileError(f"profile config write failed: {exc}") from exc
+
+
+def upsert_mcp_server(profile_name: str, name: str, spec: dict) -> None:
+    data = read_profile_config(profile_name)
     servers = data.setdefault("mcp_servers", {})
     if not isinstance(servers, dict):
         servers = {}
         data["mcp_servers"] = servers
-    servers[name] = {"url": url, "enabled": True}
-    cfg_path.write_text(
-        yaml.safe_dump(data, allow_unicode=True, sort_keys=False),
-        encoding="utf-8",
-    )
+    next_spec = dict(spec)
+    next_spec["enabled"] = True
+    servers[name] = next_spec
+    write_profile_config(profile_name, data)
+
+
+def remove_mcp_server(profile_name: str, name: str) -> None:
+    data = read_profile_config(profile_name)
+    servers = data.get("mcp_servers")
+    if isinstance(servers, dict):
+        servers.pop(name, None)
+    write_profile_config(profile_name, data)
 
 
 # Hermes built-in toolsets that conflict with our agent_bus-based team
