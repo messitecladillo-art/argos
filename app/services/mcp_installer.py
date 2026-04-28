@@ -6,6 +6,7 @@ import queue
 import re
 import subprocess
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -485,6 +486,7 @@ def _test_stdio(mcp: dict, *, timeout: int) -> dict:
             env=env,
         )
         lines: queue.Queue[str] = queue.Queue()
+        errors: queue.Queue[str] = queue.Queue()
 
         def read_stdout() -> None:
             if proc is None or proc.stdout is None:
@@ -493,15 +495,44 @@ def _test_stdio(mcp: dict, *, timeout: int) -> dict:
             if line:
                 lines.put(line)
 
+        def read_stderr() -> None:
+            if proc is None or proc.stderr is None:
+                return
+            for line in proc.stderr:
+                if line:
+                    errors.put(line)
+
         thread = threading.Thread(target=read_stdout, daemon=True)
         thread.start()
+        stderr_thread = threading.Thread(target=read_stderr, daemon=True)
+        stderr_thread.start()
         assert proc.stdin is not None
-        proc.stdin.write(json.dumps(init_message) + "\n")
-        proc.stdin.flush()
         try:
-            line = lines.get(timeout=timeout)
-        except queue.Empty:
-            return {"ok": False, "status": "fail", "detail": "stdio initialize timed out"}
+            proc.stdin.write(json.dumps(init_message) + "\n")
+            proc.stdin.flush()
+        except BrokenPipeError:
+            try:
+                return_code = proc.wait(timeout=1)
+            except subprocess.TimeoutExpired:
+                return_code = proc.poll()
+            detail = _stdio_error_detail(return_code, errors, stderr_thread)
+            return {"ok": False, "status": "fail", "detail": detail or "stdio process closed stdin before initialize"}
+        deadline = time.monotonic() + timeout
+        line = ""
+        while time.monotonic() < deadline:
+            try:
+                line = lines.get(timeout=0.1)
+                break
+            except queue.Empty:
+                return_code = proc.poll()
+                if return_code is not None:
+                    detail = _stdio_error_detail(return_code, errors, stderr_thread)
+                    return {"ok": False, "status": "fail", "detail": detail}
+        if not line:
+            detail = _stdio_error_detail(proc.poll(), errors, stderr_thread)
+            if detail:
+                return {"ok": False, "status": "fail", "detail": detail}
+            return {"ok": False, "status": "fail", "detail": _stdio_timeout_detail(command)}
         try:
             payload = json.loads(line)
         except json.JSONDecodeError:
@@ -516,6 +547,32 @@ def _test_stdio(mcp: dict, *, timeout: int) -> dict:
     finally:
         if proc is not None and proc.poll() is None:
             proc.kill()
+
+
+def _stdio_error_detail(return_code: int | None, errors: queue.Queue[str], stderr_thread: threading.Thread | None = None) -> str:
+    if return_code is not None and stderr_thread is not None:
+        stderr_thread.join(timeout=0.2)
+    stderr = "".join(_drain_queue(errors)).strip()
+    if stderr:
+        return stderr[-500:]
+    if return_code is not None:
+        return f"stdio process exited with code {return_code}"
+    return ""
+
+
+def _stdio_timeout_detail(command: str) -> str:
+    if command == "npx":
+        return "stdio initialize timed out; npx may still be downloading the MCP package or blocked by npm registry/network"
+    return "stdio initialize timed out"
+
+
+def _drain_queue(items: queue.Queue[str]) -> list[str]:
+    values = []
+    while True:
+        try:
+            values.append(items.get_nowait())
+        except queue.Empty:
+            return values
 
 
 def mcp_summary(profile_name: str) -> list[dict]:

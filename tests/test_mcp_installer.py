@@ -1,6 +1,10 @@
 from __future__ import annotations
 
+import io
+import queue
 import subprocess
+import threading
+import time
 from pathlib import Path
 
 import yaml
@@ -299,6 +303,72 @@ def test_stdio_test_handshake(monkeypatch, tmp_path):
 
     assert response.status_code == 200
     assert response.get_json()["status"] == "ok"
+
+
+def test_stdio_test_reports_stderr_on_exit(monkeypatch, tmp_path):
+    client, store, hermes_home, _session_local = _client(monkeypatch, tmp_path)
+    _register_agent(store, hermes_home)
+    script = tmp_path / "failing_mcp.py"
+    script.write_text(
+        "import sys\n"
+        "print('missing database url', file=sys.stderr, flush=True)\n"
+        "sys.exit(2)\n",
+        encoding="utf-8",
+    )
+    client.post("/api/agents/agent_dev/mcps", json={"name": "local", "transport": "stdio", "command": "python3", "args": [str(script)]})
+
+    response = client.post("/api/agents/agent_dev/mcps/local/test")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["status"] == "fail"
+    assert "missing database url" in data["detail"]
+
+
+def test_stdio_test_broken_pipe_timeout_returns_failure(monkeypatch):
+    class BrokenPipeStdin:
+        def write(self, _value):
+            raise BrokenPipeError
+
+        def flush(self):
+            pass
+
+    class HangingProcess:
+        stdin = BrokenPipeStdin()
+        stdout = io.StringIO("")
+        stderr = io.StringIO("rejected initialize\n")
+        returncode = None
+
+        def wait(self, timeout=None):
+            raise subprocess.TimeoutExpired(cmd="mcp", timeout=timeout)
+
+        def poll(self):
+            return None
+
+        def kill(self):
+            pass
+
+    monkeypatch.setattr(mcp_installer.subprocess, "Popen", lambda *args, **kwargs: HangingProcess())
+
+    result = mcp_installer._test_stdio({"command": "mcp"}, timeout=1)
+
+    assert result["status"] == "fail"
+    assert "rejected initialize" in result["detail"]
+
+
+def test_stdio_error_detail_waits_for_stderr_reader():
+    errors: queue.Queue[str] = queue.Queue()
+
+    def enqueue_stderr():
+        time.sleep(0.05)
+        errors.put("missing database url\n")
+
+    stderr_thread = threading.Thread(target=enqueue_stderr)
+    stderr_thread.start()
+
+    detail = mcp_installer._stdio_error_detail(2, errors, stderr_thread)
+
+    assert "missing database url" in detail
 
 
 def test_args_must_be_array(monkeypatch, tmp_path):
