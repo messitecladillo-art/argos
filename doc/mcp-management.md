@@ -28,8 +28,9 @@
 
 ### 1.1 要做
 - 管理每个 agent 的 MCP servers 列表(基于 Hermes profile `config.yaml` 的 `mcp_servers` 节)
-- 支持两种传输类型:
-  - **HTTP/SSE**:`url`(+ 可选 `headers`,含 token)
+- 支持三种传输类型:
+  - **Streamable HTTP**:`url`(+ 可选 `headers`,含 token)
+  - **HTTP/SSE**:`url`(+ 可选 `headers`,含 token;兼容旧式远程 MCP)
   - **stdio**:`command` + `args` + `env`
 - 新增 / 编辑 / 删除单个 MCP
 - 连通性测试(HTTP: HEAD/GET;stdio: 启动后 `initialize` 握手,超时杀掉)
@@ -64,6 +65,10 @@ mcp_servers:
     enabled: true
     headers:
       Authorization: "Bearer figd_xxx"
+  remote_http:
+    transport: streamable_http               # 可选;平台用于 UI 区分, Hermes 仍按 url 走 HTTP 客户端
+    url: https://mcp.example.com/mcp
+    enabled: true
   playwright:
     command: npx
     args: ["-y", "@playwright/mcp@latest"]
@@ -91,7 +96,7 @@ class AgentMcpServerRecord(TimestampMixin, Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     profile_name: Mapped[str] = mapped_column(String(120), index=True)
     name: Mapped[str] = mapped_column(String(80))
-    transport: Mapped[str] = mapped_column(String(16))   # "http" | "stdio"
+    transport: Mapped[str] = mapped_column(String(16))   # "http" | "streamable_http" | "stdio"
     source_type: Mapped[str] = mapped_column(String(20), default="manual")  # manual | builtin
     description: Mapped[str] = mapped_column(Text, default="")
     managed: Mapped[bool] = mapped_column(Boolean, default=False)  # 平台托管,禁止 UI 改(agent_bus)
@@ -368,6 +373,12 @@ curl -X POST http://localhost:5000/api/agents/agent_designer/mcps \
   -H 'Content-Type: application/json' \
   -d '{"name":"figma","transport":"http","url":"https://mcp.figma.com/sse","headers":{"Authorization":"Bearer figd_xxx"},"description":"Figma 设计文件访问"}'
 # → {"ok":true,"mcp":{"name":"figma","transport":"http",...}}
+
+# 1b. 新增 Streamable HTTP MCP
+curl -X POST http://localhost:5000/api/agents/agent_designer/mcps \
+  -H 'Content-Type: application/json' \
+  -d '{"name":"remote","transport":"streamable_http","url":"https://mcp.example.com/mcp","description":"远程 Streamable HTTP MCP"}'
+# → {"ok":true,"mcp":{"name":"remote","transport":"streamable_http",...}}
 
 # 2. 列出
 curl http://localhost:5000/api/agents/agent_designer/mcps

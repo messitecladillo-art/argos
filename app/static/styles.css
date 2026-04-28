@@ -1150,6 +1150,8 @@ label span,
   gap: 22px;
   max-height: 90vh;
   overflow: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   background:
     linear-gradient(180deg, rgba(24, 19, 11, 0.98), rgba(9, 7, 4, 0.99));
   border-color: rgba(246, 207, 117, 0.38);
@@ -1157,6 +1159,9 @@ label span,
     0 36px 86px rgba(0, 0, 0, 0.72),
     0 0 0 1px rgba(246, 207, 117, 0.06) inset,
     0 1px 0 rgba(255, 244, 204, 0.08) inset;
+}
+.modal__panel::-webkit-scrollbar {
+  display: none;
 }
 .modal__head {
   display: flex;
@@ -1181,6 +1186,10 @@ label span,
   grid-template-columns: 150px minmax(0, 1fr);
   align-items: center;
   gap: 14px;
+}
+
+.modal__form > label[hidden] {
+  display: none !important;
 }
 
 .modal__form > label > span,

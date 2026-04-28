@@ -22,7 +22,8 @@ from . import profiles
 MCP_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,40}$")
 RESERVED_NAMES = {"agent_bus"}
 SECRET_KEY_RE = re.compile(r"(^authorization$|token|secret|key|password)", re.IGNORECASE)
-VALID_TRANSPORTS = {"http", "stdio"}
+HTTP_TRANSPORTS = {"http", "streamable_http"}
+VALID_TRANSPORTS = {*HTTP_TRANSPORTS, "stdio"}
 
 
 class McpError(Exception):
@@ -65,7 +66,7 @@ def _validate_name(name: str, *, allow_reserved: bool = False) -> str:
 def _validate_transport(transport: str) -> str:
     value = (transport or "").strip().lower()
     if value not in VALID_TRANSPORTS:
-        raise McpError("transport must be http or stdio")
+        raise McpError("transport must be http, streamable_http, or stdio")
     return value
 
 
@@ -110,6 +111,9 @@ def _string_list(value: Any, field: str) -> list[str]:
 
 
 def _transport_from_spec(spec: dict) -> str:
+    transport = str(spec.get("transport") or "").strip().lower()
+    if transport in VALID_TRANSPORTS:
+        return transport
     if "command" in spec:
         return "stdio"
     return "http"
@@ -293,7 +297,7 @@ def get_mcp(profile_name: str, name: str, *, reveal_secrets: bool = False) -> di
 
 def _build_spec(*, transport: str, payload: dict, existing: dict | None = None, partial: bool = False) -> dict:
     base = dict(existing or {}) if partial else {}
-    if transport == "http":
+    if transport in HTTP_TRANSPORTS:
         if "url" in payload or not partial:
             base["url"] = _validate_url(payload.get("url") or "")
         if "headers" in payload:
@@ -308,6 +312,10 @@ def _build_spec(*, transport: str, payload: dict, existing: dict | None = None, 
         base.pop("command", None)
         base.pop("args", None)
         base.pop("env", None)
+        if transport == "streamable_http":
+            base["transport"] = transport
+        else:
+            base.pop("transport", None)
     else:
         if "command" in payload or not partial:
             command = (payload.get("command") or "").strip()
@@ -327,6 +335,7 @@ def _build_spec(*, transport: str, payload: dict, existing: dict | None = None, 
                 base.pop("env", None)
         base.pop("url", None)
         base.pop("headers", None)
+        base.pop("transport", None)
     base["enabled"] = True
     return base
 
@@ -417,7 +426,7 @@ def test_mcp(agent_id: str, name: str, *, timeout: int = 15) -> dict:
     current = get_mcp(profile_name, mcp_name, reveal_secrets=True)
     if current is None:
         raise McpError("mcp not found", status_code=404)
-    if current["transport"] == "http":
+    if current["transport"] in HTTP_TRANSPORTS:
         result = _test_http(current, timeout=timeout)
     else:
         result = _test_stdio(current, timeout=timeout)

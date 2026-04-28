@@ -810,7 +810,8 @@ function closeMcpPanel() {
 function toggleMcpTransportFields() {
   if (!mcpEditForm) return;
   const transport = mcpEditForm.elements.transport.value;
-  mcpEditForm.querySelectorAll(".mcp-http-field").forEach((item) => { item.hidden = transport !== "http"; });
+  const isHttpTransport = transport === "http" || transport === "streamable_http";
+  mcpEditForm.querySelectorAll(".mcp-http-field").forEach((item) => { item.hidden = !isHttpTransport; });
   mcpEditForm.querySelectorAll(".mcp-stdio-field").forEach((item) => { item.hidden = transport !== "stdio"; });
 }
 
@@ -849,7 +850,7 @@ function buildMcpPayload() {
     transport,
     description: String(formData.get("description") || "").trim(),
   };
-  if (transport === "http") {
+  if (transport === "http" || transport === "streamable_http") {
     payload.url = String(formData.get("url") || "").trim();
     payload.headers = parseKeyValueLines(formData.get("headers"));
   } else {

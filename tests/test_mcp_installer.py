@@ -99,6 +99,26 @@ def test_mcp_add_http_masks_secret(monkeypatch, tmp_path):
     assert record.description == "Figma 设计文件访问"
 
 
+def test_mcp_add_streamable_http(monkeypatch, tmp_path):
+    client, store, hermes_home, session_local = _client(monkeypatch, tmp_path)
+    _register_agent(store, hermes_home)
+
+    response = client.post(
+        "/api/agents/agent_dev/mcps",
+        json={"name": "remote", "transport": "streamable_http", "url": "https://mcp.example.com/mcp"},
+    )
+
+    assert response.status_code == 201
+    data = response.get_json()
+    assert data["mcp"]["transport"] == "streamable_http"
+    spec = _config(hermes_home)["mcp_servers"]["remote"]
+    assert spec["url"] == "https://mcp.example.com/mcp"
+    assert spec["transport"] == "streamable_http"
+    with session_local() as session:
+        record = session.query(AgentMcpServerRecord).filter_by(profile_name="dev", name="remote").one()
+    assert record.transport == "streamable_http"
+
+
 def test_mcp_add_stdio_any_command(monkeypatch, tmp_path):
     client, store, hermes_home, _session_local = _client(monkeypatch, tmp_path)
     _register_agent(store, hermes_home)
@@ -244,6 +264,22 @@ def test_http_test_head_fallback_get(monkeypatch, tmp_path):
     assert response.status_code == 200
     assert response.get_json()["status"] == "ok"
     assert calls == ["HEAD", "GET"]
+
+
+def test_streamable_http_test_uses_http_probe(monkeypatch, tmp_path):
+    client, store, hermes_home, _session_local = _client(monkeypatch, tmp_path)
+    _register_agent(store, hermes_home)
+    client.post("/api/agents/agent_dev/mcps", json={"name": "remote", "transport": "streamable_http", "url": "https://example.com/mcp"})
+
+    class FakeResponse:
+        status_code = 200
+
+    monkeypatch.setattr(mcp_installer.httpx, "head", lambda *args, **kwargs: FakeResponse())
+
+    response = client.post("/api/agents/agent_dev/mcps/remote/test")
+
+    assert response.status_code == 200
+    assert response.get_json()["status"] == "ok"
 
 
 def test_stdio_test_handshake(monkeypatch, tmp_path):
