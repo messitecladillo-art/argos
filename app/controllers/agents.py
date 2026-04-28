@@ -241,11 +241,12 @@ def install_agent_skill(agent_id: str):
     if agent is None:
         return jsonify({"ok": False, "error": "agent not found"}), 404
     payload = request.get_json(silent=True) or {}
+    repo_url = payload.get("repo_url") or payload.get("source_url") or ""
     try:
         skill = skill_installer.install_from_git(
             agent_id,
-            repo_url=payload.get("repo_url") or "",
-            ref=payload.get("ref") or "main",
+            repo_url=repo_url,
+            ref=payload.get("ref") or "",
             subdir=payload.get("subdir") or "",
             slug=payload.get("slug"),
         )

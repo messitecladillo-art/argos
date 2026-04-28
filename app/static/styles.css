@@ -577,6 +577,20 @@ label span,
   line-height: 1.45;
 }
 
+.soul-status.has-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.skills-status__action {
+  flex: 0 0 auto;
+  color: var(--text);
+  border-color: rgba(246, 207, 117, 0.32);
+  background: rgba(246, 207, 117, 0.1);
+}
+
 .soul-status[data-kind="success"] {
   border-color: rgba(97, 226, 148, 0.26);
   background: rgba(97, 226, 148, 0.08);

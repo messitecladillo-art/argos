@@ -210,6 +210,118 @@ def test_install_agent_skill_rejects_invalid_remote_frontmatter(monkeypatch, tmp
     assert data["error"].startswith("invalid frontmatter:")
 
 
+def test_install_agent_skill_requires_repo_url(monkeypatch, tmp_path):
+    client, store = _client(monkeypatch, tmp_path)
+    _register_agent(store)
+
+    response = client.post("/api/agents/agent_dev/skills/install", json={})
+
+    assert response.status_code == 400
+    data = response.get_json()
+    assert data["ok"] is False
+    assert data["error"] == "repo_url is required"
+
+
+def test_install_agent_skill_accepts_source_url_alias(monkeypatch, tmp_path):
+    client, store = _client(monkeypatch, tmp_path)
+    _register_agent(store)
+
+    captured = {}
+
+    def fake_install_from_git(agent_id, **kwargs):
+        captured["agent_id"] = agent_id
+        captured.update(kwargs)
+        return {"slug": "demo-skill"}
+
+    monkeypatch.setattr(agents_controller.skill_installer, "install_from_git", fake_install_from_git)
+
+    response = client.post(
+        "/api/agents/agent_dev/skills/install",
+        json={"source_url": "https://example.com/skill.git"},
+    )
+
+    assert response.status_code == 201
+    assert captured["repo_url"] == "https://example.com/skill.git"
+
+
+def test_install_agent_skill_blank_ref_uses_remote_default_branch(monkeypatch, tmp_path):
+    client, store = _client(monkeypatch, tmp_path)
+    _register_agent(store)
+    clone_args = []
+
+    def fake_run(args, **kwargs):
+        if args[:3] == ["git", "clone", "--depth=1"]:
+            clone_args.extend(args)
+            repo_dir = Path(args[-1])
+            repo_dir.mkdir(parents=True, exist_ok=True)
+            (repo_dir / "SKILL.md").write_text(
+                "---\nname: demo-skill\ndescription: Demo\n---\n\n# Demo\n",
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(args, 0, "", "")
+        if args[-2:] == ["rev-parse", "HEAD"]:
+            return subprocess.CompletedProcess(args, 0, "deadbeef\n", "")
+        if args[-3:] == ["symbolic-ref", "--short", "HEAD"]:
+            return subprocess.CompletedProcess(args, 0, "master\n", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(agents_controller.skill_installer, "validate_source_url", lambda _url: None)
+    monkeypatch.setattr(agents_controller.skill_installer.subprocess, "run", fake_run)
+
+    response = client.post(
+        "/api/agents/agent_dev/skills/install",
+        json={"repo_url": "https://example.com/skill.git", "ref": ""},
+    )
+
+    assert response.status_code == 201
+    data = response.get_json()
+    assert "--branch" not in clone_args
+    assert data["skill"]["source_ref"] == "master"
+
+
+def test_install_agent_skill_auto_uses_only_nested_skill(monkeypatch, tmp_path):
+    client, store = _client(monkeypatch, tmp_path)
+    _register_agent(store)
+
+    def fake_run(args, **kwargs):
+        if args[:3] == ["git", "clone", "--depth=1"]:
+            repo_dir = Path(args[-1])
+            skill_dir = repo_dir / "greet-with-model-version"
+            skill_dir.mkdir(parents=True, exist_ok=True)
+            (skill_dir / "SKILL.md").write_text(
+                "---\nname: greet-with-model-version\ndescription: Greet\n---\n\n# Greet\n",
+                encoding="utf-8",
+            )
+            return subprocess.CompletedProcess(args, 0, "", "")
+        if args[-2:] == ["rev-parse", "HEAD"]:
+            return subprocess.CompletedProcess(args, 0, "deadbeef\n", "")
+        if args[-3:] == ["symbolic-ref", "--short", "HEAD"]:
+            return subprocess.CompletedProcess(args, 0, "master\n", "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    monkeypatch.setattr(agents_controller.skill_installer, "validate_source_url", lambda _url: None)
+    monkeypatch.setattr(agents_controller.skill_installer.subprocess, "run", fake_run)
+
+    response = client.post(
+        "/api/agents/agent_dev/skills/install",
+        json={"repo_url": "https://example.com/skills.git"},
+    )
+
+    assert response.status_code == 201
+    data = response.get_json()
+    assert data["skill"]["slug"] == "greet-with-model-version"
+    assert data["skill"]["subdir"] == "greet-with-model-version"
+
+    skills = client.get("/api/agents/agent_dev/skills").get_json()["skills"]
+    assert skills[0]["subdir"] == "greet-with-model-version"
+
+    reinstall_response = client.post(
+        "/api/agents/agent_dev/skills/install",
+        json={"repo_url": "https://example.com/skills.git"},
+    )
+    assert reinstall_response.status_code == 201
+
+
 def test_uninstall_agent_skill_is_idempotent(monkeypatch, tmp_path):
     client, store = _client(monkeypatch, tmp_path)
     _register_agent(store)

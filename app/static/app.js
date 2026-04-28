@@ -343,11 +343,48 @@ function setSoulStatus(message, kind = "muted") {
   soulStatus.hidden = !message;
 }
 
-function setSkillsStatus(message, kind = "muted") {
+function setSkillsStatus(message, kind = "muted", options = {}) {
   if (!skillsStatus) return;
-  skillsStatus.textContent = message || "";
+  skillsStatus.innerHTML = "";
   skillsStatus.dataset.kind = kind;
+  skillsStatus.classList.toggle("has-action", Boolean(options.restartAction));
   skillsStatus.hidden = !message;
+  if (!message) return;
+  const text = document.createElement("span");
+  text.textContent = message;
+  skillsStatus.appendChild(text);
+  if (options.restartAction) {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "filter-chip skills-status__action";
+    button.dataset.skillsRestartAgent = "true";
+    button.textContent = "重启当前 Agent";
+    skillsStatus.appendChild(button);
+  }
+}
+
+function showSkillsRestartPrompt(message, kind = "success") {
+  setSkillsStatus(`${message} 重启当前 Agent 后生效。`, kind, { restartAction: true });
+}
+
+async function restartCurrentSkillsAgent(triggerButton = null) {
+  const agentId = skillsState.agentId;
+  if (!agentId) return;
+  if (triggerButton) triggerButton.disabled = true;
+  setSkillsStatus("正在重启当前 Agent…", "muted");
+  try {
+    const stopResponse = await fetch(`/api/agents/${agentId}/stop`, { method: "POST" });
+    const stopData = await stopResponse.json().catch(() => ({}));
+    if (!stopResponse.ok || stopData.ok === false) throw new Error(stopData.error || "停止 Agent 失败");
+
+    const startResponse = await fetch(`/api/agents/${agentId}/start`, { method: "POST" });
+    const startData = await startResponse.json().catch(() => ({}));
+    if (!startResponse.ok || !startData.ok) throw new Error(startData.error || "启动 Agent 失败");
+
+    setSkillsStatus("当前 Agent 已重启，skills 已生效。", "success");
+  } catch (error) {
+    showSkillsRestartPrompt(`重启失败：${error.message || "未知错误"}`, "error");
+  }
 }
 
 function hasUnsavedSoulChanges() {
@@ -638,8 +675,13 @@ async function installSkillFromForm(event) {
   event.preventDefault();
   if (!skillsState.agentId || !skillsInstallForm) return;
   const formData = new FormData(skillsInstallForm);
+  const repoUrl = String(formData.get("repo_url") || "").trim();
+  if (!repoUrl) {
+    setSkillsStatus("请输入 Git 仓库地址。", "error");
+    return;
+  }
   const payload = {
-    repo_url: formData.get("repo_url"),
+    repo_url: repoUrl,
     ref: formData.get("ref"),
     subdir: formData.get("subdir"),
     slug: formData.get("slug"),
@@ -657,8 +699,8 @@ async function installSkillFromForm(event) {
     if (!response.ok || !data.ok) throw new Error(data.error || "skill 安装失败");
     skillsInstallForm.reset();
     closeSkillsInstallModal();
-    setSkillsStatus("安装成功。", "success");
     await refreshSkills(data.skill?.slug || "");
+    showSkillsRestartPrompt("安装成功。");
   } catch (error) {
     setSkillsStatus(error.message || "skill 安装失败", "error");
   } finally {
@@ -676,8 +718,8 @@ async function reinstallSelectedSkill() {
     );
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.ok) throw new Error(data.error || "skill 重装失败");
-    setSkillsStatus("重装成功。", "success");
     await refreshSkills(data.skill?.slug || skillsState.selectedSlug);
+    showSkillsRestartPrompt("重装成功。");
   } catch (error) {
     setSkillsStatus(error.message || "skill 重装失败", "error");
   }
@@ -703,7 +745,7 @@ async function uninstallSelectedSkill() {
     const removedSlug = skillsState.selectedSlug;
     setSelectedSkillDetail(null);
     await refreshSkills();
-    setSkillsStatus(`${removedSlug} 已卸载。`, "success");
+    showSkillsRestartPrompt(`${removedSlug} 已卸载。`);
   } catch (error) {
     setSkillsStatus(error.message || "skill 卸载失败", "error");
   }
@@ -1507,6 +1549,12 @@ if (soulDrawer) {
 }
 if (skillsDrawer) {
   skillsDrawer.addEventListener("click", (event) => {
+    const restartBtn = event.target.closest("[data-skills-restart-agent]");
+    if (restartBtn) {
+      event.preventDefault();
+      restartCurrentSkillsAgent(restartBtn);
+      return;
+    }
     if (event.target instanceof HTMLElement && event.target.dataset.closeSkills !== undefined) {
       closeSkillsPanel();
     }

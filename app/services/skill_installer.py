@@ -43,6 +43,12 @@ class SkillSourceInfo:
     path: Path
 
 
+@dataclass
+class ResolvedSourceDir:
+    path: Path
+    subdir: str
+
+
 def _agent_profile_name(agent_id: str) -> str:
     agent = _find_agent(agent_id)
     return agent["profile_name"]
@@ -169,6 +175,8 @@ def _delete_install_record(profile_name: str, slug: str) -> None:
 
 def validate_source_url(url: str) -> None:
     parsed = urlparse((url or "").strip())
+    if not parsed.geturl():
+        raise SkillError("repo_url is required")
     if parsed.scheme != "https":
         raise SkillError("only https:// is supported")
     host = parsed.hostname or ""
@@ -207,6 +215,19 @@ def _repo_subdir_path(repo_dir: Path, subdir: str) -> Path:
     if not candidate.exists() or not candidate.is_dir():
         raise SkillError("subdir not found")
     return candidate
+
+
+def _resolve_source_dir(repo_dir: Path, subdir: str) -> ResolvedSourceDir:
+    source_dir = _repo_subdir_path(repo_dir, subdir)
+    if subdir or (source_dir / "SKILL.md").exists():
+        return ResolvedSourceDir(path=source_dir, subdir=subdir)
+    skill_dirs = [path.parent for path in source_dir.rglob("SKILL.md") if ".git" not in path.parts]
+    if len(skill_dirs) == 1:
+        discovered_subdir = skill_dirs[0].relative_to(repo_dir).as_posix()
+        return ResolvedSourceDir(path=skill_dirs[0], subdir=discovered_subdir)
+    if not skill_dirs:
+        raise SkillError("SKILL.md not found")
+    raise SkillError("multiple skills found, please specify subdir")
 
 
 def _normalize_skill_dir(source_dir: Path, target_slug: str) -> SkillSourceInfo:
@@ -354,14 +375,14 @@ def install_from_git(
     agent_id: str,
     *,
     repo_url: str,
-    ref: str = "main",
+    ref: str = "",
     subdir: str = "",
     slug: str | None = None,
 ) -> dict:
     profile_name = _agent_profile_name(agent_id)
     validate_source_url(repo_url)
     repo_url = repo_url.strip()
-    ref = (ref or "main").strip()
+    ref = (ref or "").strip()
     subdir = (subdir or "").strip().strip("/")
 
     skills_dir = registry.skills_dir_for(profile_name)
@@ -373,8 +394,12 @@ def install_from_git(
     prepared_dir = prepared_parent / "content"
     try:
         tmp_root.mkdir(parents=True, exist_ok=True)
+        clone_args = ["git", "clone", "--depth=1"]
+        if ref:
+            clone_args.extend(["--branch", ref])
+        clone_args.extend([repo_url, str(repo_dir)])
         subprocess.run(
-            ["git", "clone", "--depth=1", "--branch", ref, repo_url, str(repo_dir)],
+            clone_args,
             check=True,
             timeout=GIT_CLONE_TIMEOUT_SECONDS,
             capture_output=True,
@@ -387,7 +412,18 @@ def install_from_git(
             capture_output=True,
             text=True,
         ).stdout.strip()
-        source_dir = _repo_subdir_path(repo_dir, subdir)
+        source_ref = ref
+        if not source_ref:
+            source_ref = subprocess.run(
+                ["git", "-C", str(repo_dir), "symbolic-ref", "--short", "HEAD"],
+                check=False,
+                timeout=30,
+                capture_output=True,
+                text=True,
+            ).stdout.strip()
+        resolved_source = _resolve_source_dir(repo_dir, subdir)
+        source_dir = resolved_source.path
+        effective_subdir = resolved_source.subdir
         inferred_slug = slug or _skill_entry_from_path(source_dir)
         if isinstance(inferred_slug, dict):
             inferred_slug = inferred_slug["name"]
@@ -411,7 +447,7 @@ def install_from_git(
             same_source = (
                 existing_record.source_type == "git"
                 and existing_record.source_url == repo_url
-                and (existing_record.subdir or "") == subdir
+                and (existing_record.subdir or "") == effective_subdir
             )
             if not same_source:
                 raise SkillError(
@@ -427,9 +463,9 @@ def install_from_git(
             {
                 "source_type": "git",
                 "source_url": repo_url,
-                "source_ref": ref,
+                "source_ref": source_ref,
                 "resolved_commit_sha": resolved_commit_sha,
-                "subdir": subdir,
+                "subdir": effective_subdir,
                 "installed_at": now_iso(),
                 "last_error": "",
             },
@@ -441,9 +477,9 @@ def install_from_git(
             "path": str(target_dir.resolve(strict=False)),
             "source_type": "git",
             "source_url": repo_url,
-            "source_ref": ref,
+            "source_ref": source_ref,
             "resolved_commit_sha": resolved_commit_sha,
-            "subdir": subdir,
+            "subdir": effective_subdir,
             "installed_at": now_iso(),
             "has_db_record": True,
         }
@@ -481,7 +517,7 @@ def reinstall(agent_id: str, slug: str) -> dict:
     return install_from_git(
         agent_id,
         repo_url=record.source_url,
-        ref=record.source_ref or "main",
+        ref=record.source_ref or "",
         subdir=record.subdir or "",
         slug=record.slug,
     )
