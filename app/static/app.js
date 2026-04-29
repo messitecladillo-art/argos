@@ -83,6 +83,10 @@ const mcpState = {
   items: [],
   editingName: "",
 };
+const notificationAgentStates = new Map();
+const notificationLastPlayedAt = new Map();
+const notificationInteractionStates = new Set(["awaiting_approval", "awaiting_selection", "awaiting_input"]);
+let notificationAudioContext = null;
 
 const SKILL_ALPHA_OPTIONS = ["ALL", ...Array.from({ length: 26 }, (_item, index) => String.fromCharCode(65 + index))];
 
@@ -90,6 +94,96 @@ function debugLog(event, payload) {
   if (!hermesDebug) return;
   console.log(`[hermes-debug] ${event}`, payload);
 }
+
+function getNotificationAudioContext() {
+  const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+  if (!AudioContextClass) return null;
+  if (!notificationAudioContext) notificationAudioContext = new AudioContextClass();
+  return notificationAudioContext;
+}
+
+function unlockNotificationAudio() {
+  const context = getNotificationAudioContext();
+  if (context?.state === "suspended") context.resume().catch(() => {});
+}
+
+function playTone(context, { start, duration, frequency, type = "sine", volume = 0.055 }) {
+  const oscillator = context.createOscillator();
+  const gain = context.createGain();
+  oscillator.type = type;
+  oscillator.frequency.setValueAtTime(frequency, start);
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(volume, start + 0.015);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + duration);
+  oscillator.connect(gain).connect(context.destination);
+  oscillator.start(start);
+  oscillator.stop(start + duration + 0.02);
+}
+
+function playNotificationSound(kind, agentId) {
+  if (window.localStorage?.getItem("hermesSound") === "0") return;
+  const now = Date.now();
+  const dedupeKey = `${kind}:${agentId || "global"}`;
+  if (now - (notificationLastPlayedAt.get(dedupeKey) || 0) < 3000) return;
+  notificationLastPlayedAt.set(dedupeKey, now);
+  const context = getNotificationAudioContext();
+  if (!context) return;
+  if (context.state === "suspended") context.resume().catch(() => {});
+  const start = context.currentTime + 0.02;
+  if (kind === "taskDone") {
+    playTone(context, { start, duration: 0.11, frequency: 660, type: "sine", volume: 0.045 });
+    playTone(context, { start: start + 0.105, duration: 0.14, frequency: 880, type: "sine", volume: 0.05 });
+    return;
+  }
+  playTone(context, { start, duration: 0.12, frequency: 523.25, type: "triangle", volume: 0.06 });
+  playTone(context, { start: start + 0.16, duration: 0.12, frequency: 392, type: "triangle", volume: 0.06 });
+}
+
+function isLeaderAgent(agent) {
+  return agent?.is_leader || agent?.role === "leader";
+}
+
+function getNotificationSnapshot(agent) {
+  const displayStatus = getAgentDisplayStatus(agent).className;
+  const interactionState = agent.interaction_state || "idle";
+  return {
+    displayStatus,
+    needsIntervention: notificationInteractionStates.has(interactionState),
+  };
+}
+
+function hydrateNotificationStates(agents) {
+  if (!Array.isArray(agents)) return;
+  agents.forEach((agent) => {
+    if (agent?.agent_id) notificationAgentStates.set(agent.agent_id, getNotificationSnapshot(agent));
+  });
+}
+
+function processSoundNotifications(agents) {
+  if (!Array.isArray(agents)) return;
+  const currentIds = new Set();
+  agents.forEach((agent) => {
+    if (!agent?.agent_id) return;
+    currentIds.add(agent.agent_id);
+    const previous = notificationAgentStates.get(agent.agent_id);
+    const current = getNotificationSnapshot(agent);
+    if (previous) {
+      if (isLeaderAgent(agent) && previous.displayStatus === "busy" && current.displayStatus === "idle") {
+        playNotificationSound("taskDone", agent.agent_id);
+      }
+      if (!previous.needsIntervention && current.needsIntervention) {
+        playNotificationSound("needsIntervention", agent.agent_id);
+      }
+    }
+    notificationAgentStates.set(agent.agent_id, current);
+  });
+  Array.from(notificationAgentStates.keys()).forEach((agentId) => {
+    if (!currentIds.has(agentId)) notificationAgentStates.delete(agentId);
+  });
+}
+
+document.addEventListener("pointerdown", unlockNotificationAudio, { once: true, passive: true });
+document.addEventListener("keydown", unlockNotificationAudio, { once: true });
 
 function summarizeTerminalText(value) {
   const text = String(value || "");
@@ -1187,6 +1281,7 @@ async function saveSoulContent() {
 
 function renderAgents(agents, stats) {
   if (!agentList) return;
+  processSoundNotifications(agents);
   debugLog("render-agents", agents.map((agent) => ({
     agent_id: agent.agent_id,
     status: agent.status,
@@ -2155,6 +2250,7 @@ stream.onmessage = (event) => {
 };
 
 hydrateChatEvents();
+hydrateNotificationStates(window.__BOOTSTRAP__?.agents || []);
 initTerminal();
 if (eventList?.dataset.selectedAgent) {
   const row = agentList?.querySelector(`.agent-row[data-agent-id="${CSS.escape(eventList.dataset.selectedAgent)}"]`);
