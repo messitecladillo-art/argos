@@ -26,6 +26,12 @@ from . import registry
 
 logger = logging.getLogger("hermes.agent_state")
 
+CONCISE_SUMMARY_RULES = (
+    "输出要求：先给结论，保持简洁；普通总结控制在 8 行以内，优先使用 3-5 条要点。\n"
+    "只保留用户需要的关键结果、风险/阻塞和下一步；不要复述完整 worker 原文。\n"
+    "除非用户明确要求详细说明，否则不要长篇展开。\n"
+)
+
 STUCK_HINT_SECONDS = 300.0
 READ_CHUNK_SIZE = 1024
 READ_LOOP_INTERVAL = 0.2
@@ -1733,6 +1739,7 @@ class ACPPool:
             "不要再次派发同一批任务；如有缺失或失败，请在总结中明确说明。\n\n"
             "总结要求：\n"
             f"{delegation['summary_instruction']}\n\n"
+            f"{CONCISE_SUMMARY_RULES}\n"
             "Worker 结果：\n"
             f"{worker_results}"
         )
@@ -1777,6 +1784,7 @@ class ACPPool:
             f"user_task_id: {user_task_id}\n"
             "同一个用户任务拆分出的所有 worker 子任务已经全部结束。请只基于以下 worker 结果，面向用户输出最终总结。\n"
             "不要再次派发同一批任务；如有缺失或失败，请在总结中明确说明。\n\n"
+            f"{CONCISE_SUMMARY_RULES}\n"
             "用户原始任务：\n"
             f"{user_task.get('content') or ''}\n\n"
             "Worker 结果：\n"

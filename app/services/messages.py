@@ -9,6 +9,13 @@ from .acp import pool
 logger = logging.getLogger("hermes.agent_state")
 
 
+CONCISE_REPLY_RULES = (
+    "默认回答风格：先给结论，保持简洁；非必要不展开背景。\n"
+    "普通答复控制在 8 行以内，优先使用 3-5 条要点；能一句话说清就只说一句。\n"
+    "除非用户明确要求详细说明、步骤或完整代码，否则不要长篇解释。\n"
+)
+
+
 def find_leader_agent_id(runtime_store: RuntimeStore) -> str:
     leader = next(
         (
@@ -41,6 +48,7 @@ def _format_user_task(content: str, leader_id: str) -> str:
         "5. 如果你在同一个用户任务里分多次调用 worker，平台会把这些 worker 结果合并，等全部完成后再发汇总请求。\n"
         "6. 派发 worker 后不要把任务当作最终完成；收到 `[SYSTEM_USER_TASK_SUMMARY_REQUEST]` 或 `[SYSTEM_DELEGATION_SUMMARY_REQUEST]` 时，只基于给定 worker 结果总结，不要重复派发同一批任务。\n"
         "7. 只有任务不需要 worker 时，才可以直接回复用户。\n"
+        f"{CONCISE_REPLY_RULES}"
         "用户原始任务：\n"
         f"{content}"
     )
@@ -63,6 +71,8 @@ def _format_team_message(
         f"From {sender_name}\n"
         f"To {target_name}\n"
         "请把以下内容视为团队内部任务或协作请求，并直接执行：\n"
+        f"{CONCISE_REPLY_RULES}"
+        "Worker 返回给 Leader 时只输出：结论、关键依据、是否完成/阻塞。\n"
         f"{content}"
     )
 

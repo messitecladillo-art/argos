@@ -28,6 +28,16 @@ LEADER_TOOL_HINT = (
 )
 
 
+CONCISE_STYLE_HINT = (
+    "## 默认回答风格（必须写入 SOUL.md 的 Behavioral Guidelines）\n"
+    "- 先给结论，保持简洁；非必要不展开背景，不重复用户问题。\n"
+    "- 普通答复控制在 8 行以内，优先使用 3-5 条要点。\n"
+    "- 如果一句话能说清，就只用一句。\n"
+    "- 除非用户明确要求详细说明、展开、给出步骤或完整代码，否则不要长篇输出。\n"
+    "- Worker 返回 Leader 时只输出结论、关键依据、是否完成/阻塞。\n"
+)
+
+
 def _soul_prompt(name: str, role: str, description: str) -> str:
     role_hint = ROLE_HINTS.get(role, "")
     extra = LEADER_TOOL_HINT if role == "leader" else ""
@@ -41,6 +51,7 @@ def _soul_prompt(name: str, role: str, description: str) -> str:
         "- 语气差异化：leader 结构化果断；worker 精确、专注。\n"
         "- 不要编造用户没说的项目细节，缺信息就写通用原则。\n\n"
         f"{extra}"
+        f"{CONCISE_STYLE_HINT}"
         f"## Agent 信息\n- Name: {name}\n- Role: {role} — {role_hint}\n- Description: {description or '（未提供）'}\n"
     )
 
@@ -83,7 +94,11 @@ def fallback_soul_md(name: str, role: str, description: str) -> str:
         f"## Identity\nYou are {name}, a {role} in a Hermes multi-agent team.\n\n"
         f"## Core Purpose\n{description or 'Describe this agent’s mission here.'}\n\n"
         "## Behavioral Guidelines\n- Stay within your role boundary.\n"
-        "- Communicate clearly and concisely.\n\n"
+        "- Communicate clearly and concisely.\n"
+        "- Start with the conclusion and avoid unnecessary background.\n"
+        "- Keep normal replies within 8 lines and prefer 3-5 concise bullets.\n"
+        "- Do not write long explanations unless explicitly requested.\n"
+        "- When replying to a Leader, include only conclusion, key evidence, and completion/blocker status.\n\n"
         "## Constraints\n- Do not fabricate information.\n\n"
         "## Success Metrics\n- Outputs fit the role and the task requirement.\n"
     )
