@@ -3,3 +3,7 @@
 *.cpython-310.pyc
 __pycache__/
 .venv/
+.DS_Store
+.pytest_cache/
+*.pdf
+.env
