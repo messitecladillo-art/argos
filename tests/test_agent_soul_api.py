@@ -108,3 +108,73 @@ def test_agent_soul_unknown_agent_returns_404(monkeypatch, tmp_path):
 
     assert response.status_code == 404
     assert response.get_json()["error"] == "agent not found"
+
+
+def test_open_agent_workspace_creates_directory_and_opens(monkeypatch, tmp_path):
+    client, store = _client(monkeypatch, tmp_path)
+    workspace_path = tmp_path / "workspaces" / "dev"
+    agent = _register_agent(store)
+    agent["workspace_path"] = str(workspace_path)
+    opened = []
+    monkeypatch.setattr(agents_controller, "_open_directory", lambda path: opened.append(path))
+
+    response = client.post("/api/agents/agent_dev/open-workspace")
+
+    assert response.status_code == 200
+    data = response.get_json()
+    assert data["ok"] is True
+    assert data["path"] == str(workspace_path)
+    assert workspace_path.is_dir()
+    assert opened == [workspace_path]
+
+
+def test_open_agent_workspace_unknown_agent_returns_404(monkeypatch, tmp_path):
+    client, _store = _client(monkeypatch, tmp_path)
+
+    response = client.post("/api/agents/missing/open-workspace")
+
+    assert response.status_code == 404
+    assert response.get_json()["error"] == "agent not found"
+
+
+def test_open_directory_macos_uses_open(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(agents_controller.sys, "platform", "darwin")
+    monkeypatch.setattr(agents_controller.subprocess, "Popen", lambda args: calls.append(args))
+
+    agents_controller._open_directory(tmp_path)
+
+    assert calls == [["open", str(tmp_path)]]
+
+
+def test_open_directory_linux_uses_xdg_open(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(agents_controller.sys, "platform", "linux")
+    monkeypatch.setattr(agents_controller.shutil, "which", lambda name: "/usr/bin/xdg-open")
+    monkeypatch.setattr(agents_controller.subprocess, "Popen", lambda args: calls.append(args))
+
+    agents_controller._open_directory(tmp_path)
+
+    assert calls == [["/usr/bin/xdg-open", str(tmp_path)]]
+
+
+def test_open_directory_linux_without_xdg_open_errors(monkeypatch, tmp_path):
+    monkeypatch.setattr(agents_controller.sys, "platform", "linux")
+    monkeypatch.setattr(agents_controller.shutil, "which", lambda name: None)
+
+    try:
+        agents_controller._open_directory(tmp_path)
+    except RuntimeError as exc:
+        assert "xdg-open not found" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError")
+
+
+def test_open_directory_windows_uses_startfile(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(agents_controller.sys, "platform", "win32")
+    monkeypatch.setattr(agents_controller.os, "startfile", lambda path: calls.append(path), raising=False)
+
+    agents_controller._open_directory(tmp_path)
+
+    assert calls == [str(tmp_path)]

@@ -1,6 +1,11 @@
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 from flask import Blueprint, jsonify, request
 
@@ -61,6 +66,19 @@ def delete_agent(agent_id: str):
     return jsonify({"ok": True, "agent": agent})
 
 
+@bp.post("/agents/<agent_id>/open-workspace")
+def open_agent_workspace(agent_id: str):
+    agent = store.find_agent(agent_id)
+    if agent is None:
+        return jsonify({"ok": False, "error": "agent not found"}), 404
+    try:
+        path = _ensure_agent_workspace(agent)
+        _open_directory(path)
+    except RuntimeError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+    return jsonify({"ok": True, "path": str(path)})
+
+
 @bp.post("/agents/<agent_id>/start")
 def start_agent(agent_id: str):
     agent = store.find_agent(agent_id)
@@ -70,6 +88,36 @@ def start_agent(agent_id: str):
         return jsonify({"ok": False, "error": "agent is not ready"}), 400
     ok = session_pool.start(agent)
     return jsonify({"ok": ok, "agent": store.find_agent(agent_id)})
+
+
+def _ensure_agent_workspace(agent: dict) -> Path:
+    raw_path = agent.get("workspace_path") or registry.workspace_path_for(agent["profile_name"])
+    path = Path(raw_path).expanduser().resolve(strict=False)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _open_directory(path: Path) -> None:
+    platform = sys.platform
+    try:
+        if platform == "darwin":
+            subprocess.Popen(["open", str(path)])
+            return
+        if platform.startswith("linux"):
+            opener = shutil.which("xdg-open")
+            if not opener:
+                raise RuntimeError("xdg-open not found; cannot open workspace on Linux")
+            subprocess.Popen([opener, str(path)])
+            return
+        if platform.startswith("win"):
+            startfile = getattr(os, "startfile", None)
+            if startfile is None:
+                raise RuntimeError("os.startfile is not available on this Windows runtime")
+            startfile(str(path))
+            return
+    except OSError as exc:
+        raise RuntimeError(f"open workspace failed: {exc}") from exc
+    raise RuntimeError(f"unsupported platform: {platform}")
 
 
 @bp.post("/agents/<agent_id>/stop")

@@ -1629,6 +1629,9 @@ function ensureAgentContextMenu() {
     <button class="agent-context-menu__item" type="button" data-agent-mcp>
       MCP Servers
     </button>
+    <button class="agent-context-menu__item" type="button" data-agent-open-workspace>
+      打开工作目录
+    </button>
     <div class="agent-context-menu__separator" data-config-separator></div>
     <button class="agent-context-menu__item agent-context-menu__item--danger" type="button" data-agent-delete>
       解雇
@@ -1655,6 +1658,24 @@ function ensureAgentContextMenu() {
       const agentId = agentContextMenu.dataset.agentId || "";
       if (agentId) openMcpPanel(agentId);
       closeAgentContextMenu();
+      return;
+    }
+    const workspaceBtn = event.target.closest("[data-agent-open-workspace]");
+    if (workspaceBtn) {
+      const agentId = agentContextMenu.dataset.agentId || "";
+      if (!agentId || workspaceBtn.disabled) return;
+      workspaceBtn.disabled = true;
+      try {
+        const response = await fetch(`/api/agents/${agentId}/open-workspace`, { method: "POST" });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) {
+          alert(data.error || "打开工作目录失败");
+          return;
+        }
+        closeAgentContextMenu();
+      } finally {
+        workspaceBtn.disabled = false;
+      }
       return;
     }
     const btn = event.target.closest("[data-agent-delete]");

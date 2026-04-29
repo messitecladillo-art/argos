@@ -60,7 +60,7 @@ pip install -r requirements.txt
 | `DATABASE_URL` | `sqlite:///data/hermes_agent_team.db` | 数据库连接串 |
 | `HERMES_AGENTS_MCP_URL` | `http://127.0.0.1:5050/mcp/` | MCP Bus 地址 |
 | `PORT` | `5050` | HTTP 服务端口 |
-| `FLASK_DEBUG` | `1` | 调试模式（自动 reload） |
+| `FLASK_DEBUG` | `0` | 调试日志开关（不启用自动 reload） |
 
 ### 4. 启动
 
