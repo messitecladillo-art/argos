@@ -26,8 +26,7 @@ from . import registry
 
 logger = logging.getLogger("hermes.agent_state")
 
-SILENCE_TIMEOUT_SECONDS = 10.0
-MAX_TURN_SECONDS = 120.0
+STUCK_HINT_SECONDS = 300.0
 READ_CHUNK_SIZE = 1024
 READ_LOOP_INTERVAL = 0.2
 MAX_RAW_OUTPUT_CHARS = 12000
@@ -39,7 +38,7 @@ TERMINAL_LINES = 36
 RESOLVED_INTERACTION_SUPPRESS_SECONDS = 30.0
 
 READY_PATTERNS = (
-    re.compile(r"(?m)^\s*(?:[\w.-]+\s+)?(?:⚕\s*)?❯\s*$"),
+    re.compile(r"(?m)^\s*(?:[\w.-]+\s+)?(?:\S+\s+)?❯\s*$"),
 )
 INTERRUPT_HINT_PATTERN = re.compile(
     r"type a message \+ Enter to interrupt", re.IGNORECASE
@@ -274,6 +273,24 @@ def _looks_ready_for_next_input(*texts: str) -> bool:
     )
 
 
+def _should_show_stuck_hint(
+    *,
+    active: bool,
+    pending_interaction: bool,
+    started_at: float,
+    last_output_at: float,
+    hint_sent: bool,
+    now: float,
+) -> bool:
+    return (
+        active
+        and not pending_interaction
+        and not hint_sent
+        and started_at > 0
+        and (now - max(started_at, last_output_at)) >= STUCK_HINT_SECONDS
+    )
+
+
 def _clean_selection_line(line: str) -> str:
     return line.strip().strip("│┃║▏▕▌▐").rstrip("│┃║▏▕▌▐").strip()
 
@@ -376,6 +393,7 @@ class HermesSession:
         self._current_message: dict[str, Any] | None = None
         self._current_had_interrupt_hint = False
         self._current_saw_substantive_output = False
+        self._current_stuck_hint_sent = False
         self._manual_terminal_active = False
         self._manual_terminal_user_task_id: str | None = None
         self._manual_terminal_buffer = ""
@@ -383,6 +401,7 @@ class HermesSession:
         self._manual_terminal_started_at = 0.0
         self._manual_terminal_had_interrupt_hint = False
         self._manual_terminal_saw_substantive_output = False
+        self._manual_terminal_stuck_hint_sent = False
         self._pending_interaction: dict[str, Any] | None = None
         self._terminal_interaction_buffer = ""
         self._terminal_selection_index: int | None = None
@@ -709,6 +728,7 @@ class HermesSession:
                     self._manual_terminal_started_at = time.monotonic()
                     self._manual_terminal_had_interrupt_hint = False
                     self._manual_terminal_saw_substantive_output = False
+                    self._manual_terminal_stuck_hint_sent = False
                     self._last_output_at = self._manual_terminal_started_at
                     self._manual_terminal_buffer = ""
                     submitted_text = buffer.strip()
@@ -814,6 +834,7 @@ class HermesSession:
             self._manual_terminal_started_at = 0.0
             self._manual_terminal_had_interrupt_hint = False
             self._manual_terminal_saw_substantive_output = False
+            self._manual_terminal_stuck_hint_sent = False
             queued = bool(self._queue or self._current_message)
         store.update_agent(
             self.agent_id,
@@ -921,6 +942,7 @@ class HermesSession:
             self._current_output = []
             self._current_had_interrupt_hint = False
             self._current_saw_substantive_output = False
+            self._current_stuck_hint_sent = False
             self._current_started_at = time.monotonic()
             self._last_output_at = self._current_started_at
         store.update_agent(
@@ -1042,6 +1064,7 @@ class HermesSession:
                     self._current_had_interrupt_hint = True
                 if _is_substantive_output(clean):
                     self._current_saw_substantive_output = True
+                    self._current_stuck_hint_sent = False
                     self._last_output_at = now
             manual_active = self._manual_terminal_active and not running
             if manual_active:
@@ -1050,6 +1073,7 @@ class HermesSession:
                     self._manual_terminal_had_interrupt_hint = True
                 if _is_substantive_output(clean):
                     self._manual_terminal_saw_substantive_output = True
+                    self._manual_terminal_stuck_hint_sent = False
                     self._last_output_at = now
             pending = self._pending_interaction
             current_text = "".join(self._current_output)[-2000:]
@@ -1099,7 +1123,11 @@ class HermesSession:
 
         if running:
             agent = store.find_agent(self.agent_id) or {}
-            if agent.get("status") != "busy" or agent.get("interaction_state") != "running":
+            if (
+                agent.get("status") != "busy"
+                or agent.get("interaction_state") != "running"
+                or agent.get("current_task") == "处理中，可能卡住"
+            ):
                 store.update_agent(
                     self.agent_id,
                     status="busy",
@@ -1107,6 +1135,16 @@ class HermesSession:
                     interaction_state="running",
                 )
                 _log_state("running_from_chunk", self.agent_id, chunk_len=len(chunk))
+        elif manual_active:
+            agent = store.find_agent(self.agent_id) or {}
+            if agent.get("current_task") == "终端处理中，可能卡住":
+                store.update_agent(
+                    self.agent_id,
+                    status="busy",
+                    current_task="终端处理中",
+                    interaction_state="running",
+                )
+                _log_state("terminal_manual_resumed_from_chunk", self.agent_id, chunk_len=len(chunk))
 
         if pending is not None:
             return
@@ -1168,57 +1206,56 @@ class HermesSession:
                 continue
 
             with self._lock:
+                now = time.monotonic()
                 interaction_text = f"{self._last_terminal_snapshot}\n{self._raw_output[-2000:]}"
-                timed_out = (
-                    self._current_message is not None
-                    and self._pending_interaction is None
-                    and bool("".join(self._current_output).strip())
-                    and not _has_interrupt_hint(self._last_terminal_snapshot)
-                    and (time.monotonic() - self._last_output_at) >= SILENCE_TIMEOUT_SECONDS
+                should_hint_stuck = _should_show_stuck_hint(
+                    active=self._current_message is not None,
+                    pending_interaction=self._pending_interaction is not None,
+                    started_at=self._current_started_at,
+                    last_output_at=self._last_output_at,
+                    hint_sent=self._current_stuck_hint_sent,
+                    now=now,
                 )
-                turn_expired = (
-                    self._current_message is not None
-                    and self._pending_interaction is None
-                    and self._current_started_at > 0
-                    and (time.monotonic() - self._current_started_at) >= MAX_TURN_SECONDS
+                should_hint_manual_stuck = _should_show_stuck_hint(
+                    active=self._manual_terminal_active and self._current_message is None,
+                    pending_interaction=self._pending_interaction is not None,
+                    started_at=self._manual_terminal_started_at,
+                    last_output_at=self._last_output_at,
+                    hint_sent=self._manual_terminal_stuck_hint_sent,
+                    now=now,
                 )
-                manual_timed_out = (
-                    self._manual_terminal_active
-                    and self._current_message is None
-                    and self._pending_interaction is None
-                    and bool("".join(self._manual_terminal_output).strip())
-                    and not _has_interrupt_hint(self._last_terminal_snapshot)
-                    and (time.monotonic() - self._last_output_at) >= SILENCE_TIMEOUT_SECONDS
-                )
-                manual_turn_expired = (
-                    self._manual_terminal_active
-                    and self._current_message is None
-                    and self._pending_interaction is None
-                    and self._manual_terminal_started_at > 0
-                    and (time.monotonic() - self._manual_terminal_started_at) >= MAX_TURN_SECONDS
-                )
-            if timed_out or turn_expired:
+            if should_hint_stuck:
                 if self._detect_interaction(interaction_text):
                     continue
+                with self._lock:
+                    self._current_stuck_hint_sent = True
                 _log_state(
-                    "timeout_finalize",
+                    "stuck_hint",
                     self.agent_id,
-                    timed_out=timed_out,
-                    turn_expired=turn_expired,
                     idle_for=round(time.monotonic() - self._last_output_at, 2),
                 )
-                self._finalize_current()
-            if manual_timed_out or manual_turn_expired:
+                store.update_agent(
+                    self.agent_id,
+                    status="busy",
+                    current_task="处理中，可能卡住",
+                    interaction_state="running",
+                )
+            if should_hint_manual_stuck:
                 if self._detect_interaction(interaction_text):
                     continue
+                with self._lock:
+                    self._manual_terminal_stuck_hint_sent = True
                 _log_state(
-                    "terminal_manual_timeout_finalize",
+                    "terminal_manual_stuck_hint",
                     self.agent_id,
-                    timed_out=manual_timed_out,
-                    turn_expired=manual_turn_expired,
                     idle_for=round(time.monotonic() - self._last_output_at, 2),
                 )
-                self._finalize_manual_terminal()
+                store.update_agent(
+                    self.agent_id,
+                    status="busy",
+                    current_task="终端处理中，可能卡住",
+                    interaction_state="running",
+                )
 
     # ------------------------------------------------------------------ api
     def enqueue_message(

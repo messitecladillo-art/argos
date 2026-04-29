@@ -39,6 +39,7 @@
           {% set interaction_state = agent.interaction_state or 'idle' %}
           {% set orchestration_state = agent.orchestration_state or 'none' %}
           {% set agent_status = agent.status or 'idle' %}
+          {% set current_task = agent.current_task or '' %}
           {% set readiness_status = agent.readiness_status or 'ready' %}
           {% set is_agent_ready = readiness_status == 'ready' %}
           {% if readiness_status == 'preparing' %}
@@ -53,6 +54,9 @@
           {% elif interaction_state in ['awaiting_approval', 'awaiting_selection', 'awaiting_input'] %}
             {% set display_status_label = '需介入' %}
             {% set display_status_class = 'waiting' %}
+          {% elif '可能卡住' in current_task %}
+            {% set display_status_label = '卡住' %}
+            {% set display_status_class = 'stuck' %}
           {% elif agent_status in ['busy', 'waiting'] or interaction_state in ['queued', 'running'] or orchestration_state in ['waiting_workers', 'summarizing'] %}
             {% set display_status_label = '处理中' %}
             {% set display_status_class = 'busy' %}

@@ -239,6 +239,11 @@ label span,
   color: var(--accent-2);
 }
 
+.status-stuck {
+  background: rgba(255, 127, 122, 0.14);
+  color: var(--danger);
+}
+
 .status-preparing {
   background: rgba(148, 163, 184, 0.14);
   color: rgba(226, 232, 240, 0.82);

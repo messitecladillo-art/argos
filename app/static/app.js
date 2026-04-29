@@ -170,6 +170,7 @@ function getAgentDisplayStatus(agent) {
   const interactionState = agent.interaction_state || "idle";
   const orchestrationState = agent.orchestration_state || "none";
   const status = agent.status || "idle";
+  const currentTask = agent.current_task || "";
 
   if (readinessStatus === "preparing") {
     return { label: "准备中", className: "preparing" };
@@ -182,6 +183,9 @@ function getAgentDisplayStatus(agent) {
   }
   if (["awaiting_approval", "awaiting_selection", "awaiting_input"].includes(interactionState)) {
     return { label: "需介入", className: "waiting" };
+  }
+  if (currentTask.includes("可能卡住")) {
+    return { label: "卡住", className: "stuck" };
   }
   if (
     status === "busy" ||
