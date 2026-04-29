@@ -2,6 +2,9 @@
 
 基于 [Hermes Agent](https://hermes-agent.nousresearch.com/) profile 机制构建的多 Agent 协作 Web 系统。每个 Agent 是一个独立的 Hermes profile，拥有独立的人设、技能、记忆与工具，通过 Flask 中转完成任务拆解、分派与汇总。
 
+> 本项目是社区实验项目，不是 Nous Research 或 Hermes Agent 官方项目。
+> 当前仅建议在本机或可信内网环境运行，不要在未加鉴权、访问控制和 HTTPS 保护的情况下直接暴露到公网。
+
 - **后端**：Flask + Starlette/Uvicorn (ASGI)
 - **通信协议**：MCP（Agent → 中枢）+ ACP（中枢 → Agent）
 - **存储**：SQLite
@@ -81,3 +84,7 @@ pytest
 ## License
 
 MIT
+
+## Security
+
+安全注意事项见 [SECURITY.md](SECURITY.md)。
