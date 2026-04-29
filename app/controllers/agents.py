@@ -9,7 +9,7 @@ from ..services import registry
 from ..services import agents as agents_service
 from ..services import skill_installer
 from ..services.acp import pool as session_pool
-from ..services.profiles import ProfileError, list_hermes_profiles
+from ..services.profiles import ProfileError, check_hermes_ready, list_hermes_profiles
 
 
 bp = Blueprint("agents", __name__, url_prefix="/api")
@@ -24,6 +24,11 @@ def dashboard():
 @bp.get("/profiles")
 def list_profiles():
     return jsonify({"profiles": list_hermes_profiles()})
+
+
+@bp.get("/hermes/status")
+def hermes_status():
+    return jsonify(check_hermes_ready())
 
 
 @bp.post("/agents")

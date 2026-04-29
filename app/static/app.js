@@ -1780,10 +1780,12 @@ function ensureConfirmModal() {
   return confirmModal;
 }
 
-function confirmAction({ title = "确认操作", message = "", confirmText = "确定", confirmVariant = "danger" } = {}) {
+function confirmAction({ title = "确认操作", message = "", confirmText = "确定", confirmVariant = "danger", hideCancel = false } = {}) {
   const modal = ensureConfirmModal();
   modal.querySelector("[data-confirm-title]").textContent = title;
   modal.querySelector("[data-confirm-message]").textContent = message;
+  const cancelBtn = modal.querySelector("button[data-confirm-cancel]");
+  if (cancelBtn) cancelBtn.hidden = hideCancel;
   const confirmBtn = modal.querySelector("[data-confirm-submit]");
   confirmBtn.textContent = confirmText;
   confirmBtn.dataset.variant = confirmVariant;
@@ -1881,6 +1883,34 @@ if (document.fonts?.ready) {
   });
 }
 
+async function ensureHermesReadyForAgentCreation(button) {
+  if (button) button.disabled = true;
+  try {
+    const response = await fetch("/api/hermes/status");
+    const data = await response.json().catch(() => ({}));
+    if (response.ok && data.ok) return true;
+    await confirmAction({
+      title: "需要配置 Hermes",
+      message: data.message || "Hermes 当前不可用，请先安装并配置 Hermes Agent。",
+      confirmText: "知道了",
+      confirmVariant: "default",
+      hideCancel: true,
+    });
+    return false;
+  } catch (error) {
+    await confirmAction({
+      title: "检测失败",
+      message: "无法检测 Hermes 状态，请确认服务正常运行后重试。",
+      confirmText: "知道了",
+      confirmVariant: "default",
+      hideCancel: true,
+    });
+    return false;
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 function openModal() {
   if (!modal) return;
   modal.hidden = false;
@@ -1897,7 +1927,11 @@ function closeModal() {
   createAgentForm?.reset();
 }
 
-if (openCreateAgent) openCreateAgent.addEventListener("click", openModal);
+if (openCreateAgent) {
+  openCreateAgent.addEventListener("click", async () => {
+    if (await ensureHermesReadyForAgentCreation(openCreateAgent)) openModal();
+  });
+}
 if (openHistoryDrawer) openHistoryDrawer.addEventListener("click", openHistoryPanel);
 if (historyDrawer) {
   historyDrawer.addEventListener("click", (event) => {

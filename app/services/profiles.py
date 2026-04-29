@@ -13,6 +13,48 @@ class ProfileError(RuntimeError):
     """Raised when the hermes CLI fails for a non-business reason."""
 
 
+def check_hermes_ready() -> dict:
+    """Return whether the local Hermes CLI is usable for profile cloning."""
+    try:
+        result = subprocess.run(
+            ["hermes", "profile", "list"],
+            capture_output=True,
+            text=True,
+            timeout=15,
+        )
+    except FileNotFoundError:
+        return {
+            "ok": False,
+            "reason": "not_found",
+            "message": "未检测到 hermes CLI，请先安装并配置 Hermes Agent。",
+        }
+    except subprocess.TimeoutExpired:
+        return {
+            "ok": False,
+            "reason": "timeout",
+            "message": "Hermes 响应超时，请确认 Hermes Agent 已正确配置。",
+        }
+
+    output = (result.stdout or result.stderr or "").strip()
+    if result.returncode != 0:
+        return {
+            "ok": False,
+            "reason": "command_failed",
+            "message": "Hermes 当前不可用，请先完成 Hermes Agent 配置。",
+            "detail": output,
+        }
+
+    profiles = _parse_profile_list(result.stdout or "")
+    if not profiles:
+        return {
+            "ok": False,
+            "reason": "no_profiles",
+            "message": "未检测到可用 Hermes profile，请先配置 Hermes Agent。",
+        }
+
+    return {"ok": True, "profiles": profiles, "message": "Hermes 已就绪"}
+
+
 def _profile_config_path(profile_name: str) -> Path:
     return HERMES_HOME / "profiles" / profile_name / "config.yaml"
 
@@ -47,8 +89,12 @@ def list_hermes_profiles() -> list[str]:
         )
     except (FileNotFoundError, subprocess.TimeoutExpired):
         return []
+    return _parse_profile_list(result.stdout or "")
+
+
+def _parse_profile_list(output: str) -> list[str]:
     names: list[str] = []
-    for line in (result.stdout or "").splitlines():
+    for line in output.splitlines():
         stripped = line.strip().lstrip("◆").strip()
         if not stripped:
             continue
