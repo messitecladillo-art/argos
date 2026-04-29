@@ -305,7 +305,14 @@ def _extract_selection(text: str) -> dict[str, Any] | None:
     if not any(pattern.search(text) for pattern in SELECTION_PATTERNS):
         return None
 
-    lines = [_clean_selection_line(line) for line in text.splitlines()]
+    raw_lines = text.splitlines()
+    prompt_start = None
+    for index, line in enumerate(raw_lines):
+        if re.search(r"\bHermes needs your input\b", line, re.IGNORECASE):
+            prompt_start = index
+    if prompt_start is not None:
+        raw_lines = raw_lines[prompt_start:]
+    lines = [_clean_selection_line(line) for line in raw_lines]
     choice_pattern = re.compile(r"(?:\bagent_[\w-]+\b|Other \(type your answer\))", re.IGNORECASE)
     scanned_choices: list[str] = []
     scanned_selected_index: int | None = None
@@ -360,6 +367,10 @@ def _extract_selection(text: str) -> dict[str, Any] | None:
     if selected_index is None or not choices:
         return None
     return {"choices": choices, "selected_index": selected_index}
+
+
+def _has_active_selection_prompt(text: str) -> bool:
+    return _extract_selection(text) is not None
 
 
 def _interaction_signature(kind: str, choices: list[str] | None = None, prompt: str = "") -> str:
@@ -587,12 +598,38 @@ class HermesSession:
             {"text": f"{pending['kind']} -> {response}", "interaction": pending},
         )
 
-    def _detect_interaction(self, text: str) -> bool:
-        selection = _extract_selection(text)
+    def _clear_stale_selection_if_needed(self, terminal_snapshot: str, *, active: bool) -> bool:
+        with self._lock:
+            pending = self._pending_interaction
+            if not pending or pending.get("kind") != "awaiting_selection":
+                return False
+            if _has_active_selection_prompt(terminal_snapshot):
+                return False
+            if not _looks_ready_for_next_input(terminal_snapshot):
+                return False
+            self._pending_interaction = None
+            self._terminal_interaction_buffer = ""
+            self._terminal_selection_index = None
+            signature = pending.get("signature")
+            if signature:
+                self._recently_resolved_interactions[signature] = time.monotonic()
+        store.update_agent(
+            self.agent_id,
+            status="busy" if active else "idle",
+            current_task="处理消息中" if active else "空闲",
+            interaction_state="running" if active else "idle",
+            pending_interaction=None,
+        )
+        _log_state("stale_selection_cleared", self.agent_id, request_id=pending.get("request_id"))
+        return True
+
+    def _detect_interaction(self, text: str, *, selection_text: str | None = None) -> bool:
+        selection_source = selection_text if selection_text is not None else text
+        selection = _extract_selection(selection_source)
         if selection is not None:
             self._set_interaction(
                 "awaiting_selection",
-                text,
+                selection_source,
                 choices=selection["choices"],
                 selected_index=selection["selected_index"],
             )
@@ -1146,13 +1183,13 @@ class HermesSession:
                 )
                 _log_state("terminal_manual_resumed_from_chunk", self.agent_id, chunk_len=len(chunk))
 
-        if pending is not None:
+        if pending is not None and not self._clear_stale_selection_if_needed(terminal_snapshot, active=running or manual_active):
             return
 
         recent = self._tail(2000)
         detection_text = f"{terminal_snapshot}\n{recent}"
         if not running:
-            if self._detect_interaction(detection_text):
+            if self._detect_interaction(detection_text, selection_text=terminal_snapshot):
                 return
             if (
                 manual_active
@@ -1169,7 +1206,7 @@ class HermesSession:
                 )
                 self._finalize_manual_terminal()
             return
-        if self._detect_interaction(detection_text):
+        if self._detect_interaction(detection_text, selection_text=terminal_snapshot):
             return
         if (
             current_saw_substantive_output
@@ -1225,7 +1262,7 @@ class HermesSession:
                     now=now,
                 )
             if should_hint_stuck:
-                if self._detect_interaction(interaction_text):
+                if self._detect_interaction(interaction_text, selection_text=self._last_terminal_snapshot):
                     continue
                 with self._lock:
                     self._current_stuck_hint_sent = True
@@ -1241,7 +1278,7 @@ class HermesSession:
                     interaction_state="running",
                 )
             if should_hint_manual_stuck:
-                if self._detect_interaction(interaction_text):
+                if self._detect_interaction(interaction_text, selection_text=self._last_terminal_snapshot):
                     continue
                 with self._lock:
                     self._manual_terminal_stuck_hint_sent = True
