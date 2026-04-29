@@ -34,6 +34,7 @@ run.py           本地开发启动入口
 
 ### 1. 环境要求
 
+- 操作系统：Linux / macOS（依赖 `pexpect`，**不支持原生 Windows**；Windows 用户请使用 WSL2）
 - Python 3.10+
 - 已安装并配置好的 [Hermes Agent](https://hermes-agent.nousresearch.com/docs/getting-started)
 
