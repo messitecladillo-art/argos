@@ -4,7 +4,8 @@
 
 > 1. 本项目是社区实验项目，不是 Nous Research 或 Hermes Agent 官方项目。
 > 2. 当前仅建议在本机或可信内网环境运行，不要在未加鉴权、访问控制和 HTTPS 保护的情况下直接暴露到公网。
-> 3. 所有 Agent profile、MCP、Skill、数据库与运行时配置均仅保存在本机环境中，项目不会将这些数据上传到云端，可放心在本地配置和使用；系统实际能力取决于本机 Hermes Agent 所配置和调用的模型。
+> 3. 所有 Agent profile、MCP、Skill、数据库与运行时配置均仅保存在本机环境中，项目不会将这些数据上传到云端，可放心在本地配置和使用。
+> 4. 系统实际能力取决于本机 Hermes Agent 所配置和调用的模型。
 
 - **后端**：Flask + Starlette/Uvicorn (ASGI)
 - **通信协议**：MCP（Agent → 中枢）+ ACP（中枢 → Agent）
