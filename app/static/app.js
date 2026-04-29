@@ -7,9 +7,22 @@ const agentEmpty = document.getElementById("agent-empty");
 const eventEmpty = document.getElementById("event-empty");
 const sidebarStats = document.getElementById("sidebar-stats");
 const openCreateAgent = document.getElementById("open-create-agent");
+const openTeamSettings = document.getElementById("open-team-settings");
 const modal = document.getElementById("create-agent-modal");
 const createAgentForm = document.getElementById("create-agent-form");
 const createAgentError = document.getElementById("create-agent-error");
+const transferModal = document.getElementById("team-transfer-modal");
+const transferAgentList = document.getElementById("transfer-agent-list");
+const transferInlineSkills = document.getElementById("transfer-inline-skills");
+const transferIncludeWorkspace = document.getElementById("transfer-include-workspace");
+const transferExportSubmit = document.getElementById("transfer-export-submit");
+const transferExportStatus = document.getElementById("transfer-export-status");
+const transferImportFile = document.getElementById("transfer-import-file");
+const transferFileName = document.getElementById("transfer-file-name");
+const transferInspectSubmit = document.getElementById("transfer-inspect-submit");
+const transferImportSubmit = document.getElementById("transfer-import-submit");
+const transferImportStatus = document.getElementById("transfer-import-status");
+const transferImportPreview = document.getElementById("transfer-import-preview");
 const openHistoryDrawer = document.getElementById("open-history-drawer");
 const historyDrawer = document.getElementById("history-drawer");
 const historyDrawerAgent = document.getElementById("history-drawer-agent");
@@ -128,6 +141,7 @@ const mcpState = {
   items: [],
   editingName: "",
 };
+let transferLastInspectedFile = null;
 const notificationAgentStates = new Map();
 const notificationLastPlayedAt = new Map();
 const notificationInteractionStates = new Set(["awaiting_approval", "awaiting_selection", "awaiting_input"]);
@@ -1301,6 +1315,7 @@ async function saveSoulContent() {
 
 function renderAgents(agents, stats) {
   if (!agentList) return;
+  if (window.__BOOTSTRAP__) window.__BOOTSTRAP__.agents = agents;
   processSoundNotifications(agents);
   debugLog("render-agents", agents.map((agent) => ({
     agent_id: agent.agent_id,
@@ -1341,6 +1356,171 @@ function renderAgents(agents, stats) {
     if (eventList) eventList.dataset.selectedAgent = "";
     if (terminalTitle) terminalTitle.textContent = "Agent Terminal";
     writeEmptyTerminalHint();
+  }
+}
+
+function setTransferStatus(element, message, isError = false) {
+  if (!element) return;
+  element.textContent = message || "";
+  element.hidden = !message;
+  element.style.color = isError ? "#ff8a8a" : "#8ff0b3";
+}
+
+function openTransferModal() {
+  if (!transferModal) return;
+  renderTransferAgents();
+  setTransferStatus(transferExportStatus, "");
+  setTransferStatus(transferImportStatus, "");
+  if (transferImportPreview) transferImportPreview.hidden = true;
+  if (transferImportSubmit) transferImportSubmit.disabled = true;
+  transferLastInspectedFile = null;
+  openAnimatedLayer(transferModal, transferExportSubmit);
+}
+
+function closeTransferModal() {
+  if (!transferModal) return;
+  closeAnimatedLayer(transferModal);
+}
+
+function renderTransferAgents() {
+  if (!transferAgentList) return;
+  const agents = window.__BOOTSTRAP__?.agents || [];
+  if (!agents.length) {
+    transferAgentList.innerHTML = `<p class="form-hint">暂无可导出的 Agent。</p>`;
+    return;
+  }
+  transferAgentList.innerHTML = agents.map((agent) => `
+    <label class="transfer-agent-item">
+      <span><strong>${escapeHtml(agent.name || agent.profile_name)}</strong><br><small>${escapeHtml(agent.role)} · ${escapeHtml(agent.profile_name)}</small></span>
+      <input type="checkbox" value="${escapeHtml(agent.profile_name)}" checked>
+    </label>
+  `).join("");
+}
+
+function switchTransferTab(tabName) {
+  transferModal?.querySelectorAll("[data-transfer-tab]").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.transferTab === tabName);
+  });
+  transferModal?.querySelectorAll("[data-transfer-pane]").forEach((pane) => {
+    pane.hidden = pane.dataset.transferPane !== tabName;
+  });
+}
+
+async function exportTeamArchive() {
+  const profileNames = Array.from(transferAgentList?.querySelectorAll("input:checked") || []).map((input) => input.value);
+  if (!profileNames.length) {
+    setTransferStatus(transferExportStatus, "请至少选择一个 Agent。", true);
+    return;
+  }
+  transferExportSubmit.disabled = true;
+  setTransferStatus(transferExportStatus, "正在导出…");
+  try {
+    const response = await fetch("/api/transfer/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        profile_names: profileNames,
+        options: {
+          inline_skill_files: Boolean(transferInlineSkills?.checked),
+          include_workspace: Boolean(transferIncludeWorkspace?.checked),
+        },
+      }),
+    });
+    if (!response.ok) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || "导出失败");
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get("content-disposition") || "";
+    const match = disposition.match(/filename\*?=(?:UTF-8''|\")?([^";]+)/i);
+    const filename = match ? decodeURIComponent(match[1].replace(/"/g, "")) : "hermes-agent-team.zip";
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(url);
+    setTransferStatus(transferExportStatus, "导出完成。请保存下载的 zip。");
+  } catch (error) {
+    setTransferStatus(transferExportStatus, error.message || "导出失败", true);
+  } finally {
+    transferExportSubmit.disabled = false;
+  }
+}
+
+async function inspectTeamArchive() {
+  const file = transferImportFile?.files?.[0];
+  if (!file) {
+    setTransferStatus(transferImportStatus, "请选择 zip 文件。", true);
+    return;
+  }
+  transferInspectSubmit.disabled = true;
+  if (transferImportSubmit) transferImportSubmit.disabled = true;
+  setTransferStatus(transferImportStatus, "正在预检…");
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch("/api/transfer/inspect", { method: "POST", body: formData });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "预检失败");
+    transferLastInspectedFile = file;
+    renderImportPreview(data);
+    if (transferImportSubmit) transferImportSubmit.disabled = false;
+    setTransferStatus(transferImportStatus, "预检通过。确认后可导入。");
+  } catch (error) {
+    setTransferStatus(transferImportStatus, error.message || "预检失败", true);
+  } finally {
+    transferInspectSubmit.disabled = false;
+  }
+}
+
+function renderImportPreview(data) {
+  if (!transferImportPreview) return;
+  const clear = data.will_clear || {};
+  const secrets = data.missing_secrets || [];
+  const rows = (data.agents || []).map((agent) => `
+    <div class="transfer-preview-row"><span>${escapeHtml(agent.profile_name)}</span><small>${escapeHtml(agent.role || "worker")}</small></div>
+  `).join("");
+  const secretRows = secrets.length
+    ? `<div class="transfer-secret-list"><strong>导入后需要补齐</strong>${secrets.map((item) => `<small>${escapeHtml(item)}</small>`).join("")}</div>`
+    : `<p class="form-hint">未检测到需要手动补齐的凭据。</p>`;
+  transferImportPreview.innerHTML = `
+    <p class="form-hint">将导入 ${data.agents?.length || 0} 个 Agent；导入前会删除本机 ${clear.agents || 0} 个 Agent、${clear.workspaces || 0} 个 workspace，并清空运行历史。</p>
+    ${rows || `<p class="form-hint">包内没有 Agent。</p>`}
+    ${secretRows}
+  `;
+  transferImportPreview.hidden = false;
+}
+
+async function importTeamArchive() {
+  const file = transferImportFile?.files?.[0];
+  if (!file || file !== transferLastInspectedFile) {
+    setTransferStatus(transferImportStatus, "请先预检当前文件。", true);
+    return;
+  }
+  const confirmed = await confirmAction({
+    title: "确认导入团队",
+    message: "导入前将解雇并删除本机所有 agents、workspace 与运行历史，确认继续？",
+    confirmText: "确认导入",
+    confirmVariant: "danger",
+  });
+  if (!confirmed) return;
+  transferImportSubmit.disabled = true;
+  setTransferStatus(transferImportStatus, "正在导入…");
+  try {
+    const formData = new FormData();
+    formData.append("file", file);
+    const response = await fetch("/api/transfer/import", { method: "POST", body: formData });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "导入失败");
+    const success = (data.results || []).filter((item) => item.success).length;
+    setTransferStatus(transferImportStatus, `导入完成：${success}/${(data.results || []).length} 成功。`);
+  } catch (error) {
+    setTransferStatus(transferImportStatus, error.message || "导入失败", true);
+  } finally {
+    transferImportSubmit.disabled = false;
   }
 }
 
@@ -1986,6 +2166,34 @@ if (agentList) {
   agentList.addEventListener("scroll", closeAgentContextMenu, { passive: true });
 }
 
+if (openTeamSettings) {
+  openTeamSettings.addEventListener("click", openTransferModal);
+}
+
+if (transferModal) {
+  transferModal.addEventListener("click", (event) => {
+    if (event.target instanceof HTMLElement && event.target.dataset.closeTransfer !== undefined) {
+      closeTransferModal();
+      return;
+    }
+    const tab = event.target.closest("[data-transfer-tab]");
+    if (tab) switchTransferTab(tab.dataset.transferTab || "export");
+  });
+}
+
+transferExportSubmit?.addEventListener("click", exportTeamArchive);
+transferInspectSubmit?.addEventListener("click", inspectTeamArchive);
+transferImportSubmit?.addEventListener("click", importTeamArchive);
+transferImportFile?.addEventListener("change", () => {
+  transferLastInspectedFile = null;
+  if (transferFileName) {
+    transferFileName.textContent = transferImportFile.files?.[0]?.name || "选择 hermes-agent-team-时间.zip 文件";
+  }
+  if (transferImportSubmit) transferImportSubmit.disabled = true;
+  if (transferImportPreview) transferImportPreview.hidden = true;
+  setTransferStatus(transferImportStatus, "");
+});
+
 document.addEventListener("click", (event) => {
   if (agentContextMenu?.contains(event.target)) return;
   closeAgentContextMenu();
@@ -2003,6 +2211,7 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   if (event.key === "Escape") closeAgentContextMenu();
+  if (event.key === "Escape" && transferModal && !transferModal.hidden) closeTransferModal();
 });
 
 window.addEventListener("resize", closeAgentContextMenu);
