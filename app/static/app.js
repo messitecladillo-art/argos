@@ -60,6 +60,51 @@ let agentContextMenu = null;
 let deletingAgentId = "";
 let confirmModal = null;
 let resizeTimer = 0;
+let hermesStatusPromise = null;
+const overlayAnimationMs = 220;
+const overlayCloseTimers = new WeakMap();
+
+function openAnimatedLayer(element, focusTarget = null) {
+  if (!element) return;
+  const closeTimer = overlayCloseTimers.get(element);
+  if (closeTimer) window.clearTimeout(closeTimer);
+  element.hidden = false;
+  element.classList.remove("is-closing");
+  requestAnimationFrame(() => {
+    element.classList.add("is-open");
+    if (focusTarget) window.setTimeout(() => focusTarget.focus(), 80);
+  });
+}
+
+function closeAnimatedLayer(element, afterClose = null) {
+  if (!element || element.hidden) return;
+  element.classList.remove("is-open");
+  element.classList.add("is-closing");
+  const closeTimer = window.setTimeout(() => {
+    if (!element.classList.contains("is-open")) {
+      element.hidden = true;
+      element.classList.remove("is-closing");
+      if (afterClose) afterClose();
+    }
+  }, overlayAnimationMs);
+  overlayCloseTimers.set(element, closeTimer);
+}
+
+function checkHermesStatus() {
+  if (!hermesStatusPromise) {
+    hermesStatusPromise = fetch("/api/hermes/status")
+      .then(async (response) => {
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.ok) hermesStatusPromise = null;
+        return { response, data };
+      })
+      .catch((error) => {
+        hermesStatusPromise = null;
+        throw error;
+      });
+  }
+  return hermesStatusPromise;
+}
 const soulState = {
   agentId: "",
   runtimeStatus: "stopped",
@@ -433,20 +478,12 @@ function renderInteractions() {
 function openHistoryPanel() {
   if (!historyDrawer) return;
   renderInteractions();
-  historyDrawer.hidden = false;
-  requestAnimationFrame(() => {
-    historyDrawer.classList.add("is-open");
-  });
+  openAnimatedLayer(historyDrawer);
 }
 
 function closeHistoryPanel() {
   if (!historyDrawer || historyDrawer.hidden) return;
-  historyDrawer.classList.remove("is-open");
-  window.setTimeout(() => {
-    if (!historyDrawer.classList.contains("is-open")) {
-      historyDrawer.hidden = true;
-    }
-  }, 180);
+  closeAnimatedLayer(historyDrawer);
 }
 
 function setSoulStatus(message, kind = "muted") {
@@ -775,25 +812,20 @@ async function openSkillsPanel(agentId) {
   renderSkillAlphaNav();
   renderSkillItems();
   setSkillsStatus("正在加载 skills…", "muted");
-  skillsDrawer.hidden = false;
-  requestAnimationFrame(() => skillsDrawer.classList.add("is-open"));
+  openAnimatedLayer(skillsDrawer);
   await refreshSkills();
 }
 
 function closeSkillsPanel() {
   if (!skillsDrawer || skillsDrawer.hidden) return;
-  skillsDrawer.classList.remove("is-open");
-  window.setTimeout(() => {
-    if (!skillsDrawer.classList.contains("is-open")) {
-      skillsDrawer.hidden = true;
-      skillsState.agentId = "";
-      skillsState.agentName = "";
-      skillsState.items = [];
-      skillsState.selectedSlug = "";
-      skillsState.activeLetter = "ALL";
-      setSkillsStatus("", "muted");
-    }
-  }, 180);
+  closeAnimatedLayer(skillsDrawer, () => {
+    skillsState.agentId = "";
+    skillsState.agentName = "";
+    skillsState.items = [];
+    skillsState.selectedSlug = "";
+    skillsState.activeLetter = "ALL";
+    setSkillsStatus("", "muted");
+  });
 }
 
 function mcpEndpoint(name = "") {
@@ -886,23 +918,18 @@ async function openMcpPanel(agentId) {
   if (mcpDrawerAgent) mcpDrawerAgent.textContent = mcpState.agentName;
   renderMcpItems();
   setMcpStatus("正在加载 MCP…", "muted");
-  mcpDrawer.hidden = false;
-  requestAnimationFrame(() => mcpDrawer.classList.add("is-open"));
+  openAnimatedLayer(mcpDrawer);
   await refreshMcps();
 }
 
 function closeMcpPanel() {
   if (!mcpDrawer || mcpDrawer.hidden) return;
-  mcpDrawer.classList.remove("is-open");
-  window.setTimeout(() => {
-    if (!mcpDrawer.classList.contains("is-open")) {
-      mcpDrawer.hidden = true;
-      mcpState.agentId = "";
-      mcpState.agentName = "";
-      mcpState.items = [];
-      setMcpStatus("", "muted");
-    }
-  }, 180);
+  closeAnimatedLayer(mcpDrawer, () => {
+    mcpState.agentId = "";
+    mcpState.agentName = "";
+    mcpState.items = [];
+    setMcpStatus("", "muted");
+  });
 }
 
 function toggleMcpTransportFields() {
@@ -929,15 +956,15 @@ function openMcpEditModal(mcp = null) {
   mcpEditForm.elements.description.value = mcp?.description || "";
   if (mcpEditTitle) mcpEditTitle.textContent = mcp ? `编辑 MCP：${mcp.name}` : "新增 MCP";
   toggleMcpTransportFields();
-  mcpEditModal.hidden = false;
-  mcpEditForm.elements.name.focus();
+  openAnimatedLayer(mcpEditModal, mcpEditForm.elements.name);
 }
 
 function closeMcpEditModal() {
   if (!mcpEditModal) return;
-  mcpEditModal.hidden = true;
-  mcpState.editingName = "";
-  mcpEditForm?.reset();
+  closeAnimatedLayer(mcpEditModal, () => {
+    mcpState.editingName = "";
+    mcpEditForm?.reset();
+  });
 }
 
 function buildMcpPayload() {
@@ -1079,14 +1106,12 @@ async function setSkillsLetterFilter(letter) {
 
 function openSkillsInstallModal() {
   if (!skillsInstallModal) return;
-  skillsInstallModal.hidden = false;
-  skillsInstallForm?.querySelector('input[name="repo_url"]')?.focus();
+  openAnimatedLayer(skillsInstallModal, skillsInstallForm?.querySelector('input[name="repo_url"]'));
 }
 
 function closeSkillsInstallModal() {
   if (!skillsInstallModal) return;
-  skillsInstallModal.hidden = true;
-  skillsInstallForm?.reset();
+  closeAnimatedLayer(skillsInstallModal, () => skillsInstallForm?.reset());
 }
 
 async function installSkillFromForm(event) {
@@ -1184,8 +1209,7 @@ async function openSoulPanel(agentId) {
   syncSoulPreviewToEditor();
   setSoulStatus("正在加载 SOUL.md…", "muted");
   updateSoulDirtyState();
-  soulDrawer.hidden = false;
-  requestAnimationFrame(() => soulDrawer.classList.add("is-open"));
+  openAnimatedLayer(soulDrawer);
 
   try {
     const response = await fetch(`/api/agents/${agentId}/soul`);
@@ -1228,16 +1252,12 @@ async function closeSoulPanel({ force = false } = {}) {
     });
     if (!confirmed) return;
   }
-  soulDrawer.classList.remove("is-open");
-  window.setTimeout(() => {
-    if (!soulDrawer.classList.contains("is-open")) {
-      soulDrawer.hidden = true;
-      soulState.agentId = "";
-      soulState.originalContent = "";
-      soulState.runtimeStatus = "stopped";
-      setSoulStatus("", "muted");
-    }
-  }, 180);
+  closeAnimatedLayer(soulDrawer, () => {
+    soulState.agentId = "";
+    soulState.originalContent = "";
+    soulState.runtimeStatus = "stopped";
+    setSoulStatus("", "muted");
+  });
 }
 
 async function saveSoulContent() {
@@ -1881,10 +1901,11 @@ function ensureConfirmModal() {
   `;
   modalEl.resolve = null;
   const closeWith = (value) => {
-    modalEl.hidden = true;
-    const resolve = modalEl.resolve;
-    modalEl.resolve = null;
-    if (resolve) resolve(value);
+    closeAnimatedLayer(modalEl, () => {
+      const resolve = modalEl.resolve;
+      modalEl.resolve = null;
+      if (resolve) resolve(value);
+    });
   };
   modalEl.addEventListener("click", (event) => {
     if (event.target.closest("[data-confirm-submit]")) {
@@ -1909,8 +1930,7 @@ function confirmAction({ title = "确认操作", message = "", confirmText = "�
   const confirmBtn = modal.querySelector("[data-confirm-submit]");
   confirmBtn.textContent = confirmText;
   confirmBtn.dataset.variant = confirmVariant;
-  modal.hidden = false;
-  confirmBtn.focus();
+  openAnimatedLayer(modal, confirmBtn);
 
   return new Promise((resolve) => {
     modal.resolve = resolve;
@@ -1975,10 +1995,11 @@ document.addEventListener("keydown", (event) => {
   if (event.key === "Escape" && confirmModal && !confirmModal.hidden) {
     event.preventDefault();
     event.stopImmediatePropagation();
-    confirmModal.hidden = true;
-    const resolve = confirmModal.resolve;
-    confirmModal.resolve = null;
-    if (resolve) resolve(false);
+    closeAnimatedLayer(confirmModal, () => {
+      const resolve = confirmModal.resolve;
+      confirmModal.resolve = null;
+      if (resolve) resolve(false);
+    });
     return;
   }
   if (event.key === "Escape") closeAgentContextMenu();
@@ -2006,8 +2027,7 @@ if (document.fonts?.ready) {
 async function ensureHermesReadyForAgentCreation(button) {
   if (button) button.disabled = true;
   try {
-    const response = await fetch("/api/hermes/status");
-    const data = await response.json().catch(() => ({}));
+    const { response, data } = await checkHermesStatus();
     if (response.ok && data.ok) return true;
     await confirmAction({
       title: "需要配置 Hermes",
@@ -2033,24 +2053,25 @@ async function ensureHermesReadyForAgentCreation(button) {
 
 function openModal() {
   if (!modal) return;
-  modal.hidden = false;
   if (createAgentError) {
     createAgentError.hidden = true;
     createAgentError.textContent = "";
   }
-  createAgentForm?.querySelector('input[name="name"]').focus();
+  openAnimatedLayer(modal, createAgentForm?.querySelector('input[name="name"]'));
 }
 
 function closeModal() {
   if (!modal) return;
-  modal.hidden = true;
-  createAgentForm?.reset();
+  closeAnimatedLayer(modal, () => createAgentForm?.reset());
 }
 
 if (openCreateAgent) {
   openCreateAgent.addEventListener("click", async () => {
     if (await ensureHermesReadyForAgentCreation(openCreateAgent)) openModal();
   });
+  window.setTimeout(() => {
+    void checkHermesStatus().catch(() => {});
+  }, 300);
 }
 if (openHistoryDrawer) openHistoryDrawer.addEventListener("click", openHistoryPanel);
 if (historyDrawer) {
