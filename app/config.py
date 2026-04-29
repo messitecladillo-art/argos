@@ -10,7 +10,7 @@ UTC = timezone.utc
 PROFILE_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]*$")
 HERMES_HOME = Path(os.environ.get("HERMES_HOME", str(Path.home() / ".hermes")))
 AGENT_TEAM_WORKSPACE_ROOT = Path(
-    os.environ.get("AGENT_TEAM_WORKSPACE_ROOT", "/Users/liuwenbin/agent_team")
+    os.environ.get("AGENT_TEAM_WORKSPACE_ROOT", str(Path.home() / "agent_team"))
 ).expanduser().resolve(strict=False)
 DATABASE_URL = os.environ.get(
     "DATABASE_URL",
