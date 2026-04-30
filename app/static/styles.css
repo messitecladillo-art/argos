@@ -1456,6 +1456,10 @@ label span,
   background: rgba(8, 7, 5, 0.58);
 }
 
+.transfer-preview[hidden] {
+  display: none !important;
+}
+
 .transfer-agent-item,
 .transfer-preview-row,
 .transfer-check {
