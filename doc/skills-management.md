@@ -1,6 +1,6 @@
 # Skills 管理功能设计方案
 
-> 目标:为每个 agent 支持从 Git 仓库安装第三方 skill 包,管理已安装列表,支持查看、卸载、更新。Leader 通过 `list_workers()` 能看到每个 worker 已安装的 skills 摘要,据此做能力感知派发。
+> 目标:为每个 agent 支持从 Git 仓库安装第三方 skill 包,管理已安装列表,支持查看、卸载、更新。Skills 通过 agent 自身 profile 生效,不通过 `list_workers()` 返回给 Leader。
 
 ---
 
@@ -12,7 +12,7 @@
 - 查看 skill 正文(`SKILL.md` 只读预览)
 - 卸载 skill(允许删除本地 skill,语义为删除当前 agent profile 下的真实目录)
 - 重新安装/升级(仅对平台记录过来源的 skill)
-- Leader 端 `list_workers()` 返回每个 worker 的已安装 skills 摘要
+- Leader 端 `list_workers()` 不返回 skills,避免 worker 列表过大影响派发判断
 
 ### 1.2 不做
 - 不支持 git 私有仓(遇到认证失败即返回错误)
@@ -51,7 +51,7 @@
 ```markdown
 ---
 name: code-review              # 必需,必须与目录名一致
-description: Review PRs ...    # 必需,一句话,进 list_workers 返回给 leader
+description: Review PRs ...    # 必需,一句话,用于 skills 列表展示和 agent profile 生效说明
 ---
 
 # Code Review
@@ -304,20 +304,9 @@ def dump(frontmatter: dict, body: str) -> str:
 
 ---
 
-## 7. Leader 能力感知(`list_workers()` 增强)
+## 7. Leader 能力感知
 
-`app/mcp_server.py` 的 `list_workers()` 返回体中每个 worker 增加:
-
-```python
-from .services import skill_installer
-
-"skills": [
-    {"slug": s["slug"], "name": s["name"], "description": s["description"]}
-    for s in skill_installer.list_installed(a["profile_name"])
-],
-```
-
-**性能**:list_installed 扫文件 + 一次 DB 查询,worker 数 * skill 数通常 < 100,单次调用可接受。若后续发现瓶颈,再加 60s 内存缓存(按 profile_name,mtime 校验失效)。
+`app/mcp_server.py` 的 `list_workers()` 不返回 skills 字段。Skills 数量可能较多,放入 worker 发现结果会显著放大工具输出,导致 Leader 漏读后续 worker。
 
 不需要改 `SOUL.md`。skill 生效由 Hermes 原生 profile skills 机制负责。
 
@@ -469,7 +458,7 @@ with SessionLocal() as db:
 
 - 安装 `https://github.com/anthropics/claude-cookbooks`(subdir=某个 skill 目录)成功
 - 前端 Git 安装入口可用,异步状态正确显示
-- leader 的 `list_workers()` 返回包含 skills 字段
+- leader 的 `list_workers()` 不包含 skills 字段
 - 卸载后目录消失,DB 记录消失,UI 列表刷新
 
 ---
@@ -479,7 +468,7 @@ with SessionLocal() as db:
 | PR | 范围 | 估时 |
 |---|---|---|
 | **PR1** | DB model + `skill_installer` 骨架 + git 安装 + uninstall + list + get + 安全护栏 + 单测 | 1.5 天 |
-| **PR2** | `reinstall` + API 蓝图 + 最小异步 job + `list_workers()` 增强 | 0.75 天 |
+| **PR2** | `reinstall` + API 蓝图 + 最小异步 job | 0.75 天 |
 | **PR3** | 前端 Skills tab + Git 安装弹窗 + 安装状态 UI + 卸载确认 + 只读预览抽屉 | 1 天 |
 
 合计:约 3.25 天。
@@ -509,7 +498,7 @@ with SessionLocal() as db:
 | `app/services/agents.py` | `create_agent` 末尾建 skills 目录;`delete_agent` 清 DB |
 | `app/controllers/agent_skills.py` | **新文件**:REST 蓝图 |
 | `app/__init__.py` | 注册新蓝图 |
-| `app/mcp_server.py` | `list_workers()` 增加 `skills` 字段 |
+| `app/mcp_server.py` | `list_workers()` 不返回 `skills` 字段 |
 | `app/templates/index.html` | 新增 Skills tab + 相关 JS/CSS |
 | `tests/test_skill_installer.py` | **新文件** |
 
