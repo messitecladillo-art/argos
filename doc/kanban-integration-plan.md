@@ -164,11 +164,11 @@ hermes gateway start
 不建议推翻当前项目。推荐方式是：
 
 ```text
-当前项目负责：Web UI、Agent 管理、用户入口、事件展示、Kanban 状态同步
-Hermes Kanban 负责：任务队列、状态机、依赖关系、长时间调度、worker 执行日志
+当前项目负责：Web UI、Agent/Profile 管理、Skills/MCP 配置、用户入口、事件展示、Kanban 状态同步
+Hermes Kanban 负责：任务队列、状态机、依赖关系、长时间调度、leader/worker 执行日志
 ```
 
-也就是：当前项目从“自研调度器”转为“Kanban 的可视化控制台 + Leader 工作台”。
+也就是：当前项目从“自研/ACP 调度器”转为“Kanban 的可视化控制台 + Profile/Skills/MCP 管理台”。
 
 ## 4. 目标架构
 
@@ -512,8 +512,9 @@ hermes kanban dispatch
 - 新增 `app/services/kanban.py`。
 - 新增配置项：
   - `KANBAN_BOARD`
-  - `KANBAN_ENABLED`
   - `KANBAN_POLL_INTERVAL`
+  - `KANBAN_DEFAULT_WORKSPACE`
+  - `KANBAN_AUTO_DISPATCH`
 - 增加单元测试，mock `subprocess.run`。
 
 验收标准：
@@ -590,22 +591,23 @@ hermes kanban dispatch
 - leader 输出最终总结。
 - 用户任务状态变为 completed。
 
-### 阶段 6：逐步替换旧 ACP 调度
+### 阶段 6：移除任务层 ACP 调度
 
-目标：让 Kanban 成为主调度层。
+目标：让 Kanban 成为唯一任务调度层。
 
 改动：
 
-- 默认使用 Kanban backend。
-- 保留 ACP backend 作为兼容模式。
-- 删除或弱化重复状态字段。
-- 文档说明两种模式差异。
+- 用户任务、worker 子任务、leader 汇总任务都创建为 Kanban task。
+- Web 请求和 MCP 工具不再调用 `pool.prompt`。
+- Flask 启动不再自动启动 ACP session。
+- Profile 创建、Skills 安装、MCP 配置继续保留，用于准备 Kanban assignee profiles。
+- 旧 `send_to_worker` / `dispatch_parallel` 工具仅作为兼容别名，内部创建 Kanban task。
 
 验收标准：
 
 - 长任务不依赖 Web 请求生命周期。
 - Flask 重启后任务仍可恢复展示。
-- 旧功能可通过配置回退。
+- 任务执行只依赖 Hermes Kanban 和 `hermes gateway start`。
 
 ## 8. 风险与注意事项
 
@@ -662,7 +664,6 @@ Kanban Sync Worker 必须可以重复运行。
 ## 9. 推荐新增配置
 
 ```bash
-KANBAN_ENABLED=1
 KANBAN_BOARD=hermes-agents-team
 KANBAN_POLL_INTERVAL=5
 KANBAN_DEFAULT_WORKSPACE=scratch
@@ -673,7 +674,6 @@ KANBAN_AUTO_DISPATCH=0
 
 | 配置 | 功能 |
 | --- | --- |
-| `KANBAN_ENABLED` | 是否启用 Kanban backend。 |
 | `KANBAN_BOARD` | 当前项目使用的 board slug。 |
 | `KANBAN_POLL_INTERVAL` | 同步轮询间隔。 |
 | `KANBAN_DEFAULT_WORKSPACE` | 默认 workspace 类型。 |
@@ -714,6 +714,8 @@ DelegationRecord.kanban_summary_task_id
 8. UI 展示最终结果。
 
 这个闭环跑通后，再逐步替换旧的 ACP prompt 分发逻辑。
+
+当前实现目标是直接采用这个闭环作为任务执行路径，不再保留 ACP prompt 分发作为任务回退方式。
 
 ## 12. 总结
 

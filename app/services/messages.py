@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import logging
 
+from ..config import KANBAN_DEFAULT_WORKSPACE
 from ..models.store import RuntimeStore
-from .acp import pool
+from .kanban import extract_task_id, kanban_service, task_status
 
 
 logger = logging.getLogger("hermes.agent_state")
@@ -34,20 +35,16 @@ def find_leader_agent_id(runtime_store: RuntimeStore) -> str:
 def _format_user_task(content: str, leader_id: str) -> str:
     return (
         "[USER_TASK]\n"
-        "你是团队 Leader。所有用户任务必须由你先理解、拆解和调度。\n"
+        "你是团队 Leader。这个任务由 Hermes Kanban 调度执行。\n"
         f"你的 agent_id 是：{leader_id}\n"
-        f"调用 mcp_agent_bus_send_to_worker 或 mcp_agent_bus_dispatch_parallel 时，from_agent_id 必须精确填写 `{leader_id}`，不要填写 leader、名称或其他别名。\n"
+        f"调用 mcp_agent_bus_create_kanban_worker_tasks 时，from_agent_id 必须精确填写 `{leader_id}`，不要填写 leader、名称或其他别名。\n"
         "执行规则：\n"
         "1. 先调用 mcp_agent_bus_list_workers() 获取当前可用 worker。\n"
-        "2. 如果任务需要多个 worker 并行协作，优先调用 "
-        "mcp_agent_bus_dispatch_parallel(assignments, from_agent_id, summary_instruction) 一次性派发。\n"
-        "3. 如果只需要一个 worker，才调用 "
-        "mcp_agent_bus_send_to_worker(to_agent_id, content, from_agent_id) 派给合适 worker。\n"
+        "2. 需要 worker 协作时，调用 mcp_agent_bus_create_kanban_worker_tasks 创建 Kanban 子任务。\n"
         "3. from_agent_id 必须填写你自己的 agent_id。\n"
-        "4. 并行派发后，平台会等待同一批 worker 全部完成，再把汇总请求发回给你。\n"
-        "5. 如果你在同一个用户任务里分多次调用 worker，平台会把这些 worker 结果合并，等全部完成后再发汇总请求。\n"
-        "6. 派发 worker 后不要把任务当作最终完成；收到 `[SYSTEM_USER_TASK_SUMMARY_REQUEST]` 或 `[SYSTEM_DELEGATION_SUMMARY_REQUEST]` 时，只基于给定 worker 结果总结，不要重复派发同一批任务。\n"
-        "7. 只有任务不需要 worker 时，才可以直接回复用户。\n"
+        "4. 创建 worker 子任务后不要把任务当作最终完成；平台会在 worker Kanban 任务完成后创建 leader 汇总任务。\n"
+        "5. 收到汇总任务时，只基于任务正文里的 worker 结果输出最终总结，不要重复派发同一批任务。\n"
+        "6. 只有任务不需要 worker 时，才直接完成当前 Kanban 任务。\n"
         f"{CONCISE_REPLY_RULES}"
         "用户原始任务：\n"
         f"{content}"
@@ -83,19 +80,52 @@ def send_user_task(store: RuntimeStore, *, content: str) -> dict:
         raise ValueError("content is required")
     leader_id = find_leader_agent_id(store)
     user_task = store.create_user_task(leader_agent_id=leader_id, content=content)
-    logger.warning(
-        "[agent-message] send_user_task leader=%s user_task=%s content_len=%s",
+    leader = store.find_agent(leader_id) or {}
+    body = _format_user_task(content, leader_id)
+    kanban_task = kanban_service.create_task(
+        f"用户任务：{content[:80]}",
+        body=(
+            f"local_user_task_id: {user_task['user_task_id']}\n"
+            f"leader_agent_id: {leader_id}\n\n"
+            f"{body}"
+        ),
+        assignee=leader["profile_name"],
+        workspace=KANBAN_DEFAULT_WORKSPACE,
+        idempotency_key=f"user_task:{user_task['user_task_id']}",
+    )
+    kanban_task_id = extract_task_id(kanban_task)
+    store.upsert_kanban_task_link(
+        local_type="user_task",
+        local_id=user_task["user_task_id"],
+        kanban_task_id=kanban_task_id,
+        kanban_role="parent",
+        kanban_status=task_status(kanban_task) or "ready",
+        assignee_profile=leader["profile_name"],
+    )
+    store.push_event(
+        "kanban.task.created",
         leader_id,
         user_task["user_task_id"],
+        {
+            "text": f"已创建 Kanban 父任务 {kanban_task_id}",
+            "kanban_task_id": kanban_task_id,
+            "assignee": leader["profile_name"],
+        },
+    )
+    logger.warning(
+        "[agent-message] send_user_task_kanban leader=%s user_task=%s kanban_task=%s content_len=%s",
+        leader_id,
+        user_task["user_task_id"],
+        kanban_task_id,
         len(content),
     )
-    return send_message(
-        store,
-        content=content,
-        to_agent_id=leader_id,
-        prompt_content=_format_user_task(content, leader_id),
-        user_task_id=user_task["user_task_id"],
-    )
+    return {
+        "message_id": None,
+        "content": content,
+        "to_agent_id": leader_id,
+        "user_task_id": user_task["user_task_id"],
+        "kanban_task_id": kanban_task_id,
+    }
 
 
 def send_message(
@@ -122,8 +152,6 @@ def send_message(
         raise ValueError("target agent not found")
     if (target.get("readiness_status") or "ready") != "ready":
         raise ValueError("target agent is not ready")
-    if not pool.is_running(to_agent_id):
-        raise ValueError("target agent session is not running")
     message = store.record_message(
         content,
         to_agent_id,
@@ -144,16 +172,4 @@ def send_message(
         len(final_content),
         dispatch,
     )
-    if not dispatch:
-        return {**message, "prompt_content": final_content}
-    pool.prompt(
-        to_agent_id,
-        final_content,
-        reply_to_leader=from_agent_id,
-        delegation_id=delegation_id,
-        assignment_id=assignment_id,
-        user_task_id=user_task_id,
-        summarize_delegation_id=summarize_delegation_id,
-        summarize_user_task_id=summarize_user_task_id,
-    )
-    return message
+    return {**message, "prompt_content": final_content} if not dispatch else message

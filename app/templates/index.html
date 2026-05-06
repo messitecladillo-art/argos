@@ -64,7 +64,7 @@
           {% elif '可能卡住' in current_task %}
             {% set display_status_label = '卡住' %}
             {% set display_status_class = 'stuck' %}
-          {% elif agent_status in ['busy', 'waiting'] or interaction_state in ['queued', 'running'] or orchestration_state in ['waiting_workers', 'summarizing'] %}
+          {% elif agent_status in ['busy', 'waiting'] or interaction_state in ['queued', 'running'] or orchestration_state in ['waiting_workers', 'summarizing', 'kanban_ready', 'kanban_running'] %}
             {% set display_status_label = '处理中' %}
             {% set display_status_class = 'busy' %}
           {% else %}
@@ -130,6 +130,28 @@
 
       <section class="main-panel">
         <section class="output panel">
+          <div class="kanban-console">
+            <div class="section-head kanban-console__head">
+              <div>
+                <h2>Kanban 任务</h2>
+                <p class="section-kicker">Hermes Kanban Gateway</p>
+              </div>
+              <div class="kanban-console__actions">
+                <button class="filter-chip" type="button" id="kanban-refresh">刷新</button>
+                <button class="filter-chip" type="button" id="kanban-dispatch">Dispatch</button>
+              </div>
+            </div>
+            <form class="kanban-submit" id="kanban-task-form">
+              <textarea id="kanban-task-input" rows="3" placeholder="输入用户任务，例如：让开发者实现登录接口，让测试补充验收用例"></textarea>
+              <div class="kanban-submit__footer">
+                <p class="kanban-status" id="kanban-task-status" hidden></p>
+                <button class="primary-button" type="submit">创建任务</button>
+              </div>
+            </form>
+            <div class="kanban-task-list" id="kanban-task-list"></div>
+            <p class="empty-hint" id="kanban-task-empty">还没有 Kanban 任务。</p>
+          </div>
+
           <div class="section-head">
             <div>
               <h2>实时消息</h2>
@@ -453,7 +475,7 @@
     </div>
 
     <script>
-      window.__BOOTSTRAP__ = {{ {"agents": agents, "events": events}|tojson }};
+      window.__BOOTSTRAP__ = {{ {"agents": agents, "events": events, "kanban_task_links": kanban_task_links}|tojson }};
     </script>
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>

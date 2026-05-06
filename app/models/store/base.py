@@ -54,6 +54,7 @@ class RuntimeStoreBase:
         self.user_tasks: list[dict] = []
         self.tasks: list[dict] = []
         self.delegations: list[dict] = []
+        self.kanban_task_links: list[dict] = []
         self.messages: deque = deque(maxlen=200)
         self.events: deque = deque(maxlen=400)
 
@@ -73,6 +74,7 @@ class RuntimeStoreBase:
             self.agents = state["agents"]
             self.user_tasks = state["user_tasks"]
             self.delegations = state["delegations"]
+            self.kanban_task_links = state.get("kanban_task_links", [])
             self.messages = state["messages"]
             self.events = state["events"]
             self._event_ids = state["event_ids"]
@@ -95,6 +97,7 @@ class RuntimeStoreBase:
                 "user_tasks": list(self.user_tasks),
                 "tasks": list(self.tasks),
                 "delegations": list(self.delegations),
+                "kanban_task_links": list(self.kanban_task_links),
                 "messages": list(self.messages),
                 "events": list(self.events),
                 "stats": self._build_stats(),

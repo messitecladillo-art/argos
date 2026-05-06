@@ -1,6 +1,3 @@
-import atexit
-import threading
-
 from flask import Flask
 
 from .controllers import register_blueprints
@@ -8,7 +5,7 @@ from .db import init_database
 from .mcp_server import start_session_manager
 from .models.store import store
 from .services import registry
-from .services.acp import pool as session_pool
+from .services.kanban_sync import sync_worker
 
 
 def create_app() -> Flask:
@@ -22,15 +19,5 @@ def create_app() -> Flask:
     registry.bootstrap(store)
     register_blueprints(app)
     start_session_manager()
-
-    # Leader sessions load MCP tools from their Hermes profile, so wait until
-    # Flask is accepting connections before starting long-lived CLI sessions.
-    def _deferred_start() -> None:
-        for agent in list(store.agents):
-            if (agent.get("readiness_status") or "ready") != "ready":
-                continue
-            session_pool.start(agent)
-
-    threading.Timer(2.0, _deferred_start).start()
-    atexit.register(session_pool.stop_all)
+    sync_worker.start()
     return app

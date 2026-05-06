@@ -12,6 +12,7 @@ from .models import (
     AssignmentRecord,
     DelegationRecord,
     EventRecord,
+    KanbanTaskLinkRecord,
     MessageRecord,
     UserTaskRecord,
 )
@@ -199,6 +200,44 @@ class SQLitePersistence:
                 )
             )
 
+    def upsert_kanban_task_link(self, link: dict) -> None:
+        with SessionLocal.begin() as session:
+            record = session.scalar(
+                select(KanbanTaskLinkRecord).where(
+                    KanbanTaskLinkRecord.local_type == link["local_type"],
+                    KanbanTaskLinkRecord.local_id == link["local_id"],
+                    KanbanTaskLinkRecord.kanban_role == link["kanban_role"],
+                )
+            )
+            if record is None:
+                record = session.scalar(
+                    select(KanbanTaskLinkRecord).where(
+                        KanbanTaskLinkRecord.kanban_task_id == link["kanban_task_id"]
+                    )
+                )
+            if record is None:
+                record = KanbanTaskLinkRecord(
+                    local_type=link["local_type"],
+                    local_id=link["local_id"],
+                    kanban_role=link["kanban_role"],
+                    kanban_task_id=link["kanban_task_id"],
+                )
+                session.add(record)
+            record.local_type = link["local_type"]
+            record.local_id = link["local_id"]
+            record.kanban_task_id = link["kanban_task_id"]
+            record.kanban_role = link["kanban_role"]
+            record.kanban_status = link.get("kanban_status") or ""
+            record.assignee_profile = link.get("assignee_profile") or ""
+            record.parent_local_id = link.get("parent_local_id")
+            record.last_result = link.get("last_result") or ""
+            record.last_summary = link.get("last_summary") or ""
+            record.summary_created = bool(link.get("summary_created"))
+            record.metadata_json = _json_dumps(link.get("metadata") or {})
+            record.created_at = link.get("created_at")
+            record.updated_at = link.get("updated_at")
+            record.deleted_at = link.get("deleted_at")
+
     def load_runtime_state(self) -> dict:
         with SessionLocal() as session:
             agents = [
@@ -230,10 +269,17 @@ class SQLitePersistence:
                 self._event_to_dict(record)
                 for record in session.scalars(select(EventRecord).order_by(EventRecord.id.desc()).limit(400))
             ]
+            kanban_task_links = [
+                self._kanban_task_link_to_dict(record)
+                for record in session.scalars(
+                    select(KanbanTaskLinkRecord).order_by(KanbanTaskLinkRecord.id)
+                )
+            ]
         return {
             "agents": agents,
             "user_tasks": user_tasks,
             "delegations": delegations,
+            "kanban_task_links": kanban_task_links,
             "messages": deque(messages, maxlen=200),
             "events": deque(events, maxlen=400),
             "event_ids": _next_counter([event["id"] for event in events], "evt_"),
@@ -353,4 +399,21 @@ class SQLitePersistence:
             "task_id": record.task_id,
             "timestamp": record.created_at,
             "data": _json_loads(record.data_json, {}),
+        }
+
+    def _kanban_task_link_to_dict(self, record: KanbanTaskLinkRecord) -> dict:
+        return {
+            "local_type": record.local_type,
+            "local_id": record.local_id,
+            "kanban_task_id": record.kanban_task_id,
+            "kanban_role": record.kanban_role,
+            "kanban_status": record.kanban_status or "",
+            "assignee_profile": record.assignee_profile or "",
+            "parent_local_id": record.parent_local_id,
+            "last_result": record.last_result or "",
+            "last_summary": record.last_summary or "",
+            "summary_created": bool(record.summary_created),
+            "metadata": _json_loads(record.metadata_json, {}),
+            "created_at": record.created_at or "",
+            "updated_at": record.updated_at,
         }

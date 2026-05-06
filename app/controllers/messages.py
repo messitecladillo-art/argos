@@ -19,4 +19,6 @@ def create_message():
         )
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400
+    except Exception as exc:  # noqa: BLE001
+        return jsonify({"ok": False, "error": str(exc)}), 500
     return jsonify({"ok": True, "message": message}), 201

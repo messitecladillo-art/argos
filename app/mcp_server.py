@@ -11,7 +11,9 @@ import threading
 
 from mcp.server.fastmcp import FastMCP
 
+from .config import KANBAN_DEFAULT_WORKSPACE
 from .models.store import store
+from .services.kanban import extract_task_id, kanban_service, task_status
 
 mcp = FastMCP("hermes-agents", streamable_http_path="/")
 logger = logging.getLogger("hermes.agent_state")
@@ -41,7 +43,6 @@ def list_workers() -> list[dict]:
     返回的字段包含 agent_id / name / description / status / current_task / load，
     不包含 leader 自身，避免 leader 把任务派给自己。
     """
-    from .services.acp import pool
     from .services import mcp_installer
 
     workers = []
@@ -49,8 +50,6 @@ def list_workers() -> list[dict]:
         if agent.get("role") != "worker":
             continue
         if (agent.get("readiness_status") or "ready") != "ready":
-            continue
-        if not pool.is_running(agent.get("agent_id") or ""):
             continue
         item = dict(agent)
         item["mcps"] = mcp_installer.mcp_summary(agent["profile_name"])
@@ -73,7 +72,7 @@ def send_to_worker(to_agent_id: str, content: str, from_agent_id: str) -> dict:
     - content: 任务正文
     - from_agent_id: 本 leader 自己的 agent_id，用于结果回推
     """
-    result = dispatch_parallel(
+    result = create_kanban_worker_tasks(
         assignments=[{"to_agent_id": to_agent_id, "content": content}],
         from_agent_id=from_agent_id,
         summary_instruction="请基于 worker 的执行结果，面向用户输出最终总结。",
@@ -81,13 +80,14 @@ def send_to_worker(to_agent_id: str, content: str, from_agent_id: str) -> dict:
     assignment = result["assignments"][0]
     return {
         "ok": True,
-        "message_id": assignment["message_id"],
+        "message_id": assignment.get("message_id"),
+        "kanban_task_id": assignment.get("kanban_task_id"),
         "delegation_id": result["delegation_id"],
         "assignment_id": assignment["assignment_id"],
         "status": "waiting_workers",
         "to_agent_id": to_agent_id,
         "to_name": assignment["to_name"],
-        "note": "任务已投递给 worker；系统会在同一用户任务的 worker 全部返回后自动请求 leader 汇总。",
+        "note": "已创建 Kanban worker 子任务；gateway 会执行，平台会在全部完成后创建 leader 汇总任务。",
     }
 
 
@@ -97,28 +97,52 @@ def dispatch_parallel(
     from_agent_id: str,
     summary_instruction: str = "",
 ) -> dict:
-    """leader 一次性把同一批子任务派给多个 worker 并行执行。
+    """兼容入口：leader 一次性创建一批 Kanban worker 子任务。
 
-    平台会创建 delegation 批次并收集所有 worker 结果；如果属于用户任务，
-    系统会等待该用户任务下所有批次都完成后，再把一次性汇总请求发回 leader。
-    leader 收到汇总请求后只做最终总结，不要重复派发同一批任务。
+    任务执行完全由 Hermes Kanban/gateway 负责，本工具不会 prompt ACP session。
 
     参数：
     - assignments: 子任务数组，每项包含 to_agent_id / content
     - from_agent_id: 本 leader 自己的 agent_id
     - summary_instruction: 所有 worker 返回后 leader 应如何汇总
     """
-    from .services.messages import send_message
-    from .services.acp import pool
+    return create_kanban_worker_tasks(
+        assignments=assignments,
+        from_agent_id=from_agent_id,
+        summary_instruction=summary_instruction,
+    )
 
+
+@mcp.tool()
+def create_kanban_worker_tasks(
+    assignments: list[dict],
+    from_agent_id: str,
+    parent_task_id: str = "",
+    user_task_id: str = "",
+    summary_instruction: str = "",
+) -> dict:
+    """leader 创建一批 Hermes Kanban worker 子任务。"""
     if not assignments:
         raise ValueError("assignments is required")
     sender_agent_id = _resolve_sender_agent_id(from_agent_id)
-    user_task_id = pool.current_user_task_id(sender_agent_id)
+    sender = store.find_agent(sender_agent_id)
+    if sender is None or sender.get("role") != "leader":
+        raise ValueError("from_agent_id must be a leader agent")
+    resolved_user_task_id = _resolve_user_task_id(sender_agent_id, user_task_id)
+    parent_task_id = (parent_task_id or "").strip()
+    if not parent_task_id and resolved_user_task_id:
+        parent_link = store.find_kanban_task_link(
+            local_type="user_task",
+            local_id=resolved_user_task_id,
+            kanban_role="parent",
+        )
+        if parent_link:
+            parent_task_id = parent_link["kanban_task_id"]
     logger.warning(
-        "[agent-mcp] dispatch_parallel from=%s user_task=%s assignments=%s",
+        "[agent-mcp] create_kanban_worker_tasks from=%s user_task=%s parent=%s assignments=%s",
         sender_agent_id,
-        user_task_id,
+        resolved_user_task_id,
+        parent_task_id,
         len(assignments),
     )
     for assignment in assignments:
@@ -130,69 +154,128 @@ def dispatch_parallel(
             raise ValueError(f"target agent not found: {worker_id}")
         if (worker.get("readiness_status") or "ready") != "ready":
             raise ValueError(f"target agent is not ready: {worker_id}")
-        if not pool.is_running(worker_id):
-            raise ValueError(f"target agent session is not running: {worker_id}")
     delegation = store.create_delegation(
         leader_agent_id=sender_agent_id,
         assignments=assignments,
         summary_instruction=summary_instruction,
-        user_task_id=user_task_id,
+        user_task_id=resolved_user_task_id,
     )
     dispatched = []
     for assignment in delegation["assignments"]:
-        message = send_message(
-            store,
-            content=assignment["content"],
-            to_agent_id=assignment["worker_agent_id"],
-            from_agent_id=sender_agent_id,
-            delegation_id=delegation["delegation_id"],
-            assignment_id=assignment["assignment_id"],
-            user_task_id=user_task_id,
-            dispatch=False,
+        worker = store.find_agent(assignment["worker_agent_id"]) or {}
+        kanban_task = kanban_service.create_task(
+            _assignment_title(assignments, assignment),
+            body=_format_worker_kanban_body(
+                assignment=assignment,
+                delegation=delegation,
+                user_task_id=resolved_user_task_id,
+                leader_agent_id=sender_agent_id,
+            ),
+            assignee=worker["profile_name"],
+            parent=parent_task_id or None,
+            workspace=KANBAN_DEFAULT_WORKSPACE,
+            priority=_assignment_priority(assignments, assignment),
+            idempotency_key=f"assignment:{assignment['assignment_id']}",
+        )
+        kanban_task_id = extract_task_id(kanban_task)
+        store.upsert_kanban_task_link(
+            local_type="assignment",
+            local_id=assignment["assignment_id"],
+            kanban_task_id=kanban_task_id,
+            kanban_role="worker",
+            kanban_status=task_status(kanban_task) or "ready",
+            assignee_profile=worker["profile_name"],
+            parent_local_id=resolved_user_task_id or delegation["delegation_id"],
+            metadata={"delegation_id": delegation["delegation_id"]},
         )
         store.attach_assignment_message(
             delegation["delegation_id"],
             assignment["assignment_id"],
-            message["message_id"],
-        )
-        pool.prompt(
-            assignment["worker_agent_id"],
-            message["prompt_content"],
-            reply_to_leader=sender_agent_id,
-            delegation_id=delegation["delegation_id"],
-            assignment_id=assignment["assignment_id"],
-            user_task_id=user_task_id,
+            kanban_task_id,
         )
         dispatched.append(
             {
                 "assignment_id": assignment["assignment_id"],
-                "message_id": message["message_id"],
+                "message_id": None,
+                "kanban_task_id": kanban_task_id,
                 "to_agent_id": assignment["worker_agent_id"],
                 "to_name": assignment["worker_name"],
+                "assignee_profile": worker["profile_name"],
             }
         )
-    if user_task_id:
-        try:
-            completed = store.close_user_task_dispatch(user_task_id)
-        except Exception as exc:  # noqa: BLE001
-            logger.exception(
-                "[agent-mcp] close user task dispatch failed user_task=%s",
-                user_task_id,
-            )
-            raise RuntimeError(f"close user task dispatch failed: {exc}") from exc
-        if completed:
-            pool.prompt_user_task_to_summarize(completed)
+    if resolved_user_task_id:
+        store.close_user_task_dispatch(resolved_user_task_id)
     return {
         "ok": True,
         "delegation_id": delegation["delegation_id"],
         "status": "waiting_workers",
         "from_agent_id": sender_agent_id,
-        "user_task_id": user_task_id,
+        "user_task_id": resolved_user_task_id,
+        "parent_task_id": parent_task_id,
         "dispatched_count": len(dispatched),
         "pending_count": len(dispatched),
         "assignments": dispatched,
-        "note": "已并行投递；系统会在同批 worker 全部返回后自动请求 leader 汇总。",
+        "note": "已创建 Kanban worker 子任务；gateway 会执行，平台会在全部完成后创建 leader 汇总任务。",
     }
+
+
+def _resolve_user_task_id(leader_agent_id: str, user_task_id: str) -> str | None:
+    if user_task_id:
+        return user_task_id.strip()
+    snapshot = store.snapshot()
+    active = [
+        item
+        for item in snapshot["user_tasks"]
+        if item.get("leader_agent_id") == leader_agent_id
+        and item.get("status") in {"running", "waiting_workers"}
+    ]
+    if not active:
+        return None
+    active.sort(key=lambda item: item.get("created_at") or "", reverse=True)
+    return active[0]["user_task_id"]
+
+
+def _assignment_title(raw_assignments: list[dict], assignment: dict) -> str:
+    raw = _matching_raw_assignment(raw_assignments, assignment)
+    title = (raw.get("title") or "").strip()
+    if title:
+        return title
+    content = assignment.get("content") or ""
+    return f"Worker 子任务：{content[:80]}"
+
+
+def _assignment_priority(raw_assignments: list[dict], assignment: dict) -> int | None:
+    raw = _matching_raw_assignment(raw_assignments, assignment)
+    value = raw.get("priority")
+    return int(value) if value is not None else None
+
+
+def _matching_raw_assignment(raw_assignments: list[dict], assignment: dict) -> dict:
+    for raw in raw_assignments:
+        if (raw.get("to_agent_id") or "").strip() == assignment["worker_agent_id"] and (
+            raw.get("content") or ""
+        ).strip() == assignment["content"]:
+            return raw
+    return {}
+
+
+def _format_worker_kanban_body(
+    *,
+    assignment: dict,
+    delegation: dict,
+    user_task_id: str | None,
+    leader_agent_id: str,
+) -> str:
+    return (
+        "[KANBAN_WORKER_TASK]\n"
+        f"delegation_id: {delegation['delegation_id']}\n"
+        f"assignment_id: {assignment['assignment_id']}\n"
+        f"user_task_id: {user_task_id or ''}\n"
+        f"leader_agent_id: {leader_agent_id}\n\n"
+        "请直接执行以下 worker 子任务。完成时用 Kanban 任务结果说明结论、关键依据、是否完成/阻塞。\n\n"
+        "子任务内容：\n"
+        f"{assignment['content']}"
+    )
 
 
 mcp_asgi_app = mcp.streamable_http_app()

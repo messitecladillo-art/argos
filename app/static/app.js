@@ -63,6 +63,13 @@ const mcpEditModal = document.getElementById("mcp-edit-modal");
 const mcpEditForm = document.getElementById("mcp-edit-form");
 const mcpEditTitle = document.getElementById("mcp-edit-title");
 const mcpSaveTest = document.getElementById("mcp-save-test");
+const kanbanTaskForm = document.getElementById("kanban-task-form");
+const kanbanTaskInput = document.getElementById("kanban-task-input");
+const kanbanTaskStatus = document.getElementById("kanban-task-status");
+const kanbanTaskList = document.getElementById("kanban-task-list");
+const kanbanTaskEmpty = document.getElementById("kanban-task-empty");
+const kanbanRefresh = document.getElementById("kanban-refresh");
+const kanbanDispatch = document.getElementById("kanban-dispatch");
 const terminalSessions = new Map();
 const chatEventsByAgent = new Map();
 const defaultTerminalCols = 120;
@@ -140,6 +147,12 @@ const mcpState = {
   agentName: "",
   items: [],
   editingName: "",
+};
+const kanbanState = {
+  links: Array.isArray(window.__BOOTSTRAP__?.kanban_task_links)
+    ? window.__BOOTSTRAP__.kanban_task_links
+    : [],
+  loading: false,
 };
 let transferLastInspectedFile = null;
 const notificationAgentStates = new Map();
@@ -304,6 +317,166 @@ function escapeHtml(value) {
     .replaceAll('"', "&quot;");
 }
 
+function setKanbanStatus(message, kind = "muted") {
+  if (!kanbanTaskStatus) return;
+  kanbanTaskStatus.textContent = message || "";
+  kanbanTaskStatus.hidden = !message;
+  kanbanTaskStatus.dataset.kind = kind;
+}
+
+function kanbanRoleLabel(role) {
+  if (role === "parent") return "父任务";
+  if (role === "worker") return "Worker";
+  if (role === "summary") return "汇总";
+  return role || "任务";
+}
+
+function kanbanStatusLabel(status) {
+  const value = String(status || "").toLowerCase();
+  if (value === "ready") return "待执行";
+  if (value === "todo") return "待处理";
+  if (value === "triage") return "待分诊";
+  if (value === "running") return "执行中";
+  if (value === "done") return "已完成";
+  if (value === "archived") return "已归档";
+  if (value === "blocked") return "已阻塞";
+  if (value === "failed") return "失败";
+  if (value === "crashed") return "异常";
+  if (value === "timed_out") return "超时";
+  if (value === "gave_up") return "已放弃";
+  return "未知";
+}
+
+function kanbanColumnForStatus(status) {
+  const value = String(status || "").toLowerCase();
+  if (value === "running") return "running";
+  if (value === "done" || value === "archived") return "done";
+  if (["blocked", "failed", "crashed", "timed_out", "gave_up"].includes(value)) return "blocked";
+  if (value === "ready" || value === "todo" || value === "triage") return "ready";
+  return "unknown";
+}
+
+function renderKanbanTasks() {
+  if (!kanbanTaskList) return;
+  const links = [...(kanbanState.links || [])].sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
+  kanbanTaskList.innerHTML = "";
+  if (kanbanTaskEmpty) kanbanTaskEmpty.hidden = links.length > 0;
+  const columns = [
+    { key: "ready", title: "待执行" },
+    { key: "running", title: "执行中" },
+    { key: "blocked", title: "阻塞" },
+    { key: "unknown", title: "未知" },
+    { key: "done", title: "已完成" },
+  ];
+  const grouped = new Map(columns.map((column) => [column.key, []]));
+  links.forEach((link) => {
+    const key = kanbanColumnForStatus(link.kanban_status);
+    grouped.get(key).push(link);
+  });
+  columns.forEach((column) => {
+    const items = grouped.get(column.key) || [];
+    const section = document.createElement("section");
+    section.className = "kanban-column";
+    section.innerHTML = `
+      <div class="kanban-column__head">
+        <strong>${escapeHtml(column.title)}</strong>
+        <span>${items.length}</span>
+      </div>
+      <div class="kanban-column__body"></div>
+    `;
+    const body = section.querySelector(".kanban-column__body");
+    if (!items.length) {
+      body.innerHTML = `<p class="kanban-column__empty">—</p>`;
+    }
+    items.slice(0, 20).forEach((link) => {
+      const card = document.createElement("article");
+      card.className = "kanban-task-card";
+      const resultPreview = link.last_result ? String(link.last_result).slice(0, 96) : "";
+      card.innerHTML = `
+        <div class="kanban-task-card__top">
+          <strong>${escapeHtml(kanbanRoleLabel(link.kanban_role))}</strong>
+          <span class="kanban-task-badge">${escapeHtml(kanbanStatusLabel(link.kanban_status))}</span>
+        </div>
+        <p>${escapeHtml(link.local_id || "")}</p>
+        <small>${escapeHtml(link.kanban_task_id || "")} · ${escapeHtml(link.assignee_profile || "unassigned")}</small>
+        ${resultPreview ? `<div class="kanban-task-card__result">${escapeHtml(resultPreview)}</div>` : ""}
+      `;
+      body.appendChild(card);
+    });
+    kanbanTaskList.appendChild(section);
+  });
+}
+
+async function refreshKanbanTasks({ silent = false } = {}) {
+  if (!kanbanTaskList || kanbanState.loading) return;
+  kanbanState.loading = true;
+  if (!silent) setKanbanStatus("正在刷新 Kanban 任务…");
+  try {
+    const response = await fetch("/api/kanban/tasks");
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "Kanban 任务加载失败");
+    kanbanState.links = Array.isArray(data.links) ? data.links : [];
+    renderKanbanTasks();
+    if (!silent) setKanbanStatus(`已刷新 ${kanbanState.links.length} 个任务映射。`, "success");
+  } catch (error) {
+    if (!silent) setKanbanStatus(error.message || "Kanban 任务加载失败", "error");
+  } finally {
+    kanbanState.loading = false;
+  }
+}
+
+async function submitKanbanTask(event) {
+  event.preventDefault();
+  if (!kanbanTaskInput || !kanbanTaskForm) return;
+  const content = kanbanTaskInput.value.trim();
+  if (!content) {
+    setKanbanStatus("请输入任务内容。", "error");
+    kanbanTaskInput.focus();
+    return;
+  }
+  const submitBtn = kanbanTaskForm.querySelector('button[type="submit"]');
+  if (submitBtn) submitBtn.disabled = true;
+  setKanbanStatus("正在创建 Kanban 父任务…");
+  try {
+    const response = await fetch("/api/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "任务创建失败");
+    kanbanTaskInput.value = "";
+    const message = data.message || {};
+    setKanbanStatus(`已创建：${message.kanban_task_id || message.user_task_id || "Kanban 任务"}`, "success");
+    await refreshKanbanTasks({ silent: true });
+  } catch (error) {
+    setKanbanStatus(error.message || "任务创建失败", "error");
+  } finally {
+    if (submitBtn) submitBtn.disabled = false;
+  }
+}
+
+async function dispatchKanbanOnce() {
+  if (!kanbanDispatch) return;
+  kanbanDispatch.disabled = true;
+  setKanbanStatus("正在触发一次 Kanban dispatch…");
+  try {
+    const response = await fetch("/api/kanban/dispatch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "Dispatch 失败");
+    setKanbanStatus("Dispatch 已触发。", "success");
+    await refreshKanbanTasks({ silent: true });
+  } catch (error) {
+    setKanbanStatus(error.message || "Dispatch 失败", "error");
+  } finally {
+    kanbanDispatch.disabled = false;
+  }
+}
+
 function formatAgentTime(value) {
   if (!value) return "—";
   const date = new Date(value);
@@ -346,7 +519,9 @@ function getAgentDisplayStatus(agent) {
     interactionState === "queued" ||
     interactionState === "running" ||
     orchestrationState === "waiting_workers" ||
-    orchestrationState === "summarizing"
+    orchestrationState === "summarizing" ||
+    orchestrationState === "kanban_ready" ||
+    orchestrationState === "kanban_running"
   ) {
     return { label: "处理中", className: "busy" };
   }
@@ -1901,6 +2076,9 @@ function handleRuntimeEvent(event) {
     return;
   }
   if (rememberChatEvent(event)) renderInteractions();
+  if (String(event.event_type || "").startsWith("kanban.")) {
+    refreshKanbanTasks({ silent: true });
+  }
 }
 
 function isIdleAgentRow(row) {
@@ -2283,6 +2461,9 @@ if (openCreateAgent) {
   }, 300);
 }
 if (openHistoryDrawer) openHistoryDrawer.addEventListener("click", openHistoryPanel);
+if (kanbanTaskForm) kanbanTaskForm.addEventListener("submit", submitKanbanTask);
+if (kanbanRefresh) kanbanRefresh.addEventListener("click", () => refreshKanbanTasks());
+if (kanbanDispatch) kanbanDispatch.addEventListener("click", dispatchKanbanOnce);
 if (historyDrawer) {
   historyDrawer.addEventListener("click", (event) => {
     if (event.target instanceof HTMLElement && event.target.dataset.closeHistory !== undefined) {
@@ -2481,6 +2662,7 @@ stream.onmessage = (event) => {
 
 hydrateChatEvents();
 hydrateNotificationStates(window.__BOOTSTRAP__?.agents || []);
+renderKanbanTasks();
 initTerminal();
 if (eventList?.dataset.selectedAgent) {
   const row = agentList?.querySelector(`.agent-row[data-agent-id="${CSS.escape(eventList.dataset.selectedAgent)}"]`);

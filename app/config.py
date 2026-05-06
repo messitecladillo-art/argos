@@ -19,6 +19,10 @@ DATABASE_URL = os.environ.get(
 MCP_BUS_URL = os.environ.get(
     "HERMES_AGENTS_MCP_URL", "http://127.0.0.1:5050/mcp/"
 )
+KANBAN_BOARD = os.environ.get("KANBAN_BOARD", "hermes-agents-team")
+KANBAN_POLL_INTERVAL = float(os.environ.get("KANBAN_POLL_INTERVAL", "5"))
+KANBAN_DEFAULT_WORKSPACE = os.environ.get("KANBAN_DEFAULT_WORKSPACE", "scratch")
+KANBAN_AUTO_DISPATCH = os.environ.get("KANBAN_AUTO_DISPATCH", "0") == "1"
 
 
 def now_iso() -> str:

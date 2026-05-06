@@ -89,6 +89,27 @@ class AssignmentRecord(TimestampMixin, Base):
     completed_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
 
+class KanbanTaskLinkRecord(TimestampMixin, Base):
+    __tablename__ = "kanban_task_links"
+    __table_args__ = (
+        UniqueConstraint("local_type", "local_id", "kanban_role"),
+        UniqueConstraint("kanban_task_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    local_type: Mapped[str] = mapped_column(String(40), index=True)
+    local_id: Mapped[str] = mapped_column(String(120), index=True)
+    kanban_task_id: Mapped[str] = mapped_column(String(120), index=True)
+    kanban_role: Mapped[str] = mapped_column(String(40), index=True)
+    kanban_status: Mapped[str] = mapped_column(String(60), default="", index=True)
+    assignee_profile: Mapped[str] = mapped_column(String(120), default="", index=True)
+    parent_local_id: Mapped[str | None] = mapped_column(String(120), nullable=True, index=True)
+    last_result: Mapped[str] = mapped_column(Text, default="")
+    last_summary: Mapped[str] = mapped_column(Text, default="")
+    summary_created: Mapped[bool] = mapped_column(Boolean, default=False)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+
+
 class MessageRecord(Base):
     __tablename__ = "messages"
 

@@ -16,6 +16,7 @@ from .base import (
 )
 from .delegations import DelegationsMixin
 from .events import EventsMixin
+from .kanban import KanbanLinksMixin
 from .messages import MessagesMixin
 from .user_tasks import UserTasksMixin
 
@@ -24,6 +25,7 @@ class RuntimeStore(
     AgentsMixin,
     UserTasksMixin,
     DelegationsMixin,
+    KanbanLinksMixin,
     MessagesMixin,
     EventsMixin,
     RuntimeStoreBase,
