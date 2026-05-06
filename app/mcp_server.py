@@ -171,6 +171,17 @@ def dispatch_parallel(
                 "to_name": assignment["worker_name"],
             }
         )
+    if user_task_id:
+        try:
+            completed = store.close_user_task_dispatch(user_task_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "[agent-mcp] close user task dispatch failed user_task=%s",
+                user_task_id,
+            )
+            raise RuntimeError(f"close user task dispatch failed: {exc}") from exc
+        if completed:
+            pool.prompt_user_task_to_summarize(completed)
     return {
         "ok": True,
         "delegation_id": delegation["delegation_id"],

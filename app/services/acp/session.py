@@ -135,6 +135,29 @@ class HermesSession:
             except Exception:  # noqa: BLE001
                 continue
 
+    def _write_terminal_notice(self, text: str) -> None:
+        chunk = f"\r\n\x1b[33m[Hermes]\x1b[0m {text}\r\n"
+        with self._lock:
+            self._remember_terminal_chunk_locked(chunk)
+            self._terminal_stream.feed(chunk)
+            self._last_terminal_snapshot = _compact_screen_text(self._terminal_screen)
+        self._broadcast_terminal_message({"type": "output", "data": chunk})
+        store.push_event(
+            "agent.terminal.output",
+            self.agent_id,
+            None,
+            {"text": chunk},
+        )
+
+    def _message_notice_text(self, item: dict[str, Any]) -> str:
+        preview = _strip_ansi(item.get("text") or "").replace("\r", " ").replace("\n", " ")
+        preview = " ".join(preview.split())
+        if len(preview) > 160:
+            preview = f"{preview[:160]}…"
+        if item.get("assignment_id"):
+            return f"收到派发任务 {item['assignment_id']}：{preview}"
+        return f"收到消息：{preview}"
+
     def open_terminal_stream(self) -> tuple[queue.Queue[dict[str, Any]], dict[str, Any]]:
         subscriber: queue.Queue[dict[str, Any]] = queue.Queue(
             maxsize=MAX_TERMINAL_SUBSCRIBER_QUEUE
@@ -167,14 +190,8 @@ class HermesSession:
     def _update_queue_depth(self) -> None:
         with self._lock:
             queue_depth = len(self._queue)
-            current_user_task_id = None
             if self._current_message is not None:
                 queue_depth += 1
-                current_user_task_id = self._current_message.get("user_task_id")
-        queue_depth += store.count_active_user_tasks(
-            self.agent_id,
-            exclude_user_task_id=current_user_task_id,
-        )
         store.update_agent(self.agent_id, queue_depth=queue_depth)
         _log_state("queue_depth", self.agent_id, depth=queue_depth)
         store.push_event(
@@ -612,7 +629,11 @@ class HermesSession:
                     return
                 agent = store.find_agent(self.agent_id) or {}
                 orchestration_state = agent.get("orchestration_state")
-                active_tasks = store.count_active_user_tasks(self.agent_id)
+                active_tasks = (
+                    store.count_active_user_tasks(self.agent_id)
+                    if agent.get("role") == "leader"
+                    else 0
+                )
                 if active_tasks:
                     current_task = (
                         "汇总 worker 结果中"
@@ -681,13 +702,17 @@ class HermesSession:
             self._current_saw_substantive_output = False
 
         preview = (reply[:180] + "…") if len(reply) > 180 else (reply or "—")
-        active_tasks = store.count_active_user_tasks(
-            self.agent_id,
-            exclude_user_task_id=message.get("user_task_id"),
+        agent = store.find_agent(self.agent_id) or {}
+        active_tasks = (
+            store.count_active_user_tasks(
+                self.agent_id,
+                exclude_user_task_id=message.get("user_task_id"),
+            )
+            if agent.get("role") == "leader"
+            else 0
         )
         next_state = "queued" if self._queue or active_tasks else "idle"
         next_status = "busy" if self._queue or active_tasks else "idle"
-        agent = store.find_agent(self.agent_id) or {}
         orchestration_state = agent.get("orchestration_state")
         next_task = "等待队列执行" if self._queue else ("等待 worker 返回" if active_tasks else "空闲")
         if not self._queue and orchestration_state == "waiting_workers":
@@ -911,6 +936,14 @@ class HermesSession:
             with self._lock:
                 now = time.monotonic()
                 interaction_text = f"{self._last_terminal_snapshot}\n{self._raw_output[-2000:]}"
+                current_text = "".join(self._current_output)[-2000:]
+                should_finalize_ready = (
+                    self._current_message is not None
+                    and self._current_saw_substantive_output
+                    and _looks_ready_for_next_input(current_text, self._last_terminal_snapshot)
+                    and not _has_interrupt_hint(current_text)
+                    and not _has_interrupt_hint(self._last_terminal_snapshot)
+                )
                 should_hint_stuck = _should_show_stuck_hint(
                     active=self._current_message is not None,
                     pending_interaction=self._pending_interaction is not None,
@@ -927,6 +960,10 @@ class HermesSession:
                     hint_sent=self._manual_terminal_stuck_hint_sent,
                     now=now,
                 )
+            if should_finalize_ready:
+                _log_state("ready_detected_idle", self.agent_id)
+                self._finalize_current()
+                continue
             if should_hint_stuck:
                 if self._detect_interaction(interaction_text, selection_text=self._last_terminal_snapshot):
                     continue
@@ -1003,6 +1040,7 @@ class HermesSession:
             current_task="等待队列执行" if current_busy else "准备处理消息",
             interaction_state="queued",
         )
+        self._write_terminal_notice(self._message_notice_text(item))
         self._update_queue_depth()
         self._dispatch_next()
 

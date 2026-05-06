@@ -34,6 +34,7 @@ RESOLVED_INTERACTION_SUPPRESS_SECONDS = 30.0
 
 READY_PATTERNS = (
     re.compile(r"(?m)^\s*(?:[\w.-]+\s+)?(?:\S+\s+)?❯\s*$"),
+    re.compile(r"(?m)^\s*[\w.-]+\s+[Ψψ>]\s*$"),
 )
 INTERRUPT_HINT_PATTERN = re.compile(
     r"type a message \+ Enter to interrupt", re.IGNORECASE

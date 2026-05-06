@@ -162,6 +162,9 @@ class ACPPool:
             return None
         return session.current_user_task_id()
 
+    def prompt_user_task_to_summarize(self, user_task: dict) -> None:
+        self._prompt_user_task_to_summarize(user_task)
+
     def respond_interaction(self, agent_id: str, request_id: str, response: str) -> None:
         with self._lock:
             session = self.clients.get(agent_id)
