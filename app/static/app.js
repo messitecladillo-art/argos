@@ -23,9 +23,6 @@ const transferInspectSubmit = document.getElementById("transfer-inspect-submit")
 const transferImportSubmit = document.getElementById("transfer-import-submit");
 const transferImportStatus = document.getElementById("transfer-import-status");
 const transferImportPreview = document.getElementById("transfer-import-preview");
-const openTerminalDrawer = document.getElementById("open-terminal-drawer");
-const terminalLaunchCard = document.getElementById("terminal-launch-card");
-const terminalLaunchAgent = document.getElementById("terminal-launch-agent");
 const terminalDrawer = document.getElementById("terminal-drawer");
 const openHistoryDrawer = document.getElementById("open-history-drawer");
 const historyDrawer = document.getElementById("history-drawer");
@@ -365,6 +362,27 @@ function kanbanColumnForStatus(status) {
   return "unknown";
 }
 
+function agentForKanbanLink(link) {
+  const profileName = String(link?.assignee_profile || "").trim();
+  if (!profileName) return null;
+  const agents = Array.isArray(window.__BOOTSTRAP__?.agents) ? window.__BOOTSTRAP__.agents : [];
+  return agents.find((agent) => agent.profile_name === profileName) || null;
+}
+
+function openKanbanLinkTerminal(link) {
+  const agent = agentForKanbanLink(link);
+  if (!agent) {
+    setKanbanStatus(`找不到 assignee_profile=${link?.assignee_profile || "unassigned"} 对应的 Agent。`, "error");
+    return;
+  }
+  if ((agent.readiness_status || "ready") !== "ready") {
+    setKanbanStatus(`${agent.name || agent.agent_id} 尚未就绪，无法打开终端。`, "error");
+    return;
+  }
+  setSelectedAgent(agent.agent_id, agent.name, true);
+  openTerminalPanel();
+}
+
 function renderKanbanTasks() {
   if (!kanbanTaskList) return;
   const links = [...(kanbanState.links || [])].sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
@@ -400,6 +418,15 @@ function renderKanbanTasks() {
     items.slice(0, 20).forEach((link) => {
       const card = document.createElement("article");
       card.className = "kanban-task-card";
+      card.setAttribute("role", "button");
+      card.tabIndex = 0;
+      card.title = "打开对应 Agent 终端";
+      card.addEventListener("click", () => openKanbanLinkTerminal(link));
+      card.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter" && event.key !== " ") return;
+        event.preventDefault();
+        openKanbanLinkTerminal(link);
+      });
       const resultPreview = link.last_result ? String(link.last_result).slice(0, 96) : "";
       card.innerHTML = `
         <div class="kanban-task-card__top">
@@ -463,6 +490,12 @@ async function submitKanbanTask(event) {
   } finally {
     if (submitBtn) submitBtn.disabled = false;
   }
+}
+
+function handleKanbanTaskInputKeydown(event) {
+  if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+  event.preventDefault();
+  kanbanTaskForm?.requestSubmit();
 }
 
 async function dispatchKanbanOnce() {
@@ -2161,7 +2194,6 @@ function setSelectedAgent(agentId, agentName, force = false) {
   eventList.dataset.selectedAgent = agentId;
   renderInteractions();
   if (terminalTitle) terminalTitle.textContent = agentId ? `${name} · Hermes Terminal` : "Agent Terminal";
-  if (terminalLaunchAgent) terminalLaunchAgent.textContent = `当前终端：${name}`;
   const session = ensureTerminalSession(agentId);
   terminalSessions.forEach((item, key) => {
     item.pane.classList.toggle("is-active", key === agentId);
@@ -2578,9 +2610,8 @@ if (openCreateAgent) {
   }, 300);
 }
 if (openHistoryDrawer) openHistoryDrawer.addEventListener("click", openHistoryPanel);
-if (openTerminalDrawer) openTerminalDrawer.addEventListener("click", openTerminalPanel);
-if (terminalLaunchCard) terminalLaunchCard.addEventListener("click", openTerminalPanel);
 if (kanbanTaskForm) kanbanTaskForm.addEventListener("submit", submitKanbanTask);
+if (kanbanTaskInput) kanbanTaskInput.addEventListener("keydown", handleKanbanTaskInputKeydown);
 if (kanbanRefresh) kanbanRefresh.addEventListener("click", () => refreshKanbanTasks());
 if (kanbanAutoDispatch) kanbanAutoDispatch.addEventListener("click", toggleKanbanAutoDispatch);
 if (kanbanDispatch) kanbanDispatch.addEventListener("click", dispatchKanbanOnce);
