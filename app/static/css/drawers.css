@@ -211,8 +211,6 @@
   color: var(--text);
   padding: 14px;
   overflow: auto;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(246, 207, 117, 0.28) transparent;
 }
 
 .soul-editor textarea {
