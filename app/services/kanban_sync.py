@@ -65,13 +65,20 @@ class KanbanSyncWorker:
             logger.warning("[kanban-sync] show failed task=%s error=%s", task_id, exc)
             return
         status = task_status(task)
+        title = _task_title(task)
         result = task_result(task)
-        if status != link.get("kanban_status") or result != link.get("last_result"):
+        metadata = {**(link.get("metadata") or {}), "task_title": title} if title else (link.get("metadata") or {})
+        if (
+            status != link.get("kanban_status")
+            or result != link.get("last_result")
+            or metadata != (link.get("metadata") or {})
+        ):
             self.store.update_kanban_task_link(
                 task_id,
                 kanban_status=status,
                 last_result=result or link.get("last_result") or "",
                 last_summary=_task_summary(task) or link.get("last_summary") or "",
+                metadata=metadata,
             )
             self.store.push_event(
                 "kanban.task.updated",
@@ -166,8 +173,9 @@ class KanbanSyncWorker:
                 if link.get("kanban_role") == "worker"
                 and link.get("local_id") in {item["assignment_id"] for item in assignments}
             ]
+            task_title = f"汇总用户任务：{user_task_id}"
             summary_task = self.service.create_task(
-                f"汇总用户任务：{user_task_id}",
+                task_title,
                 body=_format_summary_body(user_task, assignments),
                 assignee=leader["profile_name"],
                 parent=[link["kanban_task_id"] for link in worker_links],
@@ -184,7 +192,7 @@ class KanbanSyncWorker:
                 kanban_status=task_status(summary_task) or "ready",
                 assignee_profile=leader["profile_name"],
                 parent_local_id=user_task_id,
-                metadata={"user_task_id": user_task_id},
+                metadata={"user_task_id": user_task_id, "task_title": task_title},
             )
             self.store.push_event(
                 "kanban.summary.created",
@@ -252,6 +260,16 @@ def _task_summary(task: dict[str, Any]) -> str:
     nested = task.get("task")
     if isinstance(nested, dict):
         return _task_summary(nested)
+    return ""
+
+
+def _task_title(task: dict[str, Any]) -> str:
+    value = task.get("title")
+    if value:
+        return str(value)
+    nested = task.get("task")
+    if isinstance(nested, dict):
+        return _task_title(nested)
     return ""
 
 

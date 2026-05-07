@@ -163,8 +163,9 @@ def create_kanban_worker_tasks(
     dispatched = []
     for assignment in delegation["assignments"]:
         worker = store.find_agent(assignment["worker_agent_id"]) or {}
+        task_title = _assignment_title(assignments, assignment)
         kanban_task = kanban_service.create_task(
-            _assignment_title(assignments, assignment),
+            task_title,
             body=_format_worker_kanban_body(
                 assignment=assignment,
                 delegation=delegation,
@@ -186,7 +187,7 @@ def create_kanban_worker_tasks(
             kanban_status=task_status(kanban_task) or "ready",
             assignee_profile=worker["profile_name"],
             parent_local_id=resolved_user_task_id or delegation["delegation_id"],
-            metadata={"delegation_id": delegation["delegation_id"]},
+            metadata={"delegation_id": delegation["delegation_id"], "task_title": task_title},
         )
         store.attach_assignment_message(
             delegation["delegation_id"],

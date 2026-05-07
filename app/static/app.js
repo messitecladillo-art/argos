@@ -644,13 +644,15 @@ function renderKanbanTasks() {
         openKanbanLinkTerminal(link);
       });
       const resultPreview = link.last_result ? String(link.last_result).slice(0, 96) : "";
+      const agent = agentForKanbanLink(link);
+      const assigneeName = agent?.name || link.assignee_profile || "unassigned";
+      const taskTitle = link.metadata?.task_title || kanbanRoleLabel(link.kanban_role);
       card.innerHTML = `
         <div class="kanban-task-card__top">
-          <strong>${escapeHtml(kanbanRoleLabel(link.kanban_role))}</strong>
+          <strong>${escapeHtml(taskTitle)}</strong>
           <span class="kanban-task-badge">${escapeHtml(kanbanStatusLabel(link.kanban_status))}</span>
         </div>
-        <p>${escapeHtml(link.local_id || "")}</p>
-        <small>${escapeHtml(link.kanban_task_id || "")} · ${escapeHtml(link.assignee_profile || "unassigned")}</small>
+        <p>${escapeHtml(assigneeName)}</p>
         ${resultPreview ? `<div class="kanban-task-card__result">${escapeHtml(resultPreview)}</div>` : ""}
       `;
       body.appendChild(card);

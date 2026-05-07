@@ -82,8 +82,9 @@ def send_user_task(store: RuntimeStore, *, content: str) -> dict:
     user_task = store.create_user_task(leader_agent_id=leader_id, content=content)
     leader = store.find_agent(leader_id) or {}
     body = _format_user_task(content, leader_id)
+    task_title = f"用户任务：{content[:80]}"
     kanban_task = kanban_service.create_task(
-        f"用户任务：{content[:80]}",
+        task_title,
         body=(
             f"local_user_task_id: {user_task['user_task_id']}\n"
             f"leader_agent_id: {leader_id}\n\n"
@@ -101,6 +102,7 @@ def send_user_task(store: RuntimeStore, *, content: str) -> dict:
         kanban_role="parent",
         kanban_status=task_status(kanban_task) or "ready",
         assignee_profile=leader["profile_name"],
+        metadata={"task_title": task_title},
     )
     store.push_event(
         "kanban.task.created",
