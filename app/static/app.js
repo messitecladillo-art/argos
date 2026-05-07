@@ -652,7 +652,7 @@ function renderKanbanTasks() {
           <strong>${escapeHtml(taskTitle)}</strong>
           <span class="kanban-task-badge">${escapeHtml(kanbanStatusLabel(link.kanban_status))}</span>
         </div>
-        <p>${escapeHtml(assigneeName)}</p>
+        <p>执行人：${escapeHtml(assigneeName)}</p>
         ${resultPreview ? `<div class="kanban-task-card__result">${escapeHtml(resultPreview)}</div>` : ""}
       `;
       body.appendChild(card);
