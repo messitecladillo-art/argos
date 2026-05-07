@@ -34,6 +34,23 @@ def task_log(task_id: str):
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+@bp.get("/tasks/<task_id>/details")
+def task_details(task_id: str):
+    tail = request.args.get("tail", 4000, type=int)
+    try:
+        return jsonify(
+            {
+                "ok": True,
+                "task": kanban_service.show_task(task_id),
+                "runs": kanban_service.runs(task_id),
+                "context": kanban_service.context(task_id),
+                "log": kanban_service.log(task_id, tail=tail),
+            }
+        )
+    except KanbanError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
 @bp.post("/dispatch")
 def dispatch_once():
     max_workers = request.get_json(silent=True) or {}

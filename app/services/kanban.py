@@ -98,6 +98,9 @@ class KanbanService:
             args.extend(["--tail", str(tail)])
         return self._run(args)
 
+    def context(self, task_id: str) -> str:
+        return self._run(["context", task_id])
+
     def complete_task(
         self,
         task_id: str,

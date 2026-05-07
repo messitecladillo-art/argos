@@ -78,6 +78,8 @@ const defaultTerminalCols = 120;
 const defaultTerminalRows = 36;
 const terminalReconnectDelay = 900;
 const hermesDebug = window.localStorage?.getItem("hermesDebug") !== "0";
+let activeKanbanTerminalTaskId = "";
+let kanbanTerminalLogTimer = 0;
 let agentContextMenu = null;
 let deletingAgentId = "";
 let confirmModal = null;
@@ -385,6 +387,98 @@ function openKanbanLinkTerminal(link) {
   }
   setSelectedAgent(agent.agent_id, agent.name, true);
   openTerminalPanel();
+  showKanbanTaskLogInTerminal(link, agent);
+}
+
+function clearKanbanTerminalLog() {
+  activeKanbanTerminalTaskId = "";
+  if (kanbanTerminalLogTimer) {
+    window.clearTimeout(kanbanTerminalLogTimer);
+    kanbanTerminalLogTimer = 0;
+  }
+}
+
+function normalizeTerminalLogText(value) {
+  return String(value || "").replace(/\r?\n/g, "\r\n");
+}
+
+function formatKanbanTaskDetails(details) {
+  const payload = details?.task || {};
+  const task = payload.task || payload;
+  const runs = Array.isArray(details?.runs) ? details.runs : (Array.isArray(payload.runs) ? payload.runs : []);
+  const parts = [];
+  if (task.body) parts.push(`\x1b[36m## 模型实际提示词 / Worker Context\x1b[0m\r\n${normalizeTerminalLogText(details.context || task.body)}`);
+  if (task.result) parts.push(`\x1b[32m## 模型输出 / Task Result\x1b[0m\r\n${normalizeTerminalLogText(task.result)}`);
+  if (payload.latest_summary) parts.push(`\x1b[33m## 运行摘要\x1b[0m\r\n${normalizeTerminalLogText(payload.latest_summary)}`);
+  if (runs.length) {
+    const runLines = runs.map((run) => [
+      `run_id=${run.id ?? "-"}`,
+      `profile=${run.profile || "-"}`,
+      `status=${run.status || run.outcome || "-"}`,
+      run.summary ? `summary=${run.summary}` : "",
+      run.error ? `error=${run.error}` : "",
+    ].filter(Boolean).join(" · "));
+    parts.push(`\x1b[35m## Runs\x1b[0m\r\n${normalizeTerminalLogText(runLines.join("\n"))}`);
+  }
+  if (details?.log) parts.push(`\x1b[90m## 原始 Worker 日志\x1b[0m\r\n${normalizeTerminalLogText(details.log)}`);
+  return parts.join("\r\n\r\n");
+}
+
+function writeKanbanLogToTerminal(session, link, agent, logText, message = "") {
+  if (!session) return;
+  const taskId = link?.kanban_task_id || "";
+  session.term.reset();
+  session.term.clear();
+  session.hasRenderedOutput = true;
+  const header = [
+    `\x1b[33m● Kanban Task\x1b[0m ${taskId}`,
+    `\x1b[90m${agent?.name || agent?.agent_id || link?.assignee_profile || "Agent"} · ${link?.assignee_profile || "unassigned"} · ${kanbanStatusLabel(link?.kanban_status)}\x1b[0m`,
+    "",
+  ].join("\r\n");
+  session.term.write(header);
+  if (message) {
+    session.term.write(`\x1b[90m${message}\x1b[0m\r\n`);
+    return;
+  }
+  const body = normalizeTerminalLogText(logText).trim();
+  session.term.write(body || "\x1b[90m暂无 Kanban 运行日志。任务可能刚启动，稍后会自动刷新。\x1b[0m");
+}
+
+async function refreshKanbanTaskLog(link, agent) {
+  const taskId = link?.kanban_task_id || "";
+  if (!taskId || activeKanbanTerminalTaskId !== taskId) return;
+  const session = terminalSessions.get(agent?.agent_id || "");
+  try {
+    const response = await fetch(`/api/kanban/tasks/${encodeURIComponent(taskId)}/details?tail=8000`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "Kanban 详情加载失败");
+    if (activeKanbanTerminalTaskId !== taskId) return;
+    writeKanbanLogToTerminal(session, link, agent, formatKanbanTaskDetails(data));
+  } catch (error) {
+    if (activeKanbanTerminalTaskId !== taskId) return;
+    writeKanbanLogToTerminal(session, link, agent, "", error.message || "Kanban 详情加载失败");
+  }
+  const status = String(link?.kanban_status || "").toLowerCase();
+  if (activeKanbanTerminalTaskId === taskId && ["running", "ready", "todo", "triage"].includes(status)) {
+    kanbanTerminalLogTimer = window.setTimeout(async () => {
+      await refreshKanbanTasks({ silent: true });
+      const latest = (kanbanState.links || []).find((item) => item.kanban_task_id === taskId) || link;
+      refreshKanbanTaskLog(latest, agent);
+    }, 2500);
+  }
+}
+
+function showKanbanTaskLogInTerminal(link, agent) {
+  const taskId = link?.kanban_task_id || "";
+  if (!taskId) return;
+  clearKanbanTerminalLog();
+  activeKanbanTerminalTaskId = taskId;
+  const session = ensureTerminalSession(agent.agent_id);
+  if (!session) return;
+  disconnectTerminalSession(session);
+  if (terminalTitle) terminalTitle.textContent = `${agent.name || agent.agent_id} · Kanban ${taskId}`;
+  writeKanbanLogToTerminal(session, link, agent, "", "正在加载 Kanban 运行日志…");
+  refreshKanbanTaskLog(link, agent);
 }
 
 function renderKanbanTasks() {
@@ -825,6 +919,7 @@ function openTerminalPanel() {
 
 function closeTerminalPanel() {
   if (!terminalDrawer || terminalDrawer.hidden) return;
+  clearKanbanTerminalLog();
   closeAnimatedLayer(terminalDrawer);
 }
 
@@ -2041,6 +2136,7 @@ function handleTerminalSocketMessage(session, payload) {
 
 function connectTerminalSession(session) {
   if (!session || session.agentId === "__empty__") return;
+  if (activeKanbanTerminalTaskId) return;
   if ((eventList?.dataset.selectedAgent || "") !== session.agentId) return;
   if (session.ws && (session.ws.readyState === WebSocket.OPEN || session.ws.readyState === WebSocket.CONNECTING)) {
     return;
@@ -2189,6 +2285,8 @@ function debounceTerminalFit(delay = 120) {
 
 function setSelectedAgent(agentId, agentName, force = false) {
   if (!agentList || !eventList) return;
+  if (activeKanbanTerminalTaskId && !force) return;
+  if (force) clearKanbanTerminalLog();
   const row = agentList.querySelector(`.agent-row[data-agent-id="${CSS.escape(agentId)}"]`);
   if (row?.dataset.readinessStatus && row.dataset.readinessStatus !== "ready") return;
   const name = agentName || row?.dataset.agentName || agentId || "尚未选择";
@@ -2491,7 +2589,7 @@ if (agentList) {
     const row = event.target.closest(".agent-row");
     if (!row) return;
     if (row.dataset.readinessStatus && row.dataset.readinessStatus !== "ready") return;
-    setSelectedAgent(row.dataset.agentId, row.dataset.agentName);
+    setSelectedAgent(row.dataset.agentId, row.dataset.agentName, true);
   });
 
   agentList.addEventListener("scroll", closeAgentContextMenu, { passive: true });
