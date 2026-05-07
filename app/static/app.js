@@ -155,7 +155,7 @@ const mcpState = {
 };
 const kanbanState = {
   links: Array.isArray(window.__BOOTSTRAP__?.kanban_task_links)
-    ? window.__BOOTSTRAP__.kanban_task_links
+    ? window.__BOOTSTRAP__.kanban_task_links.filter((link) => String(link?.kanban_status || "").toLowerCase() !== "archived")
     : [],
   loading: false,
   autoDispatchEnabled: false,

@@ -33,4 +33,9 @@ def index():
         if event.get("event_type")
         not in {"agent.terminal.output", "agent.terminal.snapshot"}
     ]
+    snapshot["kanban_task_links"] = [
+        link
+        for link in snapshot.get("kanban_task_links", [])
+        if (link.get("kanban_status") or "").lower() != "archived"
+    ]
     return render_template("index.html", **snapshot, message_target=leader)
