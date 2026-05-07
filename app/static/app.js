@@ -649,7 +649,7 @@ function renderKanbanTasks() {
       const taskTitle = link.metadata?.task_title || kanbanRoleLabel(link.kanban_role);
       card.innerHTML = `
         <div class="kanban-task-card__top">
-          <strong>${escapeHtml(taskTitle)}</strong>
+          <strong title="${escapeHtml(taskTitle)}">${escapeHtml(taskTitle)}</strong>
           <span class="kanban-task-badge">${escapeHtml(kanbanStatusLabel(link.kanban_status))}</span>
         </div>
         <p>执行人：${escapeHtml(assigneeName)}</p>
