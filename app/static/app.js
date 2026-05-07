@@ -68,7 +68,6 @@ const kanbanTaskForm = document.getElementById("kanban-task-form");
 const kanbanTaskInput = document.getElementById("kanban-task-input");
 const kanbanTaskStatus = document.getElementById("kanban-task-status");
 const kanbanTaskList = document.getElementById("kanban-task-list");
-const kanbanTaskEmpty = document.getElementById("kanban-task-empty");
 const kanbanRefresh = document.getElementById("kanban-refresh");
 const kanbanAutoDispatch = document.getElementById("kanban-auto-dispatch");
 const kanbanDispatch = document.getElementById("kanban-dispatch");
@@ -599,7 +598,6 @@ function renderKanbanTasks() {
   if (!kanbanTaskList) return;
   const links = [...(kanbanState.links || [])].sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
   kanbanTaskList.innerHTML = "";
-  if (kanbanTaskEmpty) kanbanTaskEmpty.hidden = links.length > 0;
   const columns = [
     { key: "ready", title: "待执行" },
     { key: "running", title: "执行中" },
