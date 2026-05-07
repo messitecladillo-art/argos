@@ -61,6 +61,7 @@ pip install -r requirements.txt
 | `HERMES_AGENTS_MCP_URL` | `http://127.0.0.1:5050/mcp/` | MCP Bus 地址 |
 | `PORT` | `5050` | HTTP 服务端口 |
 | `FLASK_DEBUG` | `0` | 调试日志开关（不启用自动 reload） |
+| `AUTO_START_AGENTS` | `1` | 项目启动时自动启动所有已就绪 Agent；设为 `0` 可关闭 |
 
 ### 4. 启动
 
