@@ -362,6 +362,10 @@ function kanbanColumnForStatus(status) {
   return "unknown";
 }
 
+function hasDispatchableKanbanTask() {
+  return (kanbanState.links || []).some((link) => kanbanColumnForStatus(link.kanban_status) === "ready");
+}
+
 function agentForKanbanLink(link) {
   const profileName = String(link?.assignee_profile || "").trim();
   if (!profileName) return null;
@@ -534,6 +538,7 @@ function stopKanbanAutoDispatchTimer() {
 
 async function runKanbanAutoDispatchTick() {
   if (!kanbanState.autoDispatchEnabled || kanbanState.autoDispatchRunning) return;
+  if (!hasDispatchableKanbanTask()) return;
   kanbanState.autoDispatchRunning = true;
   try {
     const response = await fetch("/api/kanban/dispatch", {
