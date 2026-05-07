@@ -5,6 +5,7 @@ from flask import Blueprint, jsonify, request
 from ..models.store import store
 from ..services.kanban import KanbanError, kanban_service
 from ..services.kanban_sync import sync_worker
+from ..services.settings import settings_service
 
 
 bp = Blueprint("kanban", __name__, url_prefix="/api/kanban")
@@ -47,3 +48,33 @@ def dispatch_once():
         )
     except KanbanError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@bp.get("/settings")
+def get_settings():
+    return jsonify(
+        {
+            "ok": True,
+            "settings": {
+                "auto_dispatch_enabled": settings_service.get_kanban_auto_dispatch_enabled(),
+                "auto_dispatch_interval_ms": 5000,
+            },
+        }
+    )
+
+
+@bp.put("/settings")
+def update_settings():
+    payload = request.get_json(silent=True) or {}
+    if "auto_dispatch_enabled" not in payload or not isinstance(payload["auto_dispatch_enabled"], bool):
+        return jsonify({"ok": False, "error": "auto_dispatch_enabled must be boolean"}), 400
+    enabled = settings_service.set_kanban_auto_dispatch_enabled(payload["auto_dispatch_enabled"])
+    return jsonify(
+        {
+            "ok": True,
+            "settings": {
+                "auto_dispatch_enabled": enabled,
+                "auto_dispatch_interval_ms": 5000,
+            },
+        }
+    )

@@ -14,6 +14,7 @@ from .models import (
     EventRecord,
     KanbanTaskLinkRecord,
     MessageRecord,
+    SettingRecord,
     UserTaskRecord,
 )
 from .session import Base, SessionLocal, engine
@@ -50,6 +51,19 @@ def _next_counter(values: list[str], prefix: str) -> count:
 
 class SQLitePersistence:
     """Synchronous persistence adapter for the in-memory RuntimeStore."""
+
+    def get_setting(self, key: str) -> str | None:
+        with SessionLocal() as session:
+            record = session.scalar(select(SettingRecord).where(SettingRecord.key == key))
+            return record.value if record is not None else None
+
+    def set_setting(self, key: str, value: str) -> None:
+        with SessionLocal.begin() as session:
+            record = session.scalar(select(SettingRecord).where(SettingRecord.key == key))
+            if record is None:
+                record = SettingRecord(key=key)
+                session.add(record)
+            record.value = value
 
     def upsert_agent(self, agent: dict) -> None:
         with SessionLocal.begin() as session:

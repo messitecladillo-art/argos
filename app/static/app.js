@@ -73,6 +73,7 @@ const kanbanTaskStatus = document.getElementById("kanban-task-status");
 const kanbanTaskList = document.getElementById("kanban-task-list");
 const kanbanTaskEmpty = document.getElementById("kanban-task-empty");
 const kanbanRefresh = document.getElementById("kanban-refresh");
+const kanbanAutoDispatch = document.getElementById("kanban-auto-dispatch");
 const kanbanDispatch = document.getElementById("kanban-dispatch");
 const terminalSessions = new Map();
 const chatEventsByAgent = new Map();
@@ -157,6 +158,10 @@ const kanbanState = {
     ? window.__BOOTSTRAP__.kanban_task_links
     : [],
   loading: false,
+  autoDispatchEnabled: false,
+  autoDispatchIntervalMs: 5000,
+  autoDispatchTimer: 0,
+  autoDispatchRunning: false,
 };
 let transferLastInspectedFile = null;
 const notificationAgentStates = new Map();
@@ -478,6 +483,90 @@ async function dispatchKanbanOnce() {
     setKanbanStatus(error.message || "Dispatch 失败", "error");
   } finally {
     kanbanDispatch.disabled = false;
+  }
+}
+
+function renderKanbanAutoDispatch() {
+  if (!kanbanAutoDispatch) return;
+  kanbanAutoDispatch.textContent = `自动 Dispatch：${kanbanState.autoDispatchEnabled ? "开" : "关"}`;
+  kanbanAutoDispatch.classList.toggle("is-active", kanbanState.autoDispatchEnabled);
+  kanbanAutoDispatch.setAttribute("aria-pressed", kanbanState.autoDispatchEnabled ? "true" : "false");
+}
+
+function stopKanbanAutoDispatchTimer() {
+  if (!kanbanState.autoDispatchTimer) return;
+  window.clearInterval(kanbanState.autoDispatchTimer);
+  kanbanState.autoDispatchTimer = 0;
+}
+
+async function runKanbanAutoDispatchTick() {
+  if (!kanbanState.autoDispatchEnabled || kanbanState.autoDispatchRunning) return;
+  kanbanState.autoDispatchRunning = true;
+  try {
+    const response = await fetch("/api/kanban/dispatch", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "自动 Dispatch 失败");
+    setKanbanStatus("自动 Dispatch 已触发。", "success");
+    await refreshKanbanTasks({ silent: true });
+  } catch (error) {
+    setKanbanStatus(error.message || "自动 Dispatch 失败", "error");
+  } finally {
+    kanbanState.autoDispatchRunning = false;
+  }
+}
+
+function syncKanbanAutoDispatchTimer() {
+  stopKanbanAutoDispatchTimer();
+  if (!kanbanState.autoDispatchEnabled) return;
+  kanbanState.autoDispatchTimer = window.setInterval(
+    runKanbanAutoDispatchTick,
+    kanbanState.autoDispatchIntervalMs,
+  );
+  void runKanbanAutoDispatchTick();
+}
+
+function applyKanbanSettings(settings) {
+  kanbanState.autoDispatchEnabled = Boolean(settings?.auto_dispatch_enabled);
+  kanbanState.autoDispatchIntervalMs = Number(settings?.auto_dispatch_interval_ms) || 5000;
+  renderKanbanAutoDispatch();
+  syncKanbanAutoDispatchTimer();
+}
+
+async function loadKanbanSettings() {
+  if (!kanbanAutoDispatch) return;
+  try {
+    const response = await fetch("/api/kanban/settings");
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "Kanban 设置加载失败");
+    applyKanbanSettings(data.settings || {});
+  } catch (error) {
+    setKanbanStatus(error.message || "Kanban 设置加载失败", "error");
+    renderKanbanAutoDispatch();
+  }
+}
+
+async function toggleKanbanAutoDispatch() {
+  if (!kanbanAutoDispatch) return;
+  const nextEnabled = !kanbanState.autoDispatchEnabled;
+  kanbanAutoDispatch.disabled = true;
+  try {
+    const response = await fetch("/api/kanban/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ auto_dispatch_enabled: nextEnabled }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "Kanban 设置保存失败");
+    applyKanbanSettings(data.settings || {});
+    setKanbanStatus(`自动 Dispatch 已${kanbanState.autoDispatchEnabled ? "开启" : "关闭"}。`, "success");
+  } catch (error) {
+    setKanbanStatus(error.message || "Kanban 设置保存失败", "error");
+  } finally {
+    kanbanAutoDispatch.disabled = false;
   }
 }
 
@@ -2493,6 +2582,7 @@ if (openTerminalDrawer) openTerminalDrawer.addEventListener("click", openTermina
 if (terminalLaunchCard) terminalLaunchCard.addEventListener("click", openTerminalPanel);
 if (kanbanTaskForm) kanbanTaskForm.addEventListener("submit", submitKanbanTask);
 if (kanbanRefresh) kanbanRefresh.addEventListener("click", () => refreshKanbanTasks());
+if (kanbanAutoDispatch) kanbanAutoDispatch.addEventListener("click", toggleKanbanAutoDispatch);
 if (kanbanDispatch) kanbanDispatch.addEventListener("click", dispatchKanbanOnce);
 if (terminalDrawer) {
   terminalDrawer.addEventListener("click", (event) => {
@@ -2700,6 +2790,8 @@ stream.onmessage = (event) => {
 hydrateChatEvents();
 hydrateNotificationStates(window.__BOOTSTRAP__?.agents || []);
 renderKanbanTasks();
+renderKanbanAutoDispatch();
+void loadKanbanSettings();
 initTerminal();
 if (eventList?.dataset.selectedAgent) {
   const row = agentList?.querySelector(`.agent-row[data-agent-id="${CSS.escape(eventList.dataset.selectedAgent)}"]`);

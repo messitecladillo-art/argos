@@ -62,6 +62,7 @@ pip install -r requirements.txt
 | `PORT` | `5050` | HTTP 服务端口 |
 | `FLASK_DEBUG` | `0` | 调试日志开关（不启用自动 reload） |
 | `AUTO_START_AGENTS` | `1` | 项目启动时自动启动所有已就绪 Agent；设为 `0` 可关闭 |
+| `KANBAN_AUTO_DISPATCH` | `0` | 首次无持久化设置时，自动 Dispatch 开关的默认值 |
 
 ### 4. 启动
 

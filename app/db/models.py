@@ -110,6 +110,14 @@ class KanbanTaskLinkRecord(TimestampMixin, Base):
     metadata_json: Mapped[str] = mapped_column(Text, default="{}")
 
 
+class SettingRecord(TimestampMixin, Base):
+    __tablename__ = "settings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    key: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    value: Mapped[str] = mapped_column(Text, default="")
+
+
 class MessageRecord(Base):
     __tablename__ = "messages"
 
