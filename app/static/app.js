@@ -81,6 +81,7 @@ const hermesDebug = window.localStorage?.getItem("hermesDebug") !== "0";
 let activeKanbanTerminalTaskId = "";
 let kanbanTerminalLogTimer = 0;
 let agentContextMenu = null;
+let kanbanContextMenu = null;
 let deletingAgentId = "";
 let confirmModal = null;
 let resizeTimer = 0;
@@ -481,6 +482,119 @@ function showKanbanTaskLogInTerminal(link, agent) {
   refreshKanbanTaskLog(link, agent);
 }
 
+function kanbanTaskCanUnblock(link) {
+  return kanbanColumnForStatus(link?.kanban_status) === "blocked";
+}
+
+function kanbanTaskCanArchive(link) {
+  return kanbanColumnForStatus(link?.kanban_status) === "done";
+}
+
+function ensureKanbanContextMenu() {
+  if (kanbanContextMenu) return kanbanContextMenu;
+  kanbanContextMenu = document.createElement("div");
+  kanbanContextMenu.className = "agent-context-menu kanban-context-menu";
+  kanbanContextMenu.hidden = true;
+  kanbanContextMenu.innerHTML = `
+    <button class="agent-context-menu__item" type="button" data-kanban-open>
+      查看详情
+    </button>
+    <button class="agent-context-menu__item" type="button" data-kanban-unblock>
+      解除阻塞
+    </button>
+    <button class="agent-context-menu__item agent-context-menu__item--danger" type="button" data-kanban-archive>
+      删除
+    </button>
+  `;
+  kanbanContextMenu.addEventListener("click", handleKanbanContextMenuClick);
+  document.body.appendChild(kanbanContextMenu);
+  return kanbanContextMenu;
+}
+
+function currentKanbanContextLink() {
+  const taskId = kanbanContextMenu?.dataset.taskId || "";
+  return (kanbanState.links || []).find((link) => link.kanban_task_id === taskId) || null;
+}
+
+function showKanbanTaskContextMenu(event, link) {
+  event.preventDefault();
+  event.stopPropagation();
+  closeAgentContextMenu();
+  const menu = ensureKanbanContextMenu();
+  const unblockBtn = menu.querySelector("[data-kanban-unblock]");
+  const archiveBtn = menu.querySelector("[data-kanban-archive]");
+  menu.dataset.taskId = link?.kanban_task_id || "";
+  menu.dataset.localId = link?.local_id || "";
+  if (unblockBtn) {
+    const canUnblock = kanbanTaskCanUnblock(link);
+    unblockBtn.disabled = !canUnblock;
+    unblockBtn.textContent = canUnblock ? "解除阻塞" : "仅阻塞任务可解除";
+  }
+  if (archiveBtn) {
+    const canArchive = kanbanTaskCanArchive(link);
+    archiveBtn.disabled = !canArchive;
+    archiveBtn.textContent = canArchive ? "删除" : "仅已完成任务可删除";
+  }
+  positionAgentContextMenu(menu, event.clientX, event.clientY);
+}
+
+function closeKanbanContextMenu() {
+  if (!kanbanContextMenu) return;
+  kanbanContextMenu.hidden = true;
+  kanbanContextMenu.dataset.taskId = "";
+  kanbanContextMenu.dataset.localId = "";
+}
+
+async function postKanbanTaskAction(taskId, action, options = {}) {
+  const response = await fetch(`/api/kanban/tasks/${encodeURIComponent(taskId)}${action}`, options);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok) throw new Error(data.error || "Kanban 操作失败");
+  kanbanState.links = Array.isArray(data.links) ? data.links : kanbanState.links;
+  renderKanbanTasks();
+  return data;
+}
+
+async function handleKanbanContextMenuClick(event) {
+  event.stopPropagation();
+  const link = currentKanbanContextLink();
+  const taskId = link?.kanban_task_id || kanbanContextMenu?.dataset.taskId || "";
+  if (!taskId) return;
+  if (event.target.closest("[data-kanban-open]")) {
+    closeKanbanContextMenu();
+    openKanbanLinkTerminal(link);
+    return;
+  }
+  const unblockBtn = event.target.closest("[data-kanban-unblock]");
+  if (unblockBtn && !unblockBtn.disabled) {
+    unblockBtn.disabled = true;
+    try {
+      await postKanbanTaskAction(taskId, "/unblock", { method: "POST" });
+      setKanbanStatus(`已解除阻塞：${taskId}`, "success");
+      closeKanbanContextMenu();
+    } catch (error) {
+      setKanbanStatus(error.message || "解除阻塞失败", "error");
+      unblockBtn.disabled = false;
+    }
+    return;
+  }
+  const archiveBtn = event.target.closest("[data-kanban-archive]");
+  if (archiveBtn && !archiveBtn.disabled) {
+    if (!confirm(`删除已完成任务 ${taskId}？`)) {
+      closeKanbanContextMenu();
+      return;
+    }
+    archiveBtn.disabled = true;
+    try {
+      await postKanbanTaskAction(taskId, "", { method: "DELETE" });
+      setKanbanStatus(`已删除：${taskId}`, "success");
+      closeKanbanContextMenu();
+    } catch (error) {
+      setKanbanStatus(error.message || "删除失败", "error");
+      archiveBtn.disabled = false;
+    }
+  }
+}
+
 function renderKanbanTasks() {
   if (!kanbanTaskList) return;
   const links = [...(kanbanState.links || [])].sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
@@ -505,10 +619,13 @@ function renderKanbanTasks() {
     section.innerHTML = `
       <div class="kanban-column__head">
         <strong>${escapeHtml(column.title)}</strong>
+        ${column.key === "done" && items.length ? `<button class="kanban-column__clear" type="button" data-kanban-clear-done>删除所有</button>` : ""}
         <span>${items.length}</span>
       </div>
       <div class="kanban-column__body"></div>
     `;
+    const clearDoneButton = section.querySelector("[data-kanban-clear-done]");
+    if (clearDoneButton) clearDoneButton.addEventListener("click", clearDoneKanbanTasks);
     const body = section.querySelector(".kanban-column__body");
     if (!items.length) {
       body.innerHTML = `<p class="kanban-column__empty">—</p>`;
@@ -520,6 +637,7 @@ function renderKanbanTasks() {
       card.tabIndex = 0;
       card.title = "打开对应 Agent 终端";
       card.addEventListener("click", () => openKanbanLinkTerminal(link));
+      card.addEventListener("contextmenu", (event) => showKanbanTaskContextMenu(event, link));
       card.addEventListener("keydown", (event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
@@ -539,6 +657,28 @@ function renderKanbanTasks() {
     });
     kanbanTaskList.appendChild(section);
   });
+}
+
+async function clearDoneKanbanTasks(event) {
+  event.preventDefault();
+  event.stopPropagation();
+  const count = (kanbanState.links || []).filter((link) => kanbanColumnForStatus(link.kanban_status) === "done").length;
+  if (!count) return;
+  if (!confirm(`删除所有已完成 Kanban 任务（${count} 个）？`)) return;
+  const button = event.currentTarget;
+  button.disabled = true;
+  setKanbanStatus("正在删除已完成 Kanban 任务…");
+  try {
+    const response = await fetch("/api/kanban/tasks/done", { method: "DELETE" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "删除已完成任务失败");
+    kanbanState.links = Array.isArray(data.links) ? data.links : kanbanState.links;
+    renderKanbanTasks();
+    setKanbanStatus(`已删除 ${data.archived_count || count} 个已完成任务。`, "success");
+  } catch (error) {
+    setKanbanStatus(error.message || "删除已完成任务失败", "error");
+    button.disabled = false;
+  }
 }
 
 async function refreshKanbanTasks({ silent = false } = {}) {
@@ -2480,6 +2620,11 @@ function closeAgentContextMenu() {
   agentContextMenu.dataset.agentName = "";
 }
 
+function closeAllContextMenus() {
+  closeAgentContextMenu();
+  closeKanbanContextMenu();
+}
+
 function confirmAgentDismissal(agentName) {
   const name = agentName || "该 Agent";
   return confirmAction({
@@ -2625,7 +2770,8 @@ transferImportFile?.addEventListener("change", () => {
 
 document.addEventListener("click", (event) => {
   if (agentContextMenu?.contains(event.target)) return;
-  closeAgentContextMenu();
+  if (kanbanContextMenu?.contains(event.target)) return;
+  closeAllContextMenus();
 });
 
 document.addEventListener("keydown", (event) => {
@@ -2639,12 +2785,12 @@ document.addEventListener("keydown", (event) => {
     });
     return;
   }
-  if (event.key === "Escape") closeAgentContextMenu();
+  if (event.key === "Escape") closeAllContextMenus();
   if (event.key === "Escape" && terminalDrawer && !terminalDrawer.hidden) closeTerminalPanel();
   if (event.key === "Escape" && transferModal && !transferModal.hidden) closeTransferModal();
 });
 
-window.addEventListener("resize", closeAgentContextMenu);
+window.addEventListener("resize", closeAllContextMenus);
 window.addEventListener("resize", () => {
   debounceTerminalFit(120);
   window.setTimeout(fitAllTerminalSessions, 180);

@@ -122,6 +122,18 @@ class KanbanService:
             args.extend(["--max", str(max_workers)])
         return self._run_json(args)
 
+    def unblock_task(self, task_id: str) -> str:
+        return self._run(["unblock", task_id])
+
+    def archive_task(self, task_id: str) -> str:
+        return self._run(["archive", task_id])
+
+    def archive_tasks(self, task_ids: list[str]) -> str:
+        ids = [task_id for task_id in task_ids if task_id]
+        if not ids:
+            return ""
+        return self._run(["archive", *ids])
+
     def _base_args(self, *, scoped: bool = True) -> list[str]:
         if scoped:
             return ["hermes", "kanban", "--board", self.board]

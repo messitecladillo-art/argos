@@ -14,7 +14,7 @@ bp = Blueprint("kanban", __name__, url_prefix="/api/kanban")
 @bp.get("/tasks")
 def list_tasks():
     sync_worker.sync_once()
-    return jsonify({"ok": True, "links": store.snapshot().get("kanban_task_links", [])})
+    return jsonify({"ok": True, "links": _visible_kanban_links()})
 
 
 @bp.get("/tasks/<task_id>/runs")
@@ -49,6 +49,62 @@ def task_details(task_id: str):
         )
     except KanbanError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@bp.post("/tasks/<task_id>/unblock")
+def unblock_task(task_id: str):
+    try:
+        output = kanban_service.unblock_task(task_id)
+        sync_worker.sync_once()
+        return jsonify({"ok": True, "output": output, "links": _visible_kanban_links()})
+    except KanbanError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@bp.delete("/tasks/<task_id>")
+def archive_task(task_id: str):
+    try:
+        output = kanban_service.archive_task(task_id)
+        store.update_kanban_task_link(task_id, kanban_status="archived")
+        sync_worker.sync_once()
+        return jsonify({"ok": True, "output": output, "links": _visible_kanban_links()})
+    except KanbanError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@bp.delete("/tasks/done")
+def archive_done_tasks():
+    done_links = [
+        link
+        for link in _visible_kanban_links()
+        if (link.get("kanban_status") or "").lower() == "done"
+    ]
+    task_ids = [link["kanban_task_id"] for link in done_links]
+    if not task_ids:
+        return jsonify({"ok": True, "archived_count": 0, "links": _visible_kanban_links()})
+    try:
+        output = kanban_service.archive_tasks(task_ids)
+        for task_id in task_ids:
+            store.update_kanban_task_link(task_id, kanban_status="archived")
+        sync_worker.sync_once()
+        return jsonify(
+            {
+                "ok": True,
+                "output": output,
+                "archived_count": len(task_ids),
+                "links": _visible_kanban_links(),
+            }
+        )
+    except KanbanError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+def _visible_kanban_links() -> list[dict]:
+    return [
+        link
+        for link in store.snapshot().get("kanban_task_links", [])
+        if (link.get("kanban_status") or "").lower() != "archived"
+    ]
 
 
 @bp.post("/dispatch")
