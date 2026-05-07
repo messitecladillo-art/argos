@@ -23,6 +23,10 @@ const transferInspectSubmit = document.getElementById("transfer-inspect-submit")
 const transferImportSubmit = document.getElementById("transfer-import-submit");
 const transferImportStatus = document.getElementById("transfer-import-status");
 const transferImportPreview = document.getElementById("transfer-import-preview");
+const openTerminalDrawer = document.getElementById("open-terminal-drawer");
+const terminalLaunchCard = document.getElementById("terminal-launch-card");
+const terminalLaunchAgent = document.getElementById("terminal-launch-agent");
+const terminalDrawer = document.getElementById("terminal-drawer");
 const openHistoryDrawer = document.getElementById("open-history-drawer");
 const historyDrawer = document.getElementById("history-drawer");
 const historyDrawerAgent = document.getElementById("history-drawer-agent");
@@ -673,6 +677,28 @@ function openHistoryPanel() {
 function closeHistoryPanel() {
   if (!historyDrawer || historyDrawer.hidden) return;
   closeAnimatedLayer(historyDrawer);
+}
+
+function fitTerminalDrawer() {
+  scheduleTerminalFit(0);
+  scheduleTerminalFit(80);
+  window.setTimeout(fitAllTerminalSessions, 180);
+}
+
+function openTerminalPanel() {
+  if (!terminalDrawer) return;
+  openAnimatedLayer(terminalDrawer);
+  const agentId = eventList?.dataset.selectedAgent || "";
+  if (agentId) {
+    const session = ensureTerminalSession(agentId);
+    if (session && (!session.ws || session.ws.readyState > WebSocket.OPEN)) connectTerminalSession(session);
+  }
+  fitTerminalDrawer();
+}
+
+function closeTerminalPanel() {
+  if (!terminalDrawer || terminalDrawer.hidden) return;
+  closeAnimatedLayer(terminalDrawer);
 }
 
 function setSoulStatus(message, kind = "muted") {
@@ -2046,6 +2072,7 @@ function setSelectedAgent(agentId, agentName, force = false) {
   eventList.dataset.selectedAgent = agentId;
   renderInteractions();
   if (terminalTitle) terminalTitle.textContent = agentId ? `${name} · Hermes Terminal` : "Agent Terminal";
+  if (terminalLaunchAgent) terminalLaunchAgent.textContent = `当前终端：${name}`;
   const session = ensureTerminalSession(agentId);
   terminalSessions.forEach((item, key) => {
     item.pane.classList.toggle("is-active", key === agentId);
@@ -2389,6 +2416,7 @@ document.addEventListener("keydown", (event) => {
     return;
   }
   if (event.key === "Escape") closeAgentContextMenu();
+  if (event.key === "Escape" && terminalDrawer && !terminalDrawer.hidden) closeTerminalPanel();
   if (event.key === "Escape" && transferModal && !transferModal.hidden) closeTransferModal();
 });
 
@@ -2461,9 +2489,18 @@ if (openCreateAgent) {
   }, 300);
 }
 if (openHistoryDrawer) openHistoryDrawer.addEventListener("click", openHistoryPanel);
+if (openTerminalDrawer) openTerminalDrawer.addEventListener("click", openTerminalPanel);
+if (terminalLaunchCard) terminalLaunchCard.addEventListener("click", openTerminalPanel);
 if (kanbanTaskForm) kanbanTaskForm.addEventListener("submit", submitKanbanTask);
 if (kanbanRefresh) kanbanRefresh.addEventListener("click", () => refreshKanbanTasks());
 if (kanbanDispatch) kanbanDispatch.addEventListener("click", dispatchKanbanOnce);
+if (terminalDrawer) {
+  terminalDrawer.addEventListener("click", (event) => {
+    if (event.target instanceof HTMLElement && event.target.dataset.closeTerminal !== undefined) {
+      closeTerminalPanel();
+    }
+  });
+}
 if (historyDrawer) {
   historyDrawer.addEventListener("click", (event) => {
     if (event.target instanceof HTMLElement && event.target.dataset.closeHistory !== undefined) {

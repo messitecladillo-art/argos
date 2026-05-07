@@ -59,6 +59,11 @@
   grid-template-rows: auto minmax(0, 1fr);
 }
 
+.terminal-shell--drawer {
+  width: 100%;
+  min-height: 0;
+}
+
 .terminal-shell::-webkit-scrollbar {
   display: none;
 }
@@ -142,7 +147,12 @@
     height: 540px;
   }
 
+  .terminal-shell--drawer {
+    height: 100%;
+  }
+
   .history-drawer__panel,
+  .terminal-drawer__panel,
   .soul-drawer__panel,
   .skills-drawer__panel {
     width: 100vw;

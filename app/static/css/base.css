@@ -454,9 +454,11 @@ label span,
 }
 
 .output {
-  display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 12px;
+  overflow: auto;
+  min-height: 0;
 }
 
 .kanban-console {
@@ -640,6 +642,61 @@ label span,
   border: 1px solid rgba(246, 207, 117, 0.18);
   font-size: 0.62rem;
   letter-spacing: 0;
+}
+
+.realtime-head {
+  margin-bottom: 0;
+}
+
+.realtime-head__actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.terminal-launch-card {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 74px;
+  padding: 16px 18px;
+  border: 1px solid rgba(217, 154, 33, 0.28);
+  border-radius: 18px;
+  background: rgba(0, 0, 0, 0.42);
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 180ms ease, background 180ms ease, transform 180ms ease;
+}
+
+.terminal-launch-card:hover {
+  border-color: var(--panel-edge-strong);
+  background: rgba(217, 154, 33, 0.1);
+  transform: translateY(-1px);
+}
+
+.terminal-launch-card span:last-child {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.terminal-launch-card strong,
+.terminal-launch-card small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.terminal-launch-card strong {
+  font-size: 0.98rem;
+}
+
+.terminal-launch-card small {
+  color: var(--muted);
+  font-family: "JetBrains Mono", monospace;
+  font-size: 0.78rem;
 }
 
 .history-button {

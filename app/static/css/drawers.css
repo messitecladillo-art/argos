@@ -1,4 +1,5 @@
 .history-drawer,
+.terminal-drawer,
 .soul-drawer,
 .skills-drawer {
   position: fixed;
@@ -8,6 +9,7 @@
 }
 
 .history-drawer__backdrop,
+.terminal-drawer__backdrop,
 .soul-drawer__backdrop,
 .skills-drawer__backdrop {
   position: absolute;
@@ -17,6 +19,7 @@
 }
 
 .history-drawer__panel,
+.terminal-drawer__panel,
 .soul-drawer__panel,
 .skills-drawer__panel {
   position: absolute;
@@ -35,24 +38,28 @@
 }
 
 .history-drawer.is-open,
+.terminal-drawer.is-open,
 .soul-drawer.is-open,
 .skills-drawer.is-open {
   pointer-events: auto;
 }
 
 .history-drawer.is-open .history-drawer__backdrop,
+.terminal-drawer.is-open .terminal-drawer__backdrop,
 .soul-drawer.is-open .soul-drawer__backdrop,
 .skills-drawer.is-open .skills-drawer__backdrop {
   background: rgba(2, 2, 1, 0.48);
 }
 
 .history-drawer.is-open .history-drawer__panel,
+.terminal-drawer.is-open .terminal-drawer__panel,
 .soul-drawer.is-open .soul-drawer__panel,
 .skills-drawer.is-open .skills-drawer__panel {
   transform: translateX(0);
 }
 
 .history-drawer__head,
+.terminal-drawer__head,
 .soul-drawer__head,
 .skills-drawer__head {
   display: flex;
@@ -62,6 +69,7 @@
 }
 
 .history-drawer__head h2,
+.terminal-drawer__head h2,
 .soul-drawer__head h2,
 .skills-drawer__head h2 {
   margin: 0;
@@ -69,11 +77,21 @@
 }
 
 .history-drawer__head p,
+.terminal-drawer__head p,
 .soul-drawer__head p,
 .skills-drawer__head p {
   margin: 4px 0 0;
   color: var(--muted);
   font-size: 0.82rem;
+}
+
+.terminal-drawer[hidden] {
+  display: none;
+}
+
+.terminal-drawer__panel {
+  width: min(1180px, calc(100vw - 28px));
+  grid-template-rows: auto minmax(0, 1fr);
 }
 
 .history-drawer .interaction-list {

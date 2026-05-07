@@ -152,30 +152,61 @@
             <p class="empty-hint" id="kanban-task-empty">还没有 Kanban 任务。</p>
           </div>
 
-          <div class="section-head">
+          <div class="section-head realtime-head">
             <div>
               <h2>实时消息</h2>
+              <p class="section-kicker">Hermes Terminal</p>
             </div>
-            <button class="filter-chip history-button" type="button" id="open-history-drawer">
-              历史记录
-            </button>
+            <div class="realtime-head__actions">
+              <button class="filter-chip" type="button" id="open-terminal-drawer">
+                打开终端
+              </button>
+              <button class="filter-chip history-button" type="button" id="open-history-drawer">
+                历史记录
+              </button>
+            </div>
           </div>
 
-          <div
-            class="terminal-shell"
-            id="terminal-shell"
-            data-selected-agent="{{ message_target.agent_id if message_target else '' }}"
-          >
-            <div class="terminal-toolbar">
-              <span class="terminal-dot"></span>
-              <span id="terminal-title">Agent Terminal</span>
-            </div>
-            <div class="terminal-viewport" id="terminal-viewport"></div>
-          </div>
+          <button class="terminal-launch-card" type="button" id="terminal-launch-card">
+            <span class="terminal-dot"></span>
+            <span>
+              <strong>打开大窗口查看实时输出</strong>
+              <small id="terminal-launch-agent">当前终端：{{ message_target.name if message_target else '尚未选择 Agent' }}</small>
+            </span>
+          </button>
           <p class="empty-hint" id="event-empty" hidden>暂无终端输出。</p>
         </section>
       </section>
     </main>
+
+    <div class="terminal-drawer" id="terminal-drawer" hidden>
+      <div class="terminal-drawer__backdrop" data-close-terminal></div>
+      <aside
+        class="terminal-drawer__panel panel"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="terminal-drawer-title"
+      >
+        <div class="terminal-drawer__head">
+          <div>
+            <h2 id="terminal-drawer-title">实时消息</h2>
+            <p>Hermes Terminal</p>
+          </div>
+          <button class="modal__close" type="button" data-close-terminal aria-label="close">×</button>
+        </div>
+        <div
+          class="terminal-shell terminal-shell--drawer"
+          id="terminal-shell"
+          data-selected-agent="{{ message_target.agent_id if message_target else '' }}"
+        >
+          <div class="terminal-toolbar">
+            <span class="terminal-dot"></span>
+            <span id="terminal-title">Agent Terminal</span>
+          </div>
+          <div class="terminal-viewport" id="terminal-viewport"></div>
+        </div>
+      </aside>
+    </div>
 
     <div class="history-drawer" id="history-drawer" hidden>
       <div class="history-drawer__backdrop" data-close-history></div>
