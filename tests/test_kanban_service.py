@@ -28,10 +28,11 @@ def test_create_task_uses_board_json_and_idempotency(monkeypatch):
     )
 
     assert extract_task_id(payload) == "kb_1"
-    assert calls[0][:4] == ["hermes", "kanban", "--board", "team-board"]
-    assert "--json" in calls[0]
-    assert ["--idempotency-key", "assignment:asg_1"][0] in calls[0]
-    assert "kb_parent" in calls[0]
+    create_call = calls[-1]
+    assert create_call[:4] == ["hermes", "kanban", "--board", "team-board"]
+    assert "--json" in create_call
+    assert ["--idempotency-key", "assignment:asg_1"][0] in create_call
+    assert "kb_parent" in create_call
 
 
 def test_cli_error_becomes_kanban_error(monkeypatch):

@@ -48,7 +48,7 @@ def test_kanban_settings_api_get_put(monkeypatch, tmp_path):
     assert response.status_code == 200
     assert response.get_json()["settings"] == {
         "auto_dispatch_enabled": False,
-        "auto_dispatch_interval_ms": 5000,
+        "auto_dispatch_interval_ms": 2000,
     }
 
     response = client.put("/api/kanban/settings", json={"auto_dispatch_enabled": True})

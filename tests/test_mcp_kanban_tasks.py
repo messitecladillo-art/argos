@@ -47,12 +47,18 @@ def test_leader_creates_worker_kanban_tasks(monkeypatch, tmp_path):
     monkeypatch.setattr(mcp_server, "store", runtime_store)
 
     calls = []
+    completed = []
 
     def fake_create_task(title, **kwargs):
         calls.append({"title": title, **kwargs})
         return {"task_id": f"kb_worker_{len(calls)}", "status": "ready"}
 
+    def fake_complete_task(task_id, **kwargs):
+        completed.append({"task_id": task_id, **kwargs})
+        return "completed"
+
     monkeypatch.setattr(mcp_server.kanban_service, "create_task", fake_create_task, raising=False)
+    monkeypatch.setattr(mcp_server.kanban_service, "complete_task", fake_complete_task, raising=False)
 
     result = mcp_server.create_kanban_worker_tasks(
         assignments=[{"to_agent_id": "agent_dev", "content": "Implement", "title": "Implement API"}],
@@ -62,11 +68,57 @@ def test_leader_creates_worker_kanban_tasks(monkeypatch, tmp_path):
     )
 
     assert result["ok"] is True
+    assert result["parent_completed"] is True
     assert result["assignments"][0]["kanban_task_id"] == "kb_worker_1"
     assert calls[0]["assignee"] == "dev_profile"
     assert calls[0]["parent"] == "kb_parent"
     assert calls[0]["workspace"] == f"dir:{workspace_path}"
+    assert calls[0]["idempotency_key"] == f"user-task-worker:{task['user_task_id']}:agent_dev"
+    assert completed[0]["task_id"] == "kb_parent"
+    assert completed[0]["metadata"]["dispatch_phase_completed"] is True
+    assert runtime_store.find_kanban_task_link(kanban_task_id="kb_parent")["kanban_status"] == "done"
     assert workspace_path.is_dir()
+
+
+def test_kanban_worker_task_creation_is_idempotent_for_user_task(monkeypatch, tmp_path):
+    runtime_store = RuntimeStore()
+    runtime_store.register_agent(_agent("agent_lead", "lead", "leader"))
+    workspace_path = tmp_path / "dev_profile"
+    runtime_store.register_agent(_agent("agent_dev", "dev_profile", "worker", str(workspace_path)))
+    task = runtime_store.create_user_task(leader_agent_id="agent_lead", content="Build")
+    runtime_store.upsert_kanban_task_link(
+        local_type="user_task",
+        local_id=task["user_task_id"],
+        kanban_task_id="kb_parent",
+        kanban_role="parent",
+    )
+    monkeypatch.setattr(mcp_server, "store", runtime_store)
+
+    calls = []
+    monkeypatch.setattr(
+        mcp_server.kanban_service,
+        "create_task",
+        lambda title, **kwargs: calls.append({"title": title, **kwargs})
+        or {"task_id": f"kb_worker_{len(calls)}", "status": "ready"},
+        raising=False,
+    )
+    monkeypatch.setattr(mcp_server.kanban_service, "complete_task", lambda *args, **kwargs: "completed", raising=False)
+
+    first = mcp_server.create_kanban_worker_tasks(
+        assignments=[{"to_agent_id": "agent_dev", "content": "Implement"}],
+        from_agent_id="agent_lead",
+        user_task_id=task["user_task_id"],
+    )
+    second = mcp_server.create_kanban_worker_tasks(
+        assignments=[{"to_agent_id": "agent_dev", "content": "Implement again"}],
+        from_agent_id="agent_lead",
+        user_task_id=task["user_task_id"],
+    )
+
+    assert first["idempotent"] is False
+    assert second["idempotent"] is True
+    assert second["assignments"][0]["kanban_task_id"] == first["assignments"][0]["kanban_task_id"]
+    assert len(calls) == 1
 
 
 def test_list_workers_does_not_expose_workspace(monkeypatch):

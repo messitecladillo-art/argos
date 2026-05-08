@@ -57,12 +57,16 @@ def test_messages_create_kanban_parent_without_acp(monkeypatch, tmp_path):
     data = response.get_json()
     assert data["message"]["user_task_id"] == "ut_0001"
     assert data["message"]["kanban_task_id"] == "kb_parent"
-    assert created["assignee"] == "leader_profile"
+    assert created["assignee"] is None
     assert created["workspace"] == f"dir:{workspace_path}"
     assert workspace_path.is_dir()
     assert "mcp_agent_bus_create_kanban_worker_tasks" in created["body"]
-    assert runtime_store.find_kanban_task_link(
+    assert "创建 worker 子任务后，必须立即调用 kanban_complete" in created["body"]
+    assert "调度阶段已完成" in created["body"]
+    link = runtime_store.find_kanban_task_link(
         local_type="user_task",
         local_id="ut_0001",
         kanban_role="parent",
-    )["kanban_task_id"] == "kb_parent"
+    )
+    assert link["kanban_task_id"] == "kb_parent"
+    assert link["assignee_profile"] == "leader_profile"

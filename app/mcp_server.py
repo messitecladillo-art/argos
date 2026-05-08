@@ -161,6 +161,22 @@ def create_kanban_worker_tasks(
         parent_task_id,
         len(assignments),
     )
+    existing_dispatch = _existing_worker_dispatch(resolved_user_task_id, parent_task_id)
+    if existing_dispatch:
+        return {
+            "ok": True,
+            "idempotent": True,
+            "delegation_id": existing_dispatch["delegation_id"],
+            "status": "waiting_workers",
+            "from_agent_id": sender_agent_id,
+            "user_task_id": resolved_user_task_id,
+            "parent_task_id": parent_task_id,
+            "dispatched_count": len(existing_dispatch["assignments"]),
+            "pending_count": len(existing_dispatch["assignments"]),
+            "parent_completed": False,
+            "assignments": existing_dispatch["assignments"],
+            "note": "同一用户任务已存在 Kanban worker 子任务；已返回现有派发结果，避免重复创建。",
+        }
     for assignment in assignments:
         worker_id = (assignment.get("to_agent_id") or "").strip()
         if not worker_id:
@@ -192,7 +208,11 @@ def create_kanban_worker_tasks(
             parent=parent_task_id or None,
             workspace=workspace_for_agent(worker),
             priority=_assignment_priority(assignments, assignment),
-            idempotency_key=f"assignment:{assignment['assignment_id']}",
+            idempotency_key=_worker_idempotency_key(
+                user_task_id=resolved_user_task_id,
+                parent_task_id=parent_task_id,
+                assignment=assignment,
+            ),
         )
         kanban_task_id = extract_task_id(kanban_task)
         store.upsert_kanban_task_link(
@@ -203,7 +223,11 @@ def create_kanban_worker_tasks(
             kanban_status=task_status(kanban_task) or "ready",
             assignee_profile=worker["profile_name"],
             parent_local_id=resolved_user_task_id or delegation["delegation_id"],
-            metadata={"delegation_id": delegation["delegation_id"], "task_title": task_title},
+            metadata={
+                "delegation_id": delegation["delegation_id"],
+                "task_title": task_title,
+                "parent_task_id": parent_task_id,
+            },
         )
         store.attach_assignment_message(
             delegation["delegation_id"],
@@ -222,9 +246,16 @@ def create_kanban_worker_tasks(
         )
     if resolved_user_task_id:
         store.close_user_task_dispatch(resolved_user_task_id)
+    parent_completed = _complete_parent_dispatch_task(
+        parent_task_id=parent_task_id,
+        user_task_id=resolved_user_task_id,
+        delegation_id=delegation["delegation_id"],
+        dispatched=dispatched,
+    )
     dispatch_worker.trigger_async()
     return {
         "ok": True,
+        "idempotent": False,
         "delegation_id": delegation["delegation_id"],
         "status": "waiting_workers",
         "from_agent_id": sender_agent_id,
@@ -232,6 +263,7 @@ def create_kanban_worker_tasks(
         "parent_task_id": parent_task_id,
         "dispatched_count": len(dispatched),
         "pending_count": len(dispatched),
+        "parent_completed": parent_completed,
         "assignments": dispatched,
         "note": "已创建 Kanban worker 子任务；gateway 会执行，平台会在全部完成后创建 leader 汇总任务。",
     }
@@ -251,6 +283,137 @@ def _resolve_user_task_id(leader_agent_id: str, user_task_id: str) -> str | None
         return None
     active.sort(key=lambda item: item.get("created_at") or "", reverse=True)
     return active[0]["user_task_id"]
+
+
+def _existing_worker_dispatch(user_task_id: str | None, parent_task_id: str) -> dict | None:
+    if not user_task_id and not parent_task_id:
+        return None
+    links = [
+        link
+        for link in store.snapshot().get("kanban_task_links", [])
+        if link.get("kanban_role") == "worker"
+        and (link.get("kanban_status") or "").lower() != "archived"
+        and (
+            (user_task_id and link.get("parent_local_id") == user_task_id)
+            or (parent_task_id and (link.get("metadata") or {}).get("parent_task_id") == parent_task_id)
+        )
+    ]
+    if not links:
+        return None
+    assignments = []
+    delegation_ids = []
+    snapshot = store.snapshot()
+    for link in links:
+        metadata = link.get("metadata") or {}
+        delegation_id = metadata.get("delegation_id") or ""
+        if delegation_id and delegation_id not in delegation_ids:
+            delegation_ids.append(delegation_id)
+        assignment = _find_assignment(snapshot, delegation_id, link.get("local_id") or "")
+        assignments.append(
+            {
+                "assignment_id": link.get("local_id"),
+                "message_id": None,
+                "kanban_task_id": link.get("kanban_task_id"),
+                "to_agent_id": (assignment or {}).get("worker_agent_id"),
+                "to_name": (assignment or {}).get("worker_name") or link.get("assignee_profile"),
+                "assignee_profile": link.get("assignee_profile"),
+            }
+        )
+    return {
+        "delegation_id": delegation_ids[0] if len(delegation_ids) == 1 else ",".join(delegation_ids),
+        "assignments": assignments,
+    }
+
+
+def _find_assignment(snapshot: dict, delegation_id: str, assignment_id: str) -> dict | None:
+    if not delegation_id or not assignment_id:
+        return None
+    for delegation in snapshot.get("delegations", []):
+        if delegation.get("delegation_id") != delegation_id:
+            continue
+        for assignment in delegation.get("assignments") or []:
+            if assignment.get("assignment_id") == assignment_id:
+                return assignment
+    return None
+
+
+def _worker_idempotency_key(
+    *,
+    user_task_id: str | None,
+    parent_task_id: str,
+    assignment: dict,
+) -> str:
+    if user_task_id:
+        return f"user-task-worker:{user_task_id}:{assignment['worker_agent_id']}"
+    if parent_task_id:
+        return f"parent-worker:{parent_task_id}:{assignment['worker_agent_id']}"
+    return f"assignment:{assignment['assignment_id']}"
+
+
+def _complete_parent_dispatch_task(
+    *,
+    parent_task_id: str,
+    user_task_id: str | None,
+    delegation_id: str,
+    dispatched: list[dict],
+) -> bool:
+    if not parent_task_id:
+        return False
+    summary = f"已创建 {len(dispatched)} 个 worker Kanban 子任务，等待全部完成后平台会创建 leader 汇总任务。"
+    metadata = {
+        "dispatch_phase_completed": True,
+        "user_task_id": user_task_id,
+        "delegation_id": delegation_id,
+        "dispatched_count": len(dispatched),
+        "assignments": [
+            {
+                "assignment_id": item.get("assignment_id"),
+                "agent_id": item.get("to_agent_id"),
+                "kanban_task_id": item.get("kanban_task_id"),
+            }
+            for item in dispatched
+        ],
+    }
+    try:
+        kanban_service.complete_task(
+            parent_task_id,
+            result=summary,
+            summary=summary,
+            metadata=metadata,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[agent-mcp] parent dispatch complete failed task=%s error=%s", parent_task_id, exc)
+        store.push_event(
+            "kanban.parent.complete.failed",
+            "",
+            parent_task_id,
+            {"text": f"父 Kanban 任务调度阶段完成兜底失败：{exc}"},
+        )
+        return False
+    parent_link = store.find_kanban_task_link(kanban_task_id=parent_task_id)
+    if parent_link is not None:
+        metadata_patch = dict(parent_link.get("metadata") or {})
+        metadata_patch.update(
+            {
+                "dispatch_phase_completed": True,
+                "delegation_id": delegation_id,
+                "worker_task_ids": [item.get("kanban_task_id") for item in dispatched],
+            }
+        )
+        store.update_kanban_task_link(
+            parent_task_id,
+            kanban_status="done",
+            last_result=summary,
+            last_summary=summary,
+            metadata=metadata_patch,
+        )
+    store.push_event(
+        "kanban.parent.dispatch.completed",
+        "",
+        parent_task_id,
+        {"text": summary, "metadata": metadata},
+    )
+    return True
 
 
 def _assignment_title(raw_assignments: list[dict], assignment: dict) -> str:
