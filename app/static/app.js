@@ -612,7 +612,13 @@ async function handleKanbanContextMenuClick(event) {
   }
   const archiveBtn = event.target.closest("[data-kanban-archive]");
   if (archiveBtn && !archiveBtn.disabled) {
-    if (!confirm(`删除已完成任务 ${taskId}？`)) {
+    const confirmed = await confirmAction({
+      title: "确认删除",
+      message: `删除已完成任务 ${taskId}？`,
+      confirmText: "删除",
+      confirmVariant: "danger",
+    });
+    if (!confirmed) {
       closeKanbanContextMenu();
       return;
     }
@@ -698,7 +704,13 @@ async function clearDoneKanbanTasks(event) {
   event.stopPropagation();
   const count = (kanbanState.links || []).filter((link) => kanbanColumnForStatus(link.kanban_status) === "done").length;
   if (!count) return;
-  if (!confirm(`删除所有已完成 Kanban 任务（${count} 个）？`)) return;
+  const confirmed = await confirmAction({
+    title: "确认删除",
+    message: `删除所有已完成团队任务（${count} 个）？`,
+    confirmText: "删除",
+    confirmVariant: "danger",
+  });
+  if (!confirmed) return;
   const button = event.currentTarget;
   button.disabled = true;
   setKanbanStatus("正在删除已完成 Kanban 任务…");
