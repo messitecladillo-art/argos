@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import time
+
 from app.models.store import RuntimeStore
 from app.services.kanban_dispatch import KanbanDispatchWorker
 
@@ -29,7 +31,7 @@ def test_dispatch_skips_when_no_local_dispatchable_tasks():
         local_id="ut_1",
         kanban_task_id="kb_1",
         kanban_role="parent",
-        kanban_status="running",
+        kanban_status="done",
         assignee_profile="leader",
     )
     service = FakeKanban()
@@ -39,6 +41,29 @@ def test_dispatch_skips_when_no_local_dispatchable_tasks():
 
     assert outcome == {"skipped": True, "released_count": 0, "result": None}
     assert service.dispatched == 0
+
+
+def test_dispatch_runs_housekeeping_for_local_running_tasks():
+    runtime_store = RuntimeStore()
+    runtime_store.upsert_kanban_task_link(
+        local_type="user_task",
+        local_id="ut_1",
+        kanban_task_id="kb_1",
+        kanban_role="parent",
+        kanban_status="running",
+        assignee_profile="leader",
+        metadata={"dispatch_started_at": time.time() - 60},
+    )
+    service = FakeKanban()
+    service.tasks["kb_1"] = {"status": "running"}
+    service.dispatch_result = {"crashed": ["kb_1"], "spawned": [{"task_id": "kb_1"}]}
+    worker = KanbanDispatchWorker(runtime_store=runtime_store, service=service)
+
+    outcome = worker.dispatch_now()
+
+    assert outcome["skipped"] is False
+    assert service.dispatched == 1
+    assert runtime_store.find_kanban_task_link(kanban_task_id="kb_1")["kanban_status"] == "running"
 
 
 def test_dispatch_runs_after_releasing_pending_task():

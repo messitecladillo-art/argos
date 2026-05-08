@@ -120,7 +120,11 @@ class KanbanSyncWorker:
         status = task_status(task)
         local_status = (link.get("kanban_status") or "").lower()
         remote_status = (status or "").lower()
-        if local_status in TERMINAL_STATUSES and remote_status not in TERMINAL_STATUSES:
+        if (
+            local_status in TERMINAL_STATUSES
+            and remote_status not in TERMINAL_STATUSES
+            and not _task_was_unblocked(task)
+        ):
             logger.warning(
                 "[kanban-sync] ignore terminal rollback task=%s local=%s remote=%s",
                 task_id,
@@ -364,6 +368,16 @@ def _task_has_started(task: dict[str, Any]) -> bool:
     nested = task.get("task")
     if isinstance(nested, dict):
         return _task_has_started(nested)
+    return False
+
+
+def _task_was_unblocked(task: dict[str, Any]) -> bool:
+    events = task.get("events")
+    if isinstance(events, list):
+        return any(isinstance(event, dict) and event.get("kind") == "unblocked" for event in events)
+    nested = task.get("task")
+    if isinstance(nested, dict):
+        return _task_was_unblocked(nested)
     return False
 
 

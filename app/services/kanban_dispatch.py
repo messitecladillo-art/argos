@@ -13,6 +13,7 @@ from .settings import settings_service
 
 logger = logging.getLogger("hermes.agent_state")
 DISPATCH_LEASE_SECONDS = 300
+RUNNING_HOUSEKEEPING_SECONDS = 30
 
 
 class KanbanDispatchWorker:
@@ -76,7 +77,8 @@ class KanbanDispatchWorker:
             released_count = self._release_one_pending_dispatch_task()
             self._sync_ready_links()
             dispatchable = self._dispatchable_tasks()
-            if not dispatchable:
+            running_housekeeping = self._running_tasks_due_for_housekeeping()
+            if not dispatchable and not running_housekeeping:
                 logger.info("[kanban-dispatch] skip reason=no_dispatchable released=%s", released_count)
                 return {"skipped": True, "released_count": 0, "result": None}
             effective_max_workers = max_workers if max_workers is not None else max(1, len(dispatchable))
@@ -88,6 +90,7 @@ class KanbanDispatchWorker:
             )
             result = self.service.dispatch_once(max_workers=effective_max_workers)
             self._mark_dispatched(dispatchable, result)
+            self._mark_running_housekeeping(running_housekeeping)
             return {"skipped": False, "released_count": released_count, "result": result}
         finally:
             self._lock.release()
@@ -119,6 +122,36 @@ class KanbanDispatchWorker:
             )
             return True
         return False
+
+    def _running_tasks_due_for_housekeeping(self) -> list[dict]:
+        now = time.time()
+        due = []
+        for link in self.store.snapshot().get("kanban_task_links", []) or []:
+            if (link.get("kanban_status") or "").lower() != "running":
+                continue
+            if not link.get("assignee_profile") or not link.get("kanban_task_id"):
+                continue
+            metadata = link.get("metadata") or {}
+            checked_at = metadata.get("running_housekeeping_at") or metadata.get("dispatch_started_at")
+            try:
+                age = now - float(checked_at)
+            except (TypeError, ValueError):
+                due.append(link)
+                continue
+            if age >= RUNNING_HOUSEKEEPING_SECONDS:
+                due.append(link)
+        return due
+
+    def _mark_running_housekeeping(self, links: list[dict]) -> None:
+        checked_at = time.time()
+        for link in links:
+            task_id = link.get("kanban_task_id") or ""
+            if not task_id:
+                continue
+            self.store.update_kanban_task_link(
+                task_id,
+                metadata={**(link.get("metadata") or {}), "running_housekeeping_at": checked_at},
+            )
 
     def _mark_dispatched(self, links: list[dict], result: Any) -> None:
         spawned_ids = _spawned_task_ids(result)

@@ -128,3 +128,29 @@ def test_sync_does_not_roll_terminal_task_back_to_ready():
     worker.sync_once()
 
     assert runtime_store.find_kanban_task_link(kanban_task_id="kb_parent")["kanban_status"] == "done"
+
+
+def test_sync_allows_unblocked_terminal_task_to_return_to_ready():
+    runtime_store = RuntimeStore()
+    runtime_store.upsert_kanban_task_link(
+        local_type="user_task",
+        local_id="ut_1",
+        kanban_task_id="kb_parent",
+        kanban_role="parent",
+        kanban_status="gave_up",
+        assignee_profile="lead",
+    )
+    service = FakeKanban(
+        {
+            "kb_parent": {
+                "task_id": "kb_parent",
+                "status": "ready",
+                "events": [{"kind": "unblocked"}],
+            }
+        }
+    )
+    worker = KanbanSyncWorker(runtime_store=runtime_store, service=service, interval=1)
+
+    worker.sync_once()
+
+    assert runtime_store.find_kanban_task_link(kanban_task_id="kb_parent")["kanban_status"] == "ready"

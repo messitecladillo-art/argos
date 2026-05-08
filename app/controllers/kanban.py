@@ -123,7 +123,14 @@ def _archive_column(column_key: str):
 def unblock_task(task_id: str):
     try:
         output = kanban_service.unblock_task(task_id)
+        link = store.find_kanban_task_link(kanban_task_id=task_id)
+        if link:
+            metadata = dict(link.get("metadata") or {})
+            metadata.pop("dispatch_started_at", None)
+            metadata.pop("running_housekeeping_at", None)
+            store.update_kanban_task_link(task_id, kanban_status="ready", metadata=metadata)
         sync_worker.sync_once()
+        dispatch_worker.trigger_async()
         return jsonify({"ok": True, "output": output, "links": _visible_kanban_links()})
     except KanbanError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
