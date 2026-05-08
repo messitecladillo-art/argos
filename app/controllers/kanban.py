@@ -4,6 +4,7 @@ from flask import Blueprint, jsonify, request
 
 from ..models.store import store
 from ..services.kanban import KanbanError, kanban_service
+from ..services.kanban_dispatch import dispatch_worker
 from ..services.kanban_sync import sync_worker
 from ..services.settings import settings_service
 
@@ -109,42 +110,19 @@ def _visible_kanban_links() -> list[dict]:
 
 @bp.post("/dispatch")
 def dispatch_once():
-    max_workers = request.get_json(silent=True) or {}
+    payload = request.get_json(silent=True) or {}
     try:
-        released_count = _release_pending_dispatch_tasks()
+        outcome = dispatch_worker.dispatch_now(max_workers=payload.get("max_workers"))
         return jsonify(
             {
                 "ok": True,
-                "released_count": released_count,
-                "result": kanban_service.dispatch_once(
-                    max_workers=max_workers.get("max_workers")
-                ),
+                "released_count": outcome.get("released_count", 0),
+                "result": outcome.get("result"),
+                "skipped": outcome.get("skipped", False),
             }
         )
     except KanbanError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
-
-
-def _release_pending_dispatch_tasks() -> int:
-    released_count = 0
-    for link in _visible_kanban_links():
-        if (link.get("kanban_status") or "").lower() != "pending_dispatch":
-            continue
-        assignee = link.get("assignee_profile") or ""
-        task_id = link.get("kanban_task_id") or ""
-        if not assignee or not task_id:
-            continue
-        kanban_service.assign_task(task_id, assignee)
-        store.update_kanban_task_link(
-            task_id,
-            kanban_status="ready",
-            metadata={**(link.get("metadata") or {}), "pending_dispatch": False},
-        )
-        released_count += 1
-        break
-    if released_count:
-        sync_worker.sync_once_async()
-    return released_count
 
 
 @bp.get("/settings")

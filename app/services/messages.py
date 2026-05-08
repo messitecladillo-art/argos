@@ -4,6 +4,7 @@ import logging
 
 from ..models.store import RuntimeStore
 from .kanban import extract_task_id, kanban_service, task_status
+from .kanban_dispatch import dispatch_worker
 from .kanban_workspace import workspace_for_agent
 
 
@@ -121,6 +122,7 @@ def send_user_task(store: RuntimeStore, *, content: str) -> dict:
         kanban_task_id,
         len(content),
     )
+    dispatch_worker.trigger_async()
     return {
         "message_id": None,
         "content": content,

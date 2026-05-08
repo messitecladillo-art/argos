@@ -13,6 +13,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .models.store import store
 from .services.kanban import extract_task_id, kanban_service, task_status
+from .services.kanban_dispatch import dispatch_worker
 from .services.kanban_workspace import workspace_for_agent
 
 mcp = FastMCP("hermes-agents", streamable_http_path="/")
@@ -221,6 +222,7 @@ def create_kanban_worker_tasks(
         )
     if resolved_user_task_id:
         store.close_user_task_dispatch(resolved_user_task_id)
+    dispatch_worker.trigger_async()
     return {
         "ok": True,
         "delegation_id": delegation["delegation_id"],

@@ -7,6 +7,7 @@ from .mcp_server import start_session_manager
 from .models.store import store
 from .services.autostart import start_ready_agents_on_boot
 from .services import registry
+from .services.kanban_dispatch import dispatch_worker
 from .services.kanban_sync import sync_worker
 
 
@@ -41,4 +42,5 @@ def create_app() -> Flask:
     start_ready_agents_on_boot()
     start_session_manager()
     sync_worker.start()
+    dispatch_worker.start()
     return app
