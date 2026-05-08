@@ -13,7 +13,7 @@ bp = Blueprint("kanban", __name__, url_prefix="/api/kanban")
 
 @bp.get("/tasks")
 def list_tasks():
-    sync_worker.sync_once()
+    sync_worker.sync_once_async()
     return jsonify({"ok": True, "links": _visible_kanban_links()})
 
 
@@ -141,6 +141,8 @@ def _release_pending_dispatch_tasks() -> int:
             metadata={**(link.get("metadata") or {}), "pending_dispatch": False},
         )
         released_count += 1
+    if released_count:
+        sync_worker.sync_once_async()
     return released_count
 
 

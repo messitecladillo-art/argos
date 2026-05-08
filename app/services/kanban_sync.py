@@ -29,6 +29,7 @@ class KanbanSyncWorker:
         self.interval = interval
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
+        self._sync_lock = threading.Lock()
 
     def start(self) -> None:
         if self._thread and self._thread.is_alive():
@@ -45,10 +46,13 @@ class KanbanSyncWorker:
         except KanbanError as exc:
             logger.warning("[kanban-sync] ensure_board failed: %s", exc)
         while not self._stop.is_set():
-            try:
-                self.sync_once()
-            except Exception as exc:  # noqa: BLE001
-                logger.exception("[kanban-sync] sync failed: %s", exc)
+            if self._sync_lock.acquire(blocking=False):
+                try:
+                    self.sync_once()
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("[kanban-sync] sync failed: %s", exc)
+                finally:
+                    self._sync_lock.release()
             self._stop.wait(self.interval)
 
     def sync_once(self) -> None:
@@ -57,6 +61,21 @@ class KanbanSyncWorker:
             self._sync_link(link)
         self._create_ready_summary_tasks()
         self._sync_agent_kanban_state()
+
+    def sync_once_async(self) -> bool:
+        if not self._sync_lock.acquire(blocking=False):
+            return False
+
+        def _run() -> None:
+            try:
+                self.sync_once()
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("[kanban-sync] async sync failed: %s", exc)
+            finally:
+                self._sync_lock.release()
+
+        threading.Thread(target=_run, daemon=True).start()
+        return True
 
     def sync_agent(self, agent_id: str) -> None:
         """Sync kanban links owned by one agent, in the background.
