@@ -124,6 +124,12 @@
   grid-template-rows: auto auto auto minmax(0, 1fr);
 }
 
+#agent-model-drawer .skills-drawer__panel {
+  width: min(900px, calc(100vw - 28px));
+  grid-template-rows: auto auto auto auto minmax(0, 1fr);
+  align-content: start;
+}
+
 .soul-drawer__head > div {
   min-width: 0;
 }
@@ -335,8 +341,23 @@
   gap: 10px;
 }
 
+.model-config-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
 .mcp-list {
   min-height: 0;
+  overflow: auto;
+  display: grid;
+  align-content: start;
+  gap: 12px;
+}
+
+.model-config-list {
+  max-height: 46vh;
   overflow: auto;
   display: grid;
   align-content: start;
@@ -368,6 +389,31 @@
   display: block;
   margin: 8px 0;
   overflow-wrap: anywhere;
+}
+
+.agent-model-current {
+  border: 1px solid rgba(246, 207, 117, 0.14);
+  border-radius: 12px;
+  background: rgba(246, 207, 117, 0.045);
+  padding: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.agent-model-form {
+  margin-top: 14px;
+  align-content: start;
+}
+
+.agent-model-form .modal__actions {
+  grid-column: 1 / -1;
+  align-self: start;
+}
+
+.agent-model-form .modal__actions button {
+  min-height: 44px;
+  padding: 0 22px;
+  border-radius: 999px;
 }
 
 .mcp-card__badges {

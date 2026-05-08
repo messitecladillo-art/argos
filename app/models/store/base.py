@@ -85,9 +85,19 @@ class RuntimeStoreBase:
 
     def _sorted_agents(self) -> list[dict]:
         return sorted(
-            self.agents,
+            [self._agent_snapshot(agent) for agent in self.agents],
             key=lambda agent: agent.get("role") != "leader",
         )
+
+    def _agent_snapshot(self, agent: dict) -> dict:
+        snapshot = dict(agent)
+        try:
+            from ...services import profiles
+
+            snapshot["model_summary"] = profiles.read_model_summary(agent["profile_name"])
+        except Exception:  # noqa: BLE001
+            snapshot["model_summary"] = {"default": "", "provider": "", "base_url": ""}
+        return snapshot
 
     # ------------------------------------------------------------------ snapshot
     def snapshot(self) -> dict:

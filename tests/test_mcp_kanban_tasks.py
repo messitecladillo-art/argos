@@ -2,9 +2,10 @@ from __future__ import annotations
 
 from app import mcp_server
 from app.models.store import RuntimeStore
+from app.services import mcp_installer
 
 
-def _agent(agent_id: str, profile_name: str, role: str) -> dict:
+def _agent(agent_id: str, profile_name: str, role: str, workspace_path: str | None = None) -> dict:
     return {
         "agent_id": agent_id,
         "profile_name": profile_name,
@@ -12,7 +13,7 @@ def _agent(agent_id: str, profile_name: str, role: str) -> dict:
         "role": role,
         "description": "",
         "is_leader": role == "leader",
-        "workspace_path": f"/tmp/{profile_name}",
+        "workspace_path": workspace_path or f"/tmp/{profile_name}",
         "status": "idle",
         "current_task": "空闲",
         "runtime_status": "stopped",
@@ -31,10 +32,11 @@ def _agent(agent_id: str, profile_name: str, role: str) -> dict:
     }
 
 
-def test_leader_creates_worker_kanban_tasks(monkeypatch):
+def test_leader_creates_worker_kanban_tasks(monkeypatch, tmp_path):
     runtime_store = RuntimeStore()
     runtime_store.register_agent(_agent("agent_lead", "lead", "leader"))
-    runtime_store.register_agent(_agent("agent_dev", "dev_profile", "worker"))
+    workspace_path = tmp_path / "dev_profile"
+    runtime_store.register_agent(_agent("agent_dev", "dev_profile", "worker", str(workspace_path)))
     task = runtime_store.create_user_task(leader_agent_id="agent_lead", content="Build")
     runtime_store.upsert_kanban_task_link(
         local_type="user_task",
@@ -63,6 +65,20 @@ def test_leader_creates_worker_kanban_tasks(monkeypatch):
     assert result["assignments"][0]["kanban_task_id"] == "kb_worker_1"
     assert calls[0]["assignee"] == "dev_profile"
     assert calls[0]["parent"] == "kb_parent"
+    assert calls[0]["workspace"] == f"dir:{workspace_path}"
+    assert workspace_path.is_dir()
+
+
+def test_list_workers_does_not_expose_workspace(monkeypatch):
+    runtime_store = RuntimeStore()
+    runtime_store.register_agent(_agent("agent_dev", "dev_profile", "worker"))
+    monkeypatch.setattr(mcp_server, "store", runtime_store)
+    monkeypatch.setattr(mcp_installer, "mcp_summary", lambda profile_name: [])
+
+    workers = mcp_server.list_workers()
+
+    assert workers[0]["agent_id"] == "agent_dev"
+    assert "workspace_path" not in workers[0]
 
 
 def test_non_leader_cannot_create_kanban_tasks(monkeypatch):

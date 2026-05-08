@@ -4,7 +4,7 @@ from app.models.store import RuntimeStore
 from app.services.kanban_sync import KanbanSyncWorker
 
 
-def _agent(agent_id: str, profile_name: str, role: str) -> dict:
+def _agent(agent_id: str, profile_name: str, role: str, workspace_path: str | None = None) -> dict:
     return {
         "agent_id": agent_id,
         "profile_name": profile_name,
@@ -12,7 +12,7 @@ def _agent(agent_id: str, profile_name: str, role: str) -> dict:
         "role": role,
         "description": "",
         "is_leader": role == "leader",
-        "workspace_path": f"/tmp/{profile_name}",
+        "workspace_path": workspace_path or f"/tmp/{profile_name}",
         "status": "idle",
         "current_task": "空闲",
         "runtime_status": "stopped",
@@ -44,9 +44,10 @@ class FakeKanban:
         return {"task_id": "kb_summary", "status": "ready"}
 
 
-def test_worker_done_creates_summary_once():
+def test_worker_done_creates_summary_once(tmp_path):
     runtime_store = RuntimeStore()
-    runtime_store.register_agent(_agent("agent_lead", "lead", "leader"))
+    leader_workspace = tmp_path / "lead"
+    runtime_store.register_agent(_agent("agent_lead", "lead", "leader", str(leader_workspace)))
     runtime_store.register_agent(_agent("agent_dev", "dev", "worker"))
     user_task = runtime_store.create_user_task(leader_agent_id="agent_lead", content="Build")
     delegation = runtime_store.create_delegation(
@@ -78,6 +79,8 @@ def test_worker_done_creates_summary_once():
     assert updated_assignment["status"] == "completed"
     assert updated_assignment["result"] == "done"
     assert len(service.created) == 1
+    assert service.created[0]["workspace"] == f"dir:{leader_workspace}"
+    assert leader_workspace.is_dir()
     assert runtime_store.find_kanban_task_link(
         local_type="user_task",
         local_id=user_task["user_task_id"],

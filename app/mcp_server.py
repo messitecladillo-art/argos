@@ -11,9 +11,9 @@ import threading
 
 from mcp.server.fastmcp import FastMCP
 
-from .config import KANBAN_DEFAULT_WORKSPACE
 from .models.store import store
 from .services.kanban import extract_task_id, kanban_service, task_status
+from .services.kanban_workspace import workspace_for_agent
 
 mcp = FastMCP("hermes-agents", streamable_http_path="/")
 logger = logging.getLogger("hermes.agent_state")
@@ -51,7 +51,22 @@ def list_workers() -> list[dict]:
             continue
         if (agent.get("readiness_status") or "ready") != "ready":
             continue
-        item = dict(agent)
+        item = {
+            key: agent.get(key)
+            for key in (
+                "agent_id",
+                "profile_name",
+                "name",
+                "role",
+                "description",
+                "status",
+                "current_task",
+                "load",
+                "readiness_status",
+                "readiness_message",
+                "queue_depth",
+            )
+        }
         item["mcps"] = mcp_installer.mcp_summary(agent["profile_name"])
         workers.append(item)
     return workers
@@ -174,7 +189,7 @@ def create_kanban_worker_tasks(
             ),
             assignee=worker["profile_name"],
             parent=parent_task_id or None,
-            workspace=KANBAN_DEFAULT_WORKSPACE,
+            workspace=workspace_for_agent(worker),
             priority=_assignment_priority(assignments, assignment),
             idempotency_key=f"assignment:{assignment['assignment_id']}",
         )

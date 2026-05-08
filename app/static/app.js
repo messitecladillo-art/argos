@@ -64,6 +64,22 @@ const mcpEditModal = document.getElementById("mcp-edit-modal");
 const mcpEditForm = document.getElementById("mcp-edit-form");
 const mcpEditTitle = document.getElementById("mcp-edit-title");
 const mcpSaveTest = document.getElementById("mcp-save-test");
+const agentModelDrawer = document.getElementById("agent-model-drawer");
+const agentModelDrawerAgent = document.getElementById("agent-model-drawer-agent");
+const agentModelStatus = document.getElementById("agent-model-status");
+const agentModelCurrent = document.getElementById("agent-model-current");
+const agentModelForm = document.getElementById("agent-model-form");
+const agentModelSelect = document.getElementById("agent-model-select");
+const saveAgentModel = document.getElementById("save-agent-model");
+const createAgentModelConfig = document.getElementById("create-agent-model-config");
+const modelConfigList = document.getElementById("model-config-list");
+const modelConfigEmpty = document.getElementById("model-config-empty");
+const modelConfigStatus = document.getElementById("model-config-status");
+const openModelConfigEdit = document.getElementById("open-model-config-edit");
+const modelConfigEditModal = document.getElementById("model-config-edit-modal");
+const modelConfigEditForm = document.getElementById("model-config-edit-form");
+const modelConfigEditTitle = document.getElementById("model-config-edit-title");
+const modelConfigSaveTest = document.getElementById("model-config-save-test");
 const kanbanTaskForm = document.getElementById("kanban-task-form");
 const kanbanTaskInput = document.getElementById("kanban-task-input");
 const kanbanTaskStatus = document.getElementById("kanban-task-status");
@@ -152,6 +168,13 @@ const mcpState = {
   agentName: "",
   items: [],
   editingName: "",
+};
+const modelConfigState = {
+  items: [],
+  loading: false,
+  editingId: "",
+  agentId: "",
+  agentName: "",
 };
 const kanbanState = {
   links: Array.isArray(window.__BOOTSTRAP__?.kanban_task_links)
@@ -922,6 +945,8 @@ function buildAgentRow(agent, isActive) {
   row.dataset.agentRuntimeStatus = runtimeStatus;
   row.dataset.readinessStatus = readinessStatus;
   const displayStatus = getAgentDisplayStatus(agent);
+  const modelName = agent.model_summary?.default || "";
+  const agentMeta = [agent.role, agent.profile_name, modelName].filter(Boolean).join(" · ");
   debugLog("agent-row", {
     agent_id: agent.agent_id,
     status: agent.status,
@@ -941,7 +966,7 @@ function buildAgentRow(agent, isActive) {
     <div class="agent-row__top">
       <div>
         <strong>${escapeHtml(agent.name)}</strong>
-        <p>${escapeHtml(agent.role)} · ${escapeHtml(agent.profile_name)}</p>
+        <p>${escapeHtml(agentMeta)}</p>
       </div>
       <span class="status-badge status-${escapeHtml(displayStatus.className)}">${escapeHtml(displayStatus.label)}</span>
     </div>
@@ -1104,6 +1129,20 @@ function setSkillsStatus(message, kind = "muted", options = {}) {
 
 function showSkillsRestartPrompt(message, kind = "success") {
   setSkillsStatus(`${message} 重启当前 Agent 后生效。`, kind, { restartAction: true });
+}
+
+function setModelConfigStatus(message, kind = "muted") {
+  if (!modelConfigStatus) return;
+  modelConfigStatus.textContent = message || "";
+  modelConfigStatus.hidden = !message;
+  modelConfigStatus.dataset.kind = kind;
+}
+
+function setAgentModelStatus(message, kind = "muted") {
+  if (!agentModelStatus) return;
+  agentModelStatus.textContent = message || "";
+  agentModelStatus.hidden = !message;
+  agentModelStatus.dataset.kind = kind;
 }
 
 function setMcpStatus(message, kind = "muted", options = {}) {
@@ -1556,6 +1595,211 @@ function closeMcpEditModal() {
   });
 }
 
+async function loadModelConfigs({ silent = false } = {}) {
+  modelConfigState.loading = true;
+  if (!silent) setModelConfigStatus("正在加载模型配置…", "muted");
+  try {
+    const response = await fetch("/api/model-configs");
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "模型配置加载失败");
+    modelConfigState.items = Array.isArray(data.items) ? data.items : [];
+    renderModelConfigs();
+    refreshModelConfigSelects();
+    if (!silent) setModelConfigStatus("", "muted");
+  } catch (error) {
+    if (!silent) setModelConfigStatus(error.message || "模型配置加载失败", "error");
+  } finally {
+    modelConfigState.loading = false;
+  }
+}
+
+function refreshModelConfigSelects() {
+  const options = modelConfigState.items
+    .map((item) => `<option value="${escapeHtml(item.id)}">${escapeHtml(item.name)} · ${escapeHtml(item.model)}</option>`)
+    .join("");
+  if (createAgentModelConfig) {
+    createAgentModelConfig.innerHTML = `<option value="">继承当前 Hermes active profile 配置</option>${options}`;
+  }
+  if (agentModelSelect) {
+    agentModelSelect.innerHTML = options || `<option value="">暂无模型配置</option>`;
+    agentModelSelect.disabled = modelConfigState.items.length === 0;
+    if (saveAgentModel) saveAgentModel.disabled = modelConfigState.items.length === 0;
+  }
+}
+
+function renderModelConfigs() {
+  if (!modelConfigList) return;
+  modelConfigList.innerHTML = "";
+  if (modelConfigEmpty) modelConfigEmpty.hidden = modelConfigState.items.length > 0;
+  modelConfigState.items.forEach((item) => {
+    const card = document.createElement("article");
+    card.className = "mcp-card model-config-card";
+    card.innerHTML = `
+      <div class="mcp-card__head">
+        <div>
+          <strong>${escapeHtml(item.name)}</strong>
+          <small>${escapeHtml(item.model)}</small>
+        </div>
+        <div class="mcp-card__actions">
+          <button class="filter-chip" type="button" data-model-config-test="${escapeHtml(item.id)}">测试</button>
+          <button class="filter-chip" type="button" data-model-config-edit="${escapeHtml(item.id)}">编辑</button>
+          <button class="filter-chip" type="button" data-model-config-delete="${escapeHtml(item.id)}">删除</button>
+        </div>
+      </div>
+      <code>${escapeHtml(item.base_url)}</code>
+    `;
+    modelConfigList.appendChild(card);
+  });
+}
+
+function openModelConfigEditModal(item = null) {
+  if (!modelConfigEditModal || !modelConfigEditForm) return;
+  modelConfigState.editingId = item?.id ? String(item.id) : "";
+  modelConfigEditForm.reset();
+  modelConfigEditForm.elements.id.value = item?.id || "";
+  modelConfigEditForm.elements.name.value = item?.name || "";
+  modelConfigEditForm.elements.model.value = item?.model || "";
+  modelConfigEditForm.elements.base_url.value = item?.base_url || "";
+  modelConfigEditForm.elements.api_key.value = item?.api_key || "";
+  if (modelConfigEditTitle) modelConfigEditTitle.textContent = item ? `编辑模型配置：${item.name}` : "新增模型配置";
+  openAnimatedLayer(modelConfigEditModal, modelConfigEditForm.elements.name);
+}
+
+function closeModelConfigEditModal() {
+  if (!modelConfigEditModal) return;
+  closeAnimatedLayer(modelConfigEditModal, () => {
+    modelConfigState.editingId = "";
+    modelConfigEditForm?.reset();
+  });
+}
+
+async function saveModelConfigFromForm({ testAfter = false } = {}) {
+  if (!modelConfigEditForm) return;
+  const formData = new FormData(modelConfigEditForm);
+  const id = String(formData.get("id") || "");
+  const payload = {
+    name: formData.get("name"),
+    model: formData.get("model"),
+    base_url: formData.get("base_url"),
+    api_key: formData.get("api_key"),
+  };
+  const endpoint = id ? `/api/model-configs/${id}` : "/api/model-configs";
+  const method = id ? "PUT" : "POST";
+  try {
+    const response = await fetch(endpoint, {
+      method,
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "模型配置保存失败");
+    closeModelConfigEditModal();
+    await loadModelConfigs({ silent: true });
+    setModelConfigStatus("模型配置已保存。", "success");
+    if (testAfter) await testModelConfig(data.item?.id);
+  } catch (error) {
+    setModelConfigStatus(error.message || "模型配置保存失败", "error");
+  }
+}
+
+async function testModelConfig(id) {
+  if (!id) return;
+  setModelConfigStatus("正在测试模型连通性…", "muted");
+  try {
+    const response = await fetch(`/api/model-configs/${id}/test`, { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(data.error || "模型连通性测试失败");
+    const ok = data.ok === true || data.status === "ok";
+    setModelConfigStatus(data.detail || (ok ? "测试通过。" : "测试失败。"), ok ? "success" : "error");
+  } catch (error) {
+    setModelConfigStatus(error.message || "模型连通性测试失败", "error");
+  }
+}
+
+async function deleteModelConfig(id) {
+  const item = modelConfigState.items.find((config) => String(config.id) === String(id));
+  if (!item) return;
+  const confirmed = await confirmAction({
+    title: "删除模型配置",
+    message: `确认删除 ${item.name} 吗？已写入 Agent profile 的配置不会受影响。`,
+    confirmText: "删除",
+    confirmVariant: "danger",
+  });
+  if (!confirmed) return;
+  try {
+    const response = await fetch(`/api/model-configs/${id}`, { method: "DELETE" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "模型配置删除失败");
+    await loadModelConfigs({ silent: true });
+    setModelConfigStatus("模型配置已删除。", "success");
+  } catch (error) {
+    setModelConfigStatus(error.message || "模型配置删除失败", "error");
+  }
+}
+
+async function openAgentModelPanel(agentId) {
+  if (!agentModelDrawer || !agentId) return;
+  closeAgentContextMenu();
+  modelConfigState.agentId = agentId;
+  modelConfigState.agentName = agentList?.querySelector(`.agent-row[data-agent-id="${CSS.escape(agentId)}"]`)?.dataset.agentName || agentId;
+  if (agentModelDrawerAgent) agentModelDrawerAgent.textContent = modelConfigState.agentName;
+  setAgentModelStatus("正在加载当前模型…", "muted");
+  openAnimatedLayer(agentModelDrawer);
+  await loadModelConfigs({ silent: true });
+  try {
+    const response = await fetch(`/api/agents/${agentId}/model`);
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "当前模型读取失败");
+    const model = data.model || {};
+    if (agentModelCurrent) {
+      const summary = [model.default || "未配置", model.base_url || ""].filter(Boolean).join(" · ");
+      agentModelCurrent.textContent = `当前模型：${summary}`;
+    }
+    setAgentModelStatus("", "muted");
+  } catch (error) {
+    setAgentModelStatus(error.message || "当前模型读取失败", "error");
+  }
+}
+
+function closeAgentModelPanel() {
+  if (!agentModelDrawer) return;
+  closeAnimatedLayer(agentModelDrawer, () => {
+    modelConfigState.agentId = "";
+    modelConfigState.agentName = "";
+    setAgentModelStatus("", "muted");
+  });
+}
+
+async function saveAgentModelSelection(event) {
+  event.preventDefault();
+  if (!modelConfigState.agentId || !agentModelSelect) return;
+  const modelConfigId = agentModelSelect.value;
+  if (!modelConfigId) {
+    setAgentModelStatus("请选择模型配置。", "error");
+    return;
+  }
+  if (saveAgentModel) saveAgentModel.disabled = true;
+  try {
+    const response = await fetch(`/api/agents/${modelConfigState.agentId}/model`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model_config_id: modelConfigId }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "模型配置保存失败");
+    const restartHint = data.restart_required ? "，重启 Agent 后生效" : "";
+    setAgentModelStatus(`模型配置已保存${restartHint}。`, "success");
+    if (agentModelCurrent) {
+      const model = data.model || {};
+      agentModelCurrent.textContent = `当前模型：${[model.default || "未配置", model.base_url || ""].filter(Boolean).join(" · ")}`;
+    }
+  } catch (error) {
+    setAgentModelStatus(error.message || "模型配置保存失败", "error");
+  } finally {
+    if (saveAgentModel) saveAgentModel.disabled = modelConfigState.items.length === 0;
+  }
+}
+
 function buildMcpPayload() {
   const formData = new FormData(mcpEditForm);
   const transport = formData.get("transport") || "http";
@@ -1946,6 +2190,7 @@ function openTransferModal() {
   renderTransferAgents();
   setTransferStatus(transferExportStatus, "");
   setTransferStatus(transferImportStatus, "");
+  setModelConfigStatus("", "muted");
   if (transferImportPreview) transferImportPreview.hidden = true;
   if (transferImportSubmit) transferImportSubmit.disabled = true;
   transferLastInspectedFile = null;
@@ -1979,6 +2224,7 @@ function switchTransferTab(tabName) {
   transferModal?.querySelectorAll("[data-transfer-pane]").forEach((pane) => {
     pane.hidden = pane.dataset.transferPane !== tabName;
   });
+  if (tabName === "models") void loadModelConfigs();
 }
 
 async function exportTeamArchive() {
@@ -2505,6 +2751,9 @@ function ensureAgentContextMenu() {
     <button class="agent-context-menu__item" type="button" data-agent-mcp>
       MCP Servers
     </button>
+    <button class="agent-context-menu__item" type="button" data-agent-model>
+      模型配置
+    </button>
     <button class="agent-context-menu__item" type="button" data-agent-open-workspace>
       打开工作目录
     </button>
@@ -2533,6 +2782,13 @@ function ensureAgentContextMenu() {
     if (mcpBtn) {
       const agentId = agentContextMenu.dataset.agentId || "";
       if (agentId) openMcpPanel(agentId);
+      closeAgentContextMenu();
+      return;
+    }
+    const modelBtn = event.target.closest("[data-agent-model]");
+    if (modelBtn) {
+      const agentId = agentContextMenu.dataset.agentId || "";
+      if (agentId) openAgentModelPanel(agentId);
       closeAgentContextMenu();
       return;
     }
@@ -2600,6 +2856,7 @@ function showAgentConfigMenu(row, trigger) {
   const soulBtn = menu.querySelector("[data-agent-soul]");
   const skillsBtn = menu.querySelector("[data-agent-skills]");
   const mcpBtn = menu.querySelector("[data-agent-mcp]");
+  const modelBtn = menu.querySelector("[data-agent-model]");
   const separator = menu.querySelector("[data-config-separator]");
   const deleteBtn = menu.querySelector("[data-agent-delete]");
   const canDelete = isIdleAgentRow(row);
@@ -2616,6 +2873,7 @@ function showAgentConfigMenu(row, trigger) {
   }
   if (skillsBtn) skillsBtn.hidden = false;
   if (mcpBtn) mcpBtn.hidden = false;
+  if (modelBtn) modelBtn.hidden = false;
   if (separator) separator.hidden = false;
   if (deleteBtn) {
     deleteBtn.hidden = false;
@@ -2943,6 +3201,13 @@ if (mcpDrawer) {
     }
   });
 }
+if (agentModelDrawer) {
+  agentModelDrawer.addEventListener("click", (event) => {
+    if (event.target instanceof HTMLElement && event.target.dataset.closeAgentModel !== undefined) {
+      closeAgentModelPanel();
+    }
+  });
+}
 if (openMcpEdit) openMcpEdit.addEventListener("click", () => openMcpEditModal());
 if (mcpRefresh) mcpRefresh.addEventListener("click", () => refreshMcps());
 if (mcpEditModal) {
@@ -2962,6 +3227,43 @@ if (mcpEditForm) {
 if (mcpSaveTest) {
   mcpSaveTest.addEventListener("click", () => saveMcpFromForm({ testAfter: true }));
 }
+if (openModelConfigEdit) openModelConfigEdit.addEventListener("click", () => openModelConfigEditModal());
+if (modelConfigList) {
+  modelConfigList.addEventListener("click", (event) => {
+    const editBtn = event.target.closest("[data-model-config-edit]");
+    if (editBtn) {
+      const item = modelConfigState.items.find((config) => String(config.id) === String(editBtn.dataset.modelConfigEdit));
+      if (item) openModelConfigEditModal(item);
+      return;
+    }
+    const testBtn = event.target.closest("[data-model-config-test]");
+    if (testBtn) {
+      testModelConfig(testBtn.dataset.modelConfigTest || "");
+      return;
+    }
+    const deleteBtn = event.target.closest("[data-model-config-delete]");
+    if (deleteBtn) {
+      deleteModelConfig(deleteBtn.dataset.modelConfigDelete || "");
+    }
+  });
+}
+if (modelConfigEditModal) {
+  modelConfigEditModal.addEventListener("click", (event) => {
+    if (event.target instanceof HTMLElement && event.target.dataset.closeModelConfigEdit !== undefined) {
+      closeModelConfigEditModal();
+    }
+  });
+}
+if (modelConfigEditForm) {
+  modelConfigEditForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveModelConfigFromForm();
+  });
+}
+if (modelConfigSaveTest) {
+  modelConfigSaveTest.addEventListener("click", () => saveModelConfigFromForm({ testAfter: true }));
+}
+if (agentModelForm) agentModelForm.addEventListener("submit", saveAgentModelSelection);
 if (openSkillsInstall) openSkillsInstall.addEventListener("click", openSkillsInstallModal);
 if (skillsInstallModal) {
   skillsInstallModal.addEventListener("click", (event) => {
@@ -3021,9 +3323,14 @@ if (modal) {
       closeMcpEditModal();
       return;
     }
+    if (e.key === "Escape" && modelConfigEditModal && !modelConfigEditModal.hidden) {
+      closeModelConfigEditModal();
+      return;
+    }
     if (e.key === "Escape") closeHistoryPanel();
     if (e.key === "Escape") void closeSoulPanel();
     if (e.key === "Escape") closeSkillsPanel();
+    if (e.key === "Escape") closeAgentModelPanel();
   });
 }
 
@@ -3037,6 +3344,7 @@ if (createAgentForm) {
       role: formData.get("role"),
       description: formData.get("description"),
     };
+    const modelConfigId = String(formData.get("model_config_id") || "");
     const submitBtn = createAgentForm.querySelector('button[type="submit"]');
     if (submitBtn) submitBtn.disabled = true;
     try {
@@ -3052,6 +3360,21 @@ if (createAgentForm) {
           createAgentError.hidden = false;
         }
         return;
+      }
+      if (modelConfigId && data.agent?.agent_id) {
+        const modelResponse = await fetch(`/api/agents/${data.agent.agent_id}/model`, {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model_config_id: modelConfigId }),
+        });
+        const modelData = await modelResponse.json().catch(() => ({}));
+        if (!modelResponse.ok || !modelData.ok) {
+          if (createAgentError) {
+            createAgentError.textContent = modelData.error || "Agent 已创建，但模型配置应用失败";
+            createAgentError.hidden = false;
+          }
+          return;
+        }
       }
       closeModal();
     } finally {
@@ -3083,6 +3406,7 @@ hydrateChatEvents();
 hydrateNotificationStates(window.__BOOTSTRAP__?.agents || []);
 renderKanbanTasks();
 renderKanbanAutoDispatch();
+void loadModelConfigs({ silent: true });
 void loadKanbanSettings();
 initTerminal();
 if (eventList?.dataset.selectedAgent) {

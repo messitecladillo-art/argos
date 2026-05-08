@@ -7,6 +7,7 @@ from .agent_mcps import bp as agent_mcps_bp
 from .events import bp as events_bp
 from .kanban import bp as kanban_bp
 from .messages import bp as messages_bp
+from .model_configs import bp as model_configs_bp
 from .transfer import bp as transfer_bp
 from .web import bp as web_bp
 
@@ -17,5 +18,6 @@ def register_blueprints(app: Flask) -> None:
     app.register_blueprint(agent_mcps_bp)
     app.register_blueprint(kanban_bp)
     app.register_blueprint(messages_bp)
+    app.register_blueprint(model_configs_bp)
     app.register_blueprint(transfer_bp)
     app.register_blueprint(events_bp)

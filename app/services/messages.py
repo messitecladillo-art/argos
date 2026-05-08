@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import logging
 
-from ..config import KANBAN_DEFAULT_WORKSPACE
 from ..models.store import RuntimeStore
 from .kanban import extract_task_id, kanban_service, task_status
+from .kanban_workspace import workspace_for_agent
 
 
 logger = logging.getLogger("hermes.agent_state")
@@ -91,7 +91,7 @@ def send_user_task(store: RuntimeStore, *, content: str) -> dict:
             f"{body}"
         ),
         assignee=leader["profile_name"],
-        workspace=KANBAN_DEFAULT_WORKSPACE,
+        workspace=workspace_for_agent(leader),
         idempotency_key=f"user_task:{user_task['user_task_id']}",
     )
     kanban_task_id = extract_task_id(kanban_task)

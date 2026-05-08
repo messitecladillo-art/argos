@@ -87,7 +87,7 @@
             <div class="agent-row__top">
               <div>
                 <strong>{{ agent.name }}</strong>
-                <p>{{ agent.role }} · {{ agent.profile_name }}</p>
+                <p>{{ agent.role }} · {{ agent.profile_name }}{% if agent.model_summary and agent.model_summary.default %} · {{ agent.model_summary.default }}{% endif %}</p>
               </div>
               <span class="status-badge status-{{ display_status_class }}">{{ display_status_label }}</span>
             </div>
@@ -340,6 +340,32 @@
       </aside>
     </div>
 
+    <div class="skills-drawer mcp-drawer" id="agent-model-drawer" hidden>
+      <div class="skills-drawer__backdrop" data-close-agent-model></div>
+      <aside class="skills-drawer__panel panel" role="dialog" aria-modal="true" aria-labelledby="agent-model-drawer-title">
+        <div class="skills-drawer__head">
+          <div>
+            <h2 id="agent-model-drawer-title">模型配置</h2>
+            <p id="agent-model-drawer-agent">尚未选择 Agent</p>
+          </div>
+          <button class="modal__close" type="button" data-close-agent-model aria-label="close">×</button>
+        </div>
+        <p class="soul-status" id="agent-model-status" hidden></p>
+        <div class="agent-model-current" id="agent-model-current">当前模型：—</div>
+        <form class="modal__form agent-model-form" id="agent-model-form">
+          <label>
+            <span>选择配置</span>
+            <select name="model_config_id" id="agent-model-select" required></select>
+          </label>
+          <p class="form-hint">保存会写入该 Agent 的 Hermes profile config.yaml。运行中的 Agent 需要重启后生效。</p>
+          <div class="modal__actions">
+            <button type="button" class="filter-chip" data-close-agent-model>取消</button>
+            <button type="submit" class="primary-button" id="save-agent-model">保存</button>
+          </div>
+        </form>
+      </aside>
+    </div>
+
     <div class="modal" id="mcp-edit-modal" hidden>
       <div class="modal__backdrop" data-close-mcp-edit></div>
       <div class="modal__panel panel">
@@ -426,6 +452,12 @@
           </div>
           <p class="form-hint form-hint--role">注意：系统内只能存在一个 leader。</p>
           <label>
+            <span>模型配置</span>
+            <select name="model_config_id" id="create-agent-model-config">
+              <option value="">继承当前 Hermes active profile 配置</option>
+            </select>
+          </label>
+          <label>
             <span>描述</span>
             <textarea name="description" rows="2" placeholder="描述岗位职责"></textarea>
           </label>
@@ -448,6 +480,7 @@
         <div class="transfer-tabs" role="tablist">
           <button class="filter-chip is-active" type="button" data-transfer-tab="export">导出</button>
           <button class="filter-chip" type="button" data-transfer-tab="import">导入</button>
+          <button class="filter-chip" type="button" data-transfer-tab="models">模型配置</button>
         </div>
         <section class="transfer-pane" data-transfer-pane="export">
           <p class="form-hint">选择要打包的 Agent，导出为 `hermes-agent-team-时间.zip`。</p>
@@ -480,6 +513,50 @@
             <button type="button" class="primary-button danger-button" id="transfer-import-submit" disabled>确认导入</button>
           </div>
         </section>
+        <section class="transfer-pane" data-transfer-pane="models" hidden>
+          <div class="model-config-toolbar">
+            <p class="form-hint">维护可复用的大模型配置。</p>
+            <button class="primary-button primary-button--sm" type="button" id="open-model-config-edit">+ 模型配置</button>
+          </div>
+          <div class="model-config-list" id="model-config-list"></div>
+          <p class="empty-hint" id="model-config-empty" hidden>还没有模型配置。</p>
+          <p class="form-error" id="model-config-status" hidden></p>
+        </section>
+      </div>
+    </div>
+
+    <div class="modal" id="model-config-edit-modal" hidden>
+      <div class="modal__backdrop" data-close-model-config-edit></div>
+      <div class="modal__panel panel">
+        <div class="modal__head">
+          <h2 id="model-config-edit-title">新增模型配置</h2>
+          <button class="modal__close" type="button" data-close-model-config-edit aria-label="close">×</button>
+        </div>
+        <form class="modal__form" id="model-config-edit-form">
+          <input type="hidden" name="id">
+          <label>
+            <span>配置名</span>
+            <input name="name" required placeholder="公司网关">
+          </label>
+          <label>
+            <span>模型名</span>
+            <input name="model" required placeholder="gpt-5.4">
+          </label>
+          <label>
+            <span>Base URL</span>
+            <input name="base_url" type="url" required placeholder="https://example.com/v1">
+          </label>
+          <label>
+            <span>API Key</span>
+            <input name="api_key" required placeholder="sk-xxx 或 ${OPENAI_API_KEY}">
+          </label>
+          <p class="form-hint">Provider 固定写入 custom；连通性测试会请求 Base URL 下的 /models。</p>
+          <div class="modal__actions">
+            <button type="button" class="filter-chip" data-close-model-config-edit>取消</button>
+            <button class="filter-chip" type="button" id="model-config-save-test">测试后保存</button>
+            <button class="primary-button" type="submit">直接保存</button>
+          </div>
+        </form>
       </div>
     </div>
 
@@ -488,6 +565,6 @@
     </script>
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
-    <script src="{{ url_for('static', filename='app.js') }}?v=team-transfer-1"></script>
+    <script src="{{ url_for('static', filename='app.js') }}?v=model-config-1"></script>
   </body>
 </html>

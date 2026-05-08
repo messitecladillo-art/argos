@@ -227,10 +227,32 @@
   margin-top: 8px;
 }
 .form-error {
+  border: 1px solid transparent;
+  border-radius: 8px;
   color: #ff8a8a;
   font-size: 0.82rem;
   margin: 0;
+  padding: 8px 10px;
 }
+
+.form-error[data-kind="success"] {
+  border-color: rgba(97, 226, 148, 0.26);
+  background: rgba(97, 226, 148, 0.08);
+  color: var(--success);
+}
+
+.form-error[data-kind="muted"] {
+  border-color: rgba(246, 207, 117, 0.12);
+  background: rgba(246, 207, 117, 0.045);
+  color: var(--muted);
+}
+
+.form-error[data-kind="error"] {
+  border-color: rgba(255, 123, 115, 0.3);
+  background: rgba(255, 123, 115, 0.08);
+  color: #ff8a8a;
+}
+
 .form-hint {
   color: var(--muted);
   font-size: 0.82rem;

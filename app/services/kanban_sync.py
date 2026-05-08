@@ -5,9 +5,10 @@ import threading
 import time
 from typing import Any
 
-from ..config import KANBAN_DEFAULT_WORKSPACE, KANBAN_POLL_INTERVAL
+from ..config import KANBAN_POLL_INTERVAL
 from ..models.store import RuntimeStore, store as default_store
 from .kanban import KanbanError, KanbanService, extract_task_id, kanban_service, task_result, task_status
+from .kanban_workspace import workspace_for_agent
 
 
 logger = logging.getLogger("hermes.agent_state")
@@ -179,7 +180,7 @@ class KanbanSyncWorker:
                 body=_format_summary_body(user_task, assignments),
                 assignee=leader["profile_name"],
                 parent=[link["kanban_task_id"] for link in worker_links],
-                workspace=KANBAN_DEFAULT_WORKSPACE,
+                workspace=workspace_for_agent(leader),
                 idempotency_key=f"summary:{user_task_id}",
             )
             summary_task_id = extract_task_id(summary_task)

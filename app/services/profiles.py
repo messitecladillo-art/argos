@@ -165,6 +165,30 @@ def write_profile_config(profile_name: str, data: dict) -> None:
         raise ProfileError(f"profile config write failed: {exc}") from exc
 
 
+def read_model_summary(profile_name: str) -> dict:
+    data = read_profile_config(profile_name)
+    model = data.get("model")
+    if not isinstance(model, dict):
+        model = {}
+    return {
+        "default": str(model.get("default") or ""),
+        "provider": str(model.get("provider") or ""),
+        "base_url": str(model.get("base_url") or ""),
+    }
+
+
+def apply_model_config(profile_name: str, model_config: dict) -> dict:
+    data = read_profile_config(profile_name)
+    data["model"] = {
+        "default": model_config["model"],
+        "provider": "custom",
+        "base_url": model_config["base_url"],
+        "api_key": model_config["api_key"],
+    }
+    write_profile_config(profile_name, data)
+    return read_model_summary(profile_name)
+
+
 def upsert_mcp_server(profile_name: str, name: str, spec: dict) -> None:
     data = read_profile_config(profile_name)
     servers = data.setdefault("mcp_servers", {})

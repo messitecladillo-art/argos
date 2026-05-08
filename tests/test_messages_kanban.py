@@ -6,7 +6,7 @@ from app.controllers import messages as messages_controller
 from app.models.store import RuntimeStore
 
 
-def _agent(agent_id: str, profile_name: str, role: str) -> dict:
+def _agent(agent_id: str, profile_name: str, role: str, workspace_path: str | None = None) -> dict:
     return {
         "agent_id": agent_id,
         "profile_name": profile_name,
@@ -14,7 +14,7 @@ def _agent(agent_id: str, profile_name: str, role: str) -> dict:
         "role": role,
         "description": "",
         "is_leader": role == "leader",
-        "workspace_path": f"/tmp/{profile_name}",
+        "workspace_path": workspace_path or f"/tmp/{profile_name}",
         "status": "idle",
         "current_task": "空闲",
         "runtime_status": "stopped",
@@ -33,9 +33,10 @@ def _agent(agent_id: str, profile_name: str, role: str) -> dict:
     }
 
 
-def test_messages_create_kanban_parent_without_acp(monkeypatch):
+def test_messages_create_kanban_parent_without_acp(monkeypatch, tmp_path):
     runtime_store = RuntimeStore()
-    runtime_store.register_agent(_agent("agent_lead", "leader_profile", "leader"))
+    workspace_path = tmp_path / "leader_profile"
+    runtime_store.register_agent(_agent("agent_lead", "leader_profile", "leader", str(workspace_path)))
     monkeypatch.setattr(messages_controller, "store", runtime_store)
 
     created = {}
@@ -57,6 +58,8 @@ def test_messages_create_kanban_parent_without_acp(monkeypatch):
     assert data["message"]["user_task_id"] == "ut_0001"
     assert data["message"]["kanban_task_id"] == "kb_parent"
     assert created["assignee"] == "leader_profile"
+    assert created["workspace"] == f"dir:{workspace_path}"
+    assert workspace_path.is_dir()
     assert "mcp_agent_bus_create_kanban_worker_tasks" in created["body"]
     assert runtime_store.find_kanban_task_link(
         local_type="user_task",

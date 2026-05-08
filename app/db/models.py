@@ -118,6 +118,16 @@ class SettingRecord(TimestampMixin, Base):
     value: Mapped[str] = mapped_column(Text, default="")
 
 
+class ModelConfigRecord(TimestampMixin, Base):
+    __tablename__ = "model_configs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(120), unique=True, index=True)
+    model: Mapped[str] = mapped_column(String(160))
+    base_url: Mapped[str] = mapped_column(String(500))
+    api_key: Mapped[str] = mapped_column(Text, default="")
+
+
 class MessageRecord(Base):
     __tablename__ = "messages"
 
