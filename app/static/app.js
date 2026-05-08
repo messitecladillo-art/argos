@@ -467,6 +467,10 @@ function restoreTerminalScrollState(session, state) {
   });
 }
 
+function restoreTerminalScrollStateAfterWrite(session, state) {
+  requestAnimationFrame(() => requestAnimationFrame(() => restoreTerminalScrollState(session, state)));
+}
+
 function formatKanbanTaskDetails(details) {
   const payload = details?.task || {};
   const task = payload.task || payload;
@@ -492,24 +496,21 @@ function formatKanbanTaskDetails(details) {
 function writeKanbanLogToTerminal(session, link, agent, logText, message = "") {
   if (!session) return;
   const taskId = link?.kanban_task_id || "";
+  const body = message
+    ? `\x1b[90m${message}\x1b[0m\r\n`
+    : normalizeTerminalLogText(logText).trim() || "\x1b[90m暂无 Kanban 运行日志。任务可能刚启动，稍后会自动刷新。\x1b[0m";
+  const content = [
+    `\x1b[33m● Kanban Task\x1b[0m ${taskId}`,
+    `\x1b[90m${agent?.name || agent?.agent_id || link?.assignee_profile || "Agent"} · ${link?.assignee_profile || "unassigned"} · ${kanbanStatusLabel(link?.kanban_status)}\x1b[0m`,
+    "",
+  ].join("\r\n") + body;
+  if (session.lastKanbanRender === content) return;
+  session.lastKanbanRender = content;
   const scrollState = getTerminalScrollState(session);
   session.term.reset();
   session.term.clear();
   session.hasRenderedOutput = true;
-  const header = [
-    `\x1b[33m● Kanban Task\x1b[0m ${taskId}`,
-    `\x1b[90m${agent?.name || agent?.agent_id || link?.assignee_profile || "Agent"} · ${link?.assignee_profile || "unassigned"} · ${kanbanStatusLabel(link?.kanban_status)}\x1b[0m`,
-    "",
-  ].join("\r\n");
-  session.term.write(header);
-  if (message) {
-    session.term.write(`\x1b[90m${message}\x1b[0m\r\n`);
-    restoreTerminalScrollState(session, scrollState);
-    return;
-  }
-  const body = normalizeTerminalLogText(logText).trim();
-  session.term.write(body || "\x1b[90m暂无 Kanban 运行日志。任务可能刚启动，稍后会自动刷新。\x1b[0m");
-  restoreTerminalScrollState(session, scrollState);
+  session.term.write(content, () => restoreTerminalScrollStateAfterWrite(session, scrollState));
 }
 
 async function refreshKanbanTaskLog(link, agent) {
@@ -543,6 +544,7 @@ function showKanbanTaskLogInTerminal(link, agent) {
   activeKanbanTerminalTaskId = taskId;
   const session = ensureTerminalSession(agent.agent_id);
   if (!session) return;
+  session.lastKanbanRender = "";
   disconnectTerminalSession(session);
   if (terminalTitle) terminalTitle.textContent = `${agent.name || agent.agent_id} · Kanban ${taskId}`;
   writeKanbanLogToTerminal(session, link, agent, "", "正在加载 Kanban 运行日志…");
@@ -661,7 +663,6 @@ async function handleKanbanContextMenuClick(event) {
     renderKanbanTasks();
     closeKanbanContextMenu();
     try {
-      await sleep(420);
       await postKanbanTaskAction(taskId, "", { method: "DELETE" });
       setKanbanStatus(`已删除：${taskId}`, "success");
     } catch (error) {
@@ -775,7 +776,6 @@ async function clearColumnKanbanTasks(event) {
   renderKanbanTasks();
   setKanbanStatus(`正在删除「${columnTitle}」列任务…`);
   try {
-    await sleep(420);
     const endpoint = columnKey === "done"
       ? "/api/kanban/tasks/done"
       : `/api/kanban/tasks/column/${encodeURIComponent(columnKey)}`;

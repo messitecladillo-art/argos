@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import logging
+import time
+
 from flask import Blueprint, jsonify, request
 
 from ..models.store import store
@@ -10,6 +13,7 @@ from ..services.settings import settings_service
 
 
 bp = Blueprint("kanban", __name__, url_prefix="/api/kanban")
+logger = logging.getLogger("hermes.agent_state")
 
 
 @bp.get("/tasks")
@@ -79,6 +83,7 @@ def _column_for_status(status: str) -> str:
 
 
 def _archive_column(column_key: str):
+    started = time.perf_counter()
     column_key = (column_key or "").lower()
     matched = [
         link
@@ -89,10 +94,19 @@ def _archive_column(column_key: str):
     if not task_ids:
         return jsonify({"ok": True, "archived_count": 0, "links": _visible_kanban_links()})
     try:
+        cli_started = time.perf_counter()
         output = kanban_service.archive_tasks(task_ids)
+        cli_elapsed = time.perf_counter() - cli_started
         for task_id in task_ids:
             store.update_kanban_task_link(task_id, kanban_status="archived")
-        sync_worker.sync_once()
+        sync_worker.sync_once_async()
+        logger.warning(
+            "[kanban-archive] column=%s count=%s cli=%.3fs total=%.3fs",
+            column_key,
+            len(task_ids),
+            cli_elapsed,
+            time.perf_counter() - started,
+        )
         return jsonify(
             {
                 "ok": True,
@@ -117,10 +131,19 @@ def unblock_task(task_id: str):
 
 @bp.delete("/tasks/<task_id>")
 def archive_task(task_id: str):
+    started = time.perf_counter()
     try:
+        cli_started = time.perf_counter()
         output = kanban_service.archive_task(task_id)
+        cli_elapsed = time.perf_counter() - cli_started
         store.update_kanban_task_link(task_id, kanban_status="archived")
-        sync_worker.sync_once()
+        sync_worker.sync_once_async()
+        logger.warning(
+            "[kanban-archive] task=%s cli=%.3fs total=%.3fs",
+            task_id,
+            cli_elapsed,
+            time.perf_counter() - started,
+        )
         return jsonify({"ok": True, "output": output, "links": _visible_kanban_links()})
     except KanbanError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
