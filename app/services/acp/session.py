@@ -660,6 +660,11 @@ class HermesSession:
                         interaction_state="idle",
                     )
                     _log_state("dispatch_idle", self.agent_id, orchestration_state=orchestration_state)
+                    try:
+                        from ..kanban_sync import sync_worker
+                        sync_worker.sync_agent(self.agent_id)
+                    except Exception:  # noqa: BLE001
+                        pass
                 return
             message = self._queue.popleft()
             self._current_message = message

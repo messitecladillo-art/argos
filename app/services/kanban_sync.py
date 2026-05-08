@@ -58,6 +58,34 @@ class KanbanSyncWorker:
         self._create_ready_summary_tasks()
         self._sync_agent_kanban_state()
 
+    def sync_agent(self, agent_id: str) -> None:
+        """Sync kanban links owned by one agent, in the background.
+
+        Called when an agent transitions to idle so the card flips to
+        `done` without waiting for the next poll tick.
+        """
+        agent = self.store.find_agent(agent_id) or {}
+        profile = agent.get("profile_name") or ""
+        if not profile:
+            return
+        targets = [
+            link
+            for link in (self.store.snapshot().get("kanban_task_links") or [])
+            if link.get("assignee_profile") == profile
+            and (link.get("kanban_status") or "").lower() not in {"done", "archived", "pending_dispatch"}
+        ]
+        if not targets:
+            return
+
+        def _run() -> None:
+            for link in targets:
+                try:
+                    self._sync_link(link)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[kanban-sync] sync_agent failed task=%s error=%s", link.get("kanban_task_id"), exc)
+
+        threading.Thread(target=_run, daemon=True).start()
+
     def _sync_link(self, link: dict) -> None:
         if (link.get("metadata") or {}).get("seeded_for_ui_test"):
             return
