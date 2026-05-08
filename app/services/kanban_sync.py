@@ -59,6 +59,8 @@ class KanbanSyncWorker:
         self._sync_agent_kanban_state()
 
     def _sync_link(self, link: dict) -> None:
+        if (link.get("metadata") or {}).get("seeded_for_ui_test"):
+            return
         task_id = link["kanban_task_id"]
         try:
             task = self.service.show_task(task_id)

@@ -717,7 +717,13 @@ async function clearDoneKanbanTasks(event) {
   const button = event.currentTarget;
   const count = (kanbanState.links || []).filter((link) => kanbanColumnForStatus(link.kanban_status) === "done").length;
   if (!count) return;
-  if (!window.confirm(`删除所有已完成团队任务（${count} 个）？`)) return;
+  const confirmed = await confirmAction({
+    title: "确认删除",
+    message: `删除所有已完成团队任务（${count} 个）？`,
+    confirmText: "删除",
+    confirmVariant: "danger",
+  });
+  if (!confirmed) return;
   if (button) button.disabled = true;
   const doneLinks = (kanbanState.links || []).filter((link) => kanbanColumnForStatus(link.kanban_status) === "done");
   doneLinks.forEach((link) => kanbanState.deletingTaskIds.add(link.kanban_task_id));
