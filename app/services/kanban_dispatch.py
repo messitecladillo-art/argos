@@ -16,9 +16,9 @@ logger = logging.getLogger("hermes.agent_state")
 class KanbanDispatchWorker:
     """Backend dispatch loop.
 
-    每个 tick 至多释放 1 个 pending_dispatch 任务，然后调用一次
-    `hermes kanban dispatch`。HTTP `/api/kanban/dispatch` 与任务创建路径
-    都通过 `dispatch_now()` 复用同一把锁，避免并发派发多任务。
+    每个 tick 至多释放 1 个 pending_dispatch 任务；只有本地存在
+    待执行任务时才调用 `hermes kanban dispatch`。HTTP `/api/kanban/dispatch`
+    与任务创建路径都通过 `dispatch_now()` 复用同一把锁，避免并发派发多任务。
     """
 
     def __init__(
@@ -66,15 +66,25 @@ class KanbanDispatchWorker:
             logger.exception("[kanban-dispatch] async trigger failed: %s", exc)
 
     def dispatch_now(self, *, max_workers: int | None = None) -> dict[str, Any]:
-        """串行执行：释放 1 个 pending_dispatch + 跑一次 kanban CLI dispatch。"""
+        """串行执行：释放 1 个 pending_dispatch；有待执行任务才跑 CLI dispatch。"""
         if not self._lock.acquire(blocking=False):
             return {"skipped": True, "released_count": 0, "result": None}
         try:
             released_count = self._release_one_pending_dispatch_task()
+            if released_count == 0 and not self._has_dispatchable_task():
+                return {"skipped": True, "released_count": 0, "result": None}
             result = self.service.dispatch_once(max_workers=max_workers)
             return {"skipped": False, "released_count": released_count, "result": result}
         finally:
             self._lock.release()
+
+    def _has_dispatchable_task(self) -> bool:
+        return any(
+            (link.get("kanban_status") or "").lower() in {"ready", "todo", "triage"}
+            and bool(link.get("assignee_profile"))
+            and bool(link.get("kanban_task_id"))
+            for link in self.store.snapshot().get("kanban_task_links", []) or []
+        )
 
     def _release_one_pending_dispatch_task(self) -> int:
         for link in self.store.snapshot().get("kanban_task_links", []) or []:
