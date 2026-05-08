@@ -8,6 +8,7 @@ class FakeKanban:
     def __init__(self):
         self.assigned = []
         self.dispatched = 0
+        self.tasks = {}
 
     def assign_task(self, task_id, profile):
         self.assigned.append((task_id, profile))
@@ -15,6 +16,9 @@ class FakeKanban:
     def dispatch_once(self, *, max_workers=None):
         self.dispatched += 1
         return {"ok": True, "max_workers": max_workers}
+
+    def show_task(self, task_id):
+        return self.tasks.get(task_id, {"status": "ready"})
 
 
 def test_dispatch_skips_when_no_local_dispatchable_tasks():
@@ -55,3 +59,24 @@ def test_dispatch_runs_after_releasing_pending_task():
     assert outcome["released_count"] == 1
     assert service.assigned == [("kb_1", "leader")]
     assert service.dispatched == 1
+
+
+def test_dispatch_preflight_syncs_stale_done_task_and_skips():
+    runtime_store = RuntimeStore()
+    runtime_store.upsert_kanban_task_link(
+        local_type="user_task",
+        local_id="ut_1",
+        kanban_task_id="kb_1",
+        kanban_role="parent",
+        kanban_status="ready",
+        assignee_profile="leader",
+    )
+    service = FakeKanban()
+    service.tasks["kb_1"] = {"status": "done"}
+    worker = KanbanDispatchWorker(runtime_store=runtime_store, service=service)
+
+    outcome = worker.dispatch_now()
+
+    assert outcome == {"skipped": True, "released_count": 0, "result": None}
+    assert service.dispatched == 0
+    assert runtime_store.find_kanban_task_link(kanban_task_id="kb_1")["kanban_status"] == "done"

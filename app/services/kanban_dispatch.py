@@ -68,23 +68,54 @@ class KanbanDispatchWorker:
     def dispatch_now(self, *, max_workers: int | None = None) -> dict[str, Any]:
         """串行执行：释放 1 个 pending_dispatch；有待执行任务才跑 CLI dispatch。"""
         if not self._lock.acquire(blocking=False):
+            logger.info("[kanban-dispatch] skip reason=locked")
             return {"skipped": True, "released_count": 0, "result": None}
         try:
             released_count = self._release_one_pending_dispatch_task()
-            if released_count == 0 and not self._has_dispatchable_task():
+            if released_count == 0:
+                self._sync_ready_links()
+            dispatchable = self._dispatchable_tasks()
+            if not dispatchable:
+                logger.info("[kanban-dispatch] skip reason=no_dispatchable released=%s", released_count)
                 return {"skipped": True, "released_count": 0, "result": None}
-            result = self.service.dispatch_once(max_workers=max_workers)
+            effective_max_workers = max_workers if max_workers is not None else max(1, len(dispatchable))
+            logger.warning(
+                "[kanban-dispatch] run released=%s max_workers=%s tasks=%s",
+                released_count,
+                effective_max_workers,
+                [item.get("kanban_task_id") for item in dispatchable],
+            )
+            result = self.service.dispatch_once(max_workers=effective_max_workers)
             return {"skipped": False, "released_count": released_count, "result": result}
         finally:
             self._lock.release()
 
-    def _has_dispatchable_task(self) -> bool:
-        return any(
-            (link.get("kanban_status") or "").lower() in {"ready", "todo", "triage"}
+    def _dispatchable_tasks(self) -> list[dict]:
+        return [
+            link
+            for link in self.store.snapshot().get("kanban_task_links", []) or []
+            if (link.get("kanban_status") or "").lower() in {"ready", "todo", "triage"}
             and bool(link.get("assignee_profile"))
             and bool(link.get("kanban_task_id"))
-            for link in self.store.snapshot().get("kanban_task_links", []) or []
-        )
+        ]
+
+    def _sync_ready_links(self) -> None:
+        for link in self._dispatchable_tasks():
+            task_id = link.get("kanban_task_id") or ""
+            try:
+                task = self.service.show_task(task_id)
+            except KanbanError as exc:
+                logger.warning("[kanban-dispatch] preflight show failed task=%s error=%s", task_id, exc)
+                continue
+            status = str(task.get("status") or task.get("state") or task.get("task", {}).get("status") or "")
+            if status and status != link.get("kanban_status"):
+                logger.warning(
+                    "[kanban-dispatch] preflight status sync task=%s local=%s remote=%s",
+                    task_id,
+                    link.get("kanban_status"),
+                    status,
+                )
+                self.store.update_kanban_task_link(task_id, kanban_status=status)
 
     def _release_one_pending_dispatch_task(self) -> int:
         for link in self.store.snapshot().get("kanban_task_links", []) or []:

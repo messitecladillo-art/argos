@@ -290,7 +290,7 @@ def _format_worker_kanban_body(
         f"assignment_id: {assignment['assignment_id']}\n"
         f"user_task_id: {user_task_id or ''}\n"
         f"leader_agent_id: {leader_agent_id}\n\n"
-        "请直接执行以下 worker 子任务。完成时用 Kanban 任务结果说明结论、关键依据、是否完成/阻塞。\n\n"
+        "请直接执行以下 worker 子任务。完成时必须先调用 kanban_complete(summary=...)，用 Kanban 任务结果说明结论、关键依据、是否完成/阻塞；不要只输出自然语言就结束。\n\n"
         "子任务内容：\n"
         f"{assignment['content']}"
     )
