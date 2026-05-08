@@ -80,3 +80,49 @@ def test_dispatch_preflight_syncs_stale_done_task_and_skips():
     assert outcome == {"skipped": True, "released_count": 0, "result": None}
     assert service.dispatched == 0
     assert runtime_store.find_kanban_task_link(kanban_task_id="kb_1")["kanban_status"] == "done"
+
+
+def test_dispatch_preflight_syncs_running_done_task_and_skips():
+    runtime_store = RuntimeStore()
+    runtime_store.upsert_kanban_task_link(
+        local_type="user_task",
+        local_id="ut_1",
+        kanban_task_id="kb_1",
+        kanban_role="parent",
+        kanban_status="running",
+        assignee_profile="leader",
+    )
+    service = FakeKanban()
+    service.tasks["kb_1"] = {"status": "done"}
+    worker = KanbanDispatchWorker(runtime_store=runtime_store, service=service)
+
+    outcome = worker.dispatch_now()
+
+    assert outcome == {"skipped": True, "released_count": 0, "result": None}
+    assert service.dispatched == 0
+    assert runtime_store.find_kanban_task_link(kanban_task_id="kb_1")["kanban_status"] == "done"
+
+
+def test_dispatch_lease_prevents_immediate_duplicate_when_remote_stays_ready():
+    runtime_store = RuntimeStore()
+    runtime_store.upsert_kanban_task_link(
+        local_type="user_task",
+        local_id="ut_1",
+        kanban_task_id="kb_1",
+        kanban_role="parent",
+        kanban_status="ready",
+        assignee_profile="leader",
+    )
+    service = FakeKanban()
+    service.tasks["kb_1"] = {"status": "ready"}
+    worker = KanbanDispatchWorker(runtime_store=runtime_store, service=service)
+
+    first = worker.dispatch_now()
+    second = worker.dispatch_now()
+
+    assert first["skipped"] is False
+    assert second == {"skipped": True, "released_count": 0, "result": None}
+    assert service.dispatched == 1
+    link = runtime_store.find_kanban_task_link(kanban_task_id="kb_1")
+    assert link["kanban_status"] == "running"
+    assert link["metadata"]["dispatch_started_at"]

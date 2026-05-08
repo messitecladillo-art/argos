@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from typing import Any
 
 from ..models.store import RuntimeStore, store as default_store
@@ -11,6 +12,7 @@ from .settings import settings_service
 
 
 logger = logging.getLogger("hermes.agent_state")
+DISPATCH_LEASE_SECONDS = 300
 
 
 class KanbanDispatchWorker:
@@ -72,8 +74,7 @@ class KanbanDispatchWorker:
             return {"skipped": True, "released_count": 0, "result": None}
         try:
             released_count = self._release_one_pending_dispatch_task()
-            if released_count == 0:
-                self._sync_ready_links()
+            self._sync_ready_links()
             dispatchable = self._dispatchable_tasks()
             if not dispatchable:
                 logger.info("[kanban-dispatch] skip reason=no_dispatchable released=%s", released_count)
@@ -86,21 +87,63 @@ class KanbanDispatchWorker:
                 [item.get("kanban_task_id") for item in dispatchable],
             )
             result = self.service.dispatch_once(max_workers=effective_max_workers)
+            self._mark_dispatched(dispatchable)
             return {"skipped": False, "released_count": released_count, "result": result}
         finally:
             self._lock.release()
 
     def _dispatchable_tasks(self) -> list[dict]:
+        now = time.time()
         return [
             link
             for link in self.store.snapshot().get("kanban_task_links", []) or []
             if (link.get("kanban_status") or "").lower() in {"ready", "todo", "triage"}
             and bool(link.get("assignee_profile"))
             and bool(link.get("kanban_task_id"))
+            and not self._has_active_dispatch_lease(link, now)
         ]
 
+    def _has_active_dispatch_lease(self, link: dict, now: float) -> bool:
+        metadata = link.get("metadata") or {}
+        dispatched_at = metadata.get("dispatch_started_at")
+        try:
+            age = now - float(dispatched_at)
+        except (TypeError, ValueError):
+            return False
+        if age < DISPATCH_LEASE_SECONDS:
+            logger.info(
+                "[kanban-dispatch] skip task=%s reason=active_lease age=%.1fs status=%s",
+                link.get("kanban_task_id"),
+                age,
+                link.get("kanban_status"),
+            )
+            return True
+        return False
+
+    def _mark_dispatched(self, links: list[dict]) -> None:
+        dispatched_at = time.time()
+        for link in links:
+            task_id = link.get("kanban_task_id") or ""
+            if not task_id:
+                continue
+            self.store.update_kanban_task_link(
+                task_id,
+                kanban_status="running",
+                metadata={**(link.get("metadata") or {}), "dispatch_started_at": dispatched_at},
+            )
+            logger.warning(
+                "[kanban-dispatch] lease task=%s assignee=%s status=running lease_seconds=%s",
+                task_id,
+                link.get("assignee_profile"),
+                DISPATCH_LEASE_SECONDS,
+            )
+
     def _sync_ready_links(self) -> None:
-        for link in self._dispatchable_tasks():
+        for link in self.store.snapshot().get("kanban_task_links", []) or []:
+            if (link.get("kanban_status") or "").lower() not in {"ready", "todo", "triage", "running"}:
+                continue
+            if not link.get("kanban_task_id"):
+                continue
             task_id = link.get("kanban_task_id") or ""
             try:
                 task = self.service.show_task(task_id)
@@ -108,14 +151,27 @@ class KanbanDispatchWorker:
                 logger.warning("[kanban-dispatch] preflight show failed task=%s error=%s", task_id, exc)
                 continue
             status = str(task.get("status") or task.get("state") or task.get("task", {}).get("status") or "")
+            local_status = (link.get("kanban_status") or "").lower()
+            remote_status = (status or "").lower()
+            if local_status == "running" and remote_status in {"ready", "todo", "triage"}:
+                logger.warning(
+                    "[kanban-dispatch] ignore active rollback task=%s local=%s remote=%s",
+                    task_id,
+                    local_status,
+                    remote_status,
+                )
+                continue
             if status and status != link.get("kanban_status"):
+                metadata = dict(link.get("metadata") or {})
+                if remote_status in {"done", "blocked", "failed", "crashed", "timed_out", "gave_up"}:
+                    metadata.pop("dispatch_started_at", None)
                 logger.warning(
                     "[kanban-dispatch] preflight status sync task=%s local=%s remote=%s",
                     task_id,
                     link.get("kanban_status"),
                     status,
                 )
-                self.store.update_kanban_task_link(task_id, kanban_status=status)
+                self.store.update_kanban_task_link(task_id, kanban_status=status, metadata=metadata)
 
     def _release_one_pending_dispatch_task(self) -> int:
         for link in self.store.snapshot().get("kanban_task_links", []) or []:

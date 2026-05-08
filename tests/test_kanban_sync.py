@@ -41,6 +41,7 @@ class FakeKanban:
 
     def create_task(self, title, **kwargs):
         self.created.append({"title": title, **kwargs})
+        self.tasks["kb_summary"] = {"task_id": "kb_summary", "status": "ready"}
         return {"task_id": "kb_summary", "status": "ready"}
 
 
@@ -109,3 +110,21 @@ def test_summary_done_completes_user_task():
     worker.sync_once()
 
     assert runtime_store.snapshot()["user_tasks"][0]["status"] == "completed"
+
+
+def test_sync_does_not_roll_terminal_task_back_to_ready():
+    runtime_store = RuntimeStore()
+    runtime_store.upsert_kanban_task_link(
+        local_type="user_task",
+        local_id="ut_1",
+        kanban_task_id="kb_parent",
+        kanban_role="parent",
+        kanban_status="done",
+        assignee_profile="lead",
+    )
+    service = FakeKanban({"kb_parent": {"task_id": "kb_parent", "status": "ready"}})
+    worker = KanbanSyncWorker(runtime_store=runtime_store, service=service, interval=1)
+
+    worker.sync_once()
+
+    assert runtime_store.find_kanban_task_link(kanban_task_id="kb_parent")["kanban_status"] == "done"

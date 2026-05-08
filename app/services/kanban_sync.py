@@ -14,6 +14,7 @@ from .kanban_workspace import workspace_for_agent
 logger = logging.getLogger("hermes.agent_state")
 DONE_STATUSES = {"done"}
 FAILED_STATUSES = {"blocked", "failed", "crashed", "timed_out", "gave_up"}
+TERMINAL_STATUSES = DONE_STATUSES | FAILED_STATUSES | {"archived"}
 
 
 class KanbanSyncWorker:
@@ -117,6 +118,24 @@ class KanbanSyncWorker:
             logger.warning("[kanban-sync] show failed task=%s error=%s", task_id, exc)
             return
         status = task_status(task)
+        local_status = (link.get("kanban_status") or "").lower()
+        remote_status = (status or "").lower()
+        if local_status in TERMINAL_STATUSES and remote_status not in TERMINAL_STATUSES:
+            logger.warning(
+                "[kanban-sync] ignore terminal rollback task=%s local=%s remote=%s",
+                task_id,
+                local_status,
+                remote_status or "unknown",
+            )
+            return
+        if local_status == "running" and remote_status in {"ready", "todo", "triage"}:
+            logger.warning(
+                "[kanban-sync] ignore active rollback task=%s local=%s remote=%s",
+                task_id,
+                local_status,
+                remote_status,
+            )
+            return
         title = _task_title(task)
         result = task_result(task)
         metadata = {**(link.get("metadata") or {}), "task_title": title} if title else (link.get("metadata") or {})
