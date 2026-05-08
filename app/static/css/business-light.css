@@ -1,0 +1,602 @@
+:root {
+  --bg: #f4f7fb;
+  --bg-soft: #eef3f9;
+  --panel: #ffffff;
+  --panel-edge: #d8e1ec;
+  --panel-edge-strong: #9db4d0;
+  --text: #172033;
+  --muted: #64748b;
+  --accent: #2563eb;
+  --accent-2: #60a5fa;
+  --success: #16a34a;
+  --warning: #d97706;
+  --danger: #dc2626;
+  --shadow: 0 20px 50px rgba(15, 23, 42, 0.1);
+  --radius: 18px;
+}
+
+html,
+body {
+  background:
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.1), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(96, 165, 250, 0.12), transparent 26%),
+    linear-gradient(135deg, #f8fbff 0%, #f4f7fb 45%, #eef3f9 100%);
+  color: var(--text);
+}
+
+.shell-grid {
+  background-image:
+    linear-gradient(rgba(37, 99, 235, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(37, 99, 235, 0.035) 1px, transparent 1px);
+  opacity: 0.75;
+}
+
+.panel,
+.modal__panel,
+.history-drawer__panel,
+.terminal-drawer__panel,
+.soul-drawer__panel,
+.skills-drawer__panel {
+  background: rgba(255, 255, 255, 0.94);
+  border-color: var(--panel-edge);
+  box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(14px);
+}
+
+.section-kicker,
+.event-agent,
+.soul-drawer__head code,
+.kanban-task-badge,
+.confirm-modal__confirm {
+  color: var(--accent);
+}
+
+.mini-stat,
+.target-chip,
+.interaction-list,
+.kanban-submit,
+.skill-row,
+.soul-status,
+.mcp-config-card,
+.agent-model-card,
+.form-preview,
+.role-radio,
+.kanban-task-card,
+.agent-row {
+  background: rgba(248, 251, 255, 0.86);
+  border-color: var(--panel-edge);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72), 0 8px 24px rgba(15, 23, 42, 0.055);
+}
+
+.agent-row:hover,
+.agent-row.is-active,
+.skill-row:hover,
+.skill-row.is-active,
+.filter-chip.is-active,
+.role-radio:has(input:checked),
+.agent-context-menu__item:hover {
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.28);
+  box-shadow: 0 10px 28px rgba(37, 99, 235, 0.12);
+}
+
+.agent-row.is-disabled {
+  background: rgba(226, 232, 240, 0.55);
+  border-color: rgba(148, 163, 184, 0.35);
+  color: rgba(100, 116, 139, 0.7);
+}
+
+.status-pill,
+.kanban-task-badge,
+.mono-label,
+.filter-chip,
+.confirm-modal__confirm,
+.acp-btn,
+.icon-button {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: var(--panel-edge);
+  color: var(--muted);
+}
+
+.status-pill.is-active,
+.status-pill.status-running,
+.status-pill.status-completed,
+.acp-btn--start {
+  background: rgba(22, 163, 74, 0.1);
+  border-color: rgba(22, 163, 74, 0.24);
+  color: var(--success);
+}
+
+.status-pill.status-pending,
+.status-pill.status-waiting,
+.status-pill.status-paused {
+  background: rgba(217, 119, 6, 0.1);
+  border-color: rgba(217, 119, 6, 0.24);
+  color: var(--warning);
+}
+
+.status-pill.status-error,
+.status-pill.status-failed,
+.status-pill.status-crashed,
+.acp-btn--stop,
+.confirm-modal__confirm[data-variant="danger"] {
+  background: rgba(220, 38, 38, 0.09);
+  border-color: rgba(220, 38, 38, 0.24);
+  color: var(--danger);
+}
+
+.status-pill.status-idle,
+.status-pill.status-stopped,
+.status-pill.status-unknown {
+  background: rgba(100, 116, 139, 0.1);
+  border-color: rgba(100, 116, 139, 0.2);
+  color: var(--muted);
+}
+
+.load-track,
+.progress-track {
+  background: rgba(203, 213, 225, 0.75);
+}
+
+.load-track span,
+.progress-track span {
+  background: linear-gradient(90deg, var(--accent), var(--accent-2));
+}
+
+.primary-button {
+  background: linear-gradient(90deg, #2563eb, #3b82f6);
+  color: #ffffff;
+  box-shadow: 0 12px 24px rgba(37, 99, 235, 0.24);
+}
+
+.primary-button:hover {
+  box-shadow: 0 16px 30px rgba(37, 99, 235, 0.3);
+}
+
+.icon-button {
+  color: var(--accent);
+}
+
+.icon-button:hover,
+.filter-chip:hover,
+.acp-btn:hover,
+.confirm-modal__confirm:hover {
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.28);
+  color: var(--accent);
+}
+
+.modal__backdrop,
+.history-drawer.is-open .history-drawer__backdrop,
+.terminal-drawer.is-open .terminal-drawer__backdrop,
+.soul-drawer.is-open .soul-drawer__backdrop,
+.skills-drawer.is-open .skills-drawer__backdrop {
+  background: rgba(15, 23, 42, 0.28);
+  backdrop-filter: blur(8px);
+}
+
+.modal__form input:not([type="radio"]),
+.modal__form select,
+.modal__form textarea,
+.soul-field,
+.mcp-field,
+.agent-model-field,
+input,
+select,
+textarea {
+  background: rgba(255, 255, 255, 0.92);
+  border-color: var(--panel-edge);
+  color: var(--text);
+}
+
+input::placeholder,
+textarea::placeholder,
+.modal__form input::placeholder,
+.modal__form textarea::placeholder {
+  color: #9aa8bd;
+  opacity: 1;
+}
+
+.modal__form input:not([type="radio"]):focus,
+.modal__form select:focus,
+.modal__form textarea:focus,
+.soul-field:focus,
+.mcp-field:focus,
+.agent-model-field:focus,
+input:focus,
+select:focus,
+textarea:focus {
+  outline: none;
+  border-color: rgba(37, 99, 235, 0.52);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+}
+
+.agent-context-menu {
+  background: rgba(255, 255, 255, 0.98);
+  border-color: var(--panel-edge);
+  box-shadow: 0 18px 42px rgba(15, 23, 42, 0.16);
+}
+
+.agent-context-menu__separator,
+.kanban-task-card__result,
+.skills-detail-panel,
+.output-foot,
+.event-feed {
+  border-color: var(--panel-edge);
+}
+
+.terminal-shell {
+  color: #dbeafe;
+  background: #0f172a;
+  border-color: rgba(37, 99, 235, 0.24);
+  box-shadow: inset 0 1px 16px rgba(2, 6, 23, 0.58), 0 14px 32px rgba(15, 23, 42, 0.12);
+}
+
+.terminal-toolbar {
+  border-bottom-color: rgba(96, 165, 250, 0.18);
+  color: rgba(219, 234, 254, 0.82);
+}
+
+.terminal-dot {
+  background: #60a5fa;
+  box-shadow: 0 0 14px rgba(96, 165, 250, 0.58);
+}
+
+.acp-dot.acp-running {
+  background: var(--success);
+  box-shadow: 0 0 6px rgba(22, 163, 74, 0.5);
+}
+
+.acp-dot.acp-crashed {
+  background: var(--danger);
+}
+
+.acp-dot.acp-stopped {
+  background: #94a3b8;
+}
+
+.kanban-submit,
+.kanban-column,
+.kanban-task-card {
+  background: rgba(255, 255, 255, 0.9);
+  border-color: var(--panel-edge);
+  box-shadow: 0 12px 28px rgba(15, 23, 42, 0.075), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.kanban-column__head {
+  background: rgba(37, 99, 235, 0.06);
+  border-bottom-color: var(--panel-edge);
+}
+
+.kanban-column__head span,
+.kanban-task-card__meta,
+.kanban-column__empty {
+  color: var(--muted);
+}
+
+.kanban-column__empty {
+  margin-top: 28px;
+  color: #a8b4c5;
+  font-size: 0.72rem;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+
+.kanban-task-card:hover,
+.kanban-task-card:focus-visible {
+  background: rgba(248, 251, 255, 0.98);
+  border-color: rgba(37, 99, 235, 0.32);
+  box-shadow: 0 16px 34px rgba(37, 99, 235, 0.12);
+}
+
+.kanban-task-card:focus-visible {
+  outline-color: rgba(37, 99, 235, 0.36);
+}
+
+.kanban-status {
+  background: rgba(255, 255, 255, 0.96);
+  border-color: var(--panel-edge);
+  box-shadow: 0 18px 48px rgba(15, 23, 42, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.86);
+}
+
+.composer-action {
+  background: rgba(255, 255, 255, 0.72);
+  border-color: var(--panel-edge);
+  color: var(--muted);
+}
+
+.composer-action:hover {
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.28);
+  color: var(--accent);
+}
+
+.composer-action[aria-pressed="true"] {
+  background: rgba(22, 163, 74, 0.1);
+  border-color: rgba(22, 163, 74, 0.24);
+  color: var(--success);
+}
+
+.kanban-column__clear {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.22);
+  color: var(--danger);
+}
+
+.kanban-column__clear:hover:not(:disabled) {
+  background: rgba(220, 38, 38, 0.14);
+}
+
+.transfer-tabs .is-active {
+  background: rgba(37, 99, 235, 0.08);
+  border-color: rgba(37, 99, 235, 0.32);
+  color: var(--accent);
+}
+
+.transfer-file-picker {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(37, 99, 235, 0.09), transparent 34%),
+    rgba(248, 251, 255, 0.88);
+  border-color: rgba(37, 99, 235, 0.22);
+}
+
+.transfer-file-picker:hover {
+  background:
+    radial-gradient(circle at 20% 0%, rgba(37, 99, 235, 0.13), transparent 36%),
+    rgba(255, 255, 255, 0.94);
+  border-color: rgba(37, 99, 235, 0.38);
+  box-shadow: 0 16px 36px rgba(37, 99, 235, 0.12);
+}
+
+.transfer-file-picker__icon {
+  background: linear-gradient(135deg, #2563eb, #60a5fa);
+  color: #ffffff;
+  box-shadow: 0 14px 28px rgba(37, 99, 235, 0.2);
+}
+
+.transfer-agent-list,
+.transfer-preview,
+.transfer-check {
+  background: rgba(248, 251, 255, 0.86);
+  border-color: var(--panel-edge);
+}
+
+.modal__form textarea,
+.transfer-preview,
+.transfer-agent-list,
+.form-preview {
+  background: rgba(248, 251, 255, 0.92);
+  border-color: var(--panel-edge);
+  color: var(--text);
+}
+
+.transfer-agent-item input[type="checkbox"],
+.transfer-check input[type="checkbox"] {
+  background: #ffffff;
+  border-color: #b6c5d8;
+}
+
+.transfer-agent-item input[type="checkbox"]:hover,
+.transfer-check input[type="checkbox"]:hover {
+  border-color: rgba(37, 99, 235, 0.52);
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.1);
+}
+
+.transfer-agent-item input[type="checkbox"]:checked,
+.transfer-check input[type="checkbox"]:checked {
+  border-color: var(--accent);
+  background:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath fill='none' stroke='%23ffffff' stroke-linecap='round' stroke-linejoin='round' stroke-width='3' d='M4.5 10.5 8.2 14 15.8 6'/%3E%3C/svg%3E") center / 17px 17px no-repeat,
+    linear-gradient(135deg, #2563eb, #60a5fa);
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.2);
+}
+
+.transfer-agent-item input[type="checkbox"]:focus-visible,
+.transfer-check input[type="checkbox"]:focus-visible {
+  outline-color: rgba(37, 99, 235, 0.5);
+}
+
+.form-error {
+  background: rgba(220, 38, 38, 0.08);
+  color: var(--danger);
+}
+
+.form-error[data-kind="success"] {
+  background: rgba(22, 163, 74, 0.1);
+  border-color: rgba(22, 163, 74, 0.24);
+}
+
+.form-error[data-kind="muted"] {
+  background: rgba(100, 116, 139, 0.08);
+  border-color: rgba(100, 116, 139, 0.18);
+}
+
+.form-error[data-kind="error"] {
+  background: rgba(220, 38, 38, 0.09);
+  border-color: rgba(220, 38, 38, 0.24);
+  color: var(--danger);
+}
+
+.soul-preview__body code {
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--accent);
+}
+
+.soul-preview__body pre {
+  background: #0f172a;
+  color: #dbeafe;
+}
+
+.soul-preview__body pre code {
+  color: #dbeafe;
+}
+
+.skills-detail-panel {
+  border-left-color: var(--panel-edge);
+}
+
+.soul-editor textarea,
+.soul-preview__body,
+.skills-preview {
+  background: rgba(248, 251, 255, 0.96);
+  border: 1px solid var(--panel-edge);
+  color: var(--text);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.soul-editor textarea:focus,
+.soul-editor textarea:focus-visible {
+  border-color: rgba(37, 99, 235, 0.32);
+  outline: none;
+  box-shadow: 0 0 0 4px rgba(37, 99, 235, 0.08), inset 0 1px 0 rgba(255, 255, 255, 0.82);
+}
+
+.soul-preview__body h1,
+.soul-preview__body h2,
+.soul-preview__body h3,
+.soul-preview__body p,
+.soul-preview__body li {
+  color: var(--text);
+}
+
+.soul-preview__body ul {
+  color: var(--text);
+}
+
+.kanban-submit textarea,
+.kanban-submit textarea:focus,
+.kanban-submit textarea:focus-visible {
+  border: 0;
+  outline: none;
+  background: transparent;
+  box-shadow: none;
+}
+
+.kanban-submit textarea::placeholder {
+  color: #9aa8bd;
+  opacity: 1;
+}
+
+#mcp-drawer .skills-drawer__panel {
+  background: rgba(255, 255, 255, 0.97);
+}
+
+#mcp-drawer .mcp-toolbar {
+  align-items: center;
+  padding: 2px 0 6px;
+}
+
+#mcp-drawer .mcp-list {
+  grid-template-columns: repeat(auto-fit, minmax(360px, 1fr));
+  align-content: start;
+  gap: 14px;
+  padding: 4px 2px 24px;
+}
+
+#mcp-drawer .mcp-card {
+  position: relative;
+  display: grid;
+  gap: 14px;
+  min-height: 0;
+  padding: 18px;
+  overflow: hidden;
+  border: 1px solid #dbe5f2;
+  border-radius: 20px;
+  background:
+    linear-gradient(135deg, rgba(37, 99, 235, 0.055), transparent 34%),
+    #ffffff;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.07), inset 0 1px 0 rgba(255, 255, 255, 0.9);
+}
+
+#mcp-drawer .mcp-card::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: linear-gradient(180deg, #2563eb, #60a5fa);
+  opacity: 0.82;
+}
+
+#mcp-drawer .mcp-card:hover {
+  border-color: rgba(37, 99, 235, 0.3);
+  box-shadow: 0 18px 38px rgba(37, 99, 235, 0.12);
+}
+
+#mcp-drawer .mcp-card__head {
+  align-items: flex-start;
+}
+
+#mcp-drawer .mcp-card__head strong {
+  font-size: 1.02rem;
+  letter-spacing: 0.01em;
+}
+
+#mcp-drawer .mcp-card__head small {
+  padding: 5px 10px;
+  border: 1px solid rgba(37, 99, 235, 0.14);
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.06);
+  color: var(--accent);
+  white-space: nowrap;
+}
+
+#mcp-drawer .mcp-card__badges {
+  margin-top: 8px;
+}
+
+#mcp-drawer .mcp-badge {
+  border-color: #dbe5f2;
+  background: #f8fbff;
+  color: #64748b;
+  font-weight: 600;
+}
+
+#mcp-drawer .mcp-card p {
+  margin: 0;
+  color: #64748b;
+  line-height: 1.55;
+}
+
+#mcp-drawer .mcp-card code {
+  margin: 0;
+  padding: 11px 12px;
+  border: 1px solid #dbe5f2;
+  border-radius: 12px;
+  background: #f4f7fb;
+  color: #334155;
+  font-size: 0.86rem;
+  line-height: 1.45;
+}
+
+#mcp-drawer .mcp-card__actions {
+  align-items: center;
+  padding-top: 2px;
+}
+
+#mcp-drawer .mcp-card__actions > div:last-child {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+#mcp-drawer .mcp-card__actions .filter-chip {
+  min-height: 34px;
+  padding: 7px 13px;
+  background: #ffffff;
+}
+
+#mcp-drawer .mcp-card__actions .filter-chip[data-mcp-delete] {
+  border-color: rgba(220, 38, 38, 0.2);
+  color: var(--danger);
+}
+
+#mcp-drawer .mcp-card__actions .filter-chip[data-mcp-delete]:hover {
+  background: rgba(220, 38, 38, 0.08);
+  border-color: rgba(220, 38, 38, 0.28);
+}
+
+#mcp-drawer .mcp-card__actions .filter-chip:disabled {
+  background: #f1f5f9;
+  color: #94a3b8;
+}

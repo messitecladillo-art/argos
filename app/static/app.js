@@ -666,7 +666,7 @@ function renderKanbanTasks() {
     if (clearDoneButton) clearDoneButton.addEventListener("click", clearDoneKanbanTasks);
     const body = section.querySelector(".kanban-column__body");
     if (!items.length) {
-      body.innerHTML = `<p class="kanban-column__empty">—</p>`;
+      body.innerHTML = `<p class="kanban-column__empty">暂无任务</p>`;
     }
     items.slice(0, 20).forEach((link) => {
       const card = document.createElement("article");
