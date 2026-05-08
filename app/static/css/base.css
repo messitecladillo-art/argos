@@ -726,6 +726,18 @@ label span,
   transform: scale(0.985);
 }
 
+.kanban-task-card--pending {
+  pointer-events: none;
+  border-style: dashed;
+  opacity: 0.85;
+  animation: kanban-pending-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes kanban-pending-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
 .kanban-task-card.is-deleting::after {
   content: "删除中…";
   display: block;

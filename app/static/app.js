@@ -190,6 +190,7 @@ const kanbanState = {
   autoDispatchTimer: 0,
   autoDispatchRunning: false,
   deletingTaskIds: new Set(),
+  pendingCreations: [],
 };
 let transferLastInspectedFile = null;
 const notificationAgentStates = new Map();
@@ -676,7 +677,21 @@ function renderKanbanTasks() {
     const clearDoneButton = section.querySelector("[data-kanban-clear-done]");
     if (clearDoneButton) clearDoneButton.addEventListener("click", clearDoneKanbanTasks);
     const body = section.querySelector(".kanban-column__body");
-    if (!items.length) {
+    const pendingForColumn = column.key === "ready" ? kanbanState.pendingCreations : [];
+    pendingForColumn.forEach((pending) => {
+      const placeholder = document.createElement("article");
+      placeholder.className = "kanban-task-card kanban-task-card--pending";
+      placeholder.dataset.pendingId = pending.id;
+      placeholder.innerHTML = `
+        <div class="kanban-task-card__top">
+          <strong title="${escapeHtml(pending.title)}">${escapeHtml(pending.title)}</strong>
+          <span class="kanban-task-badge">创建中…</span>
+        </div>
+        <p>正在创建任务，请稍候…</p>
+      `;
+      body.appendChild(placeholder);
+    });
+    if (!items.length && !pendingForColumn.length) {
       body.innerHTML = `<p class="kanban-column__empty">暂无任务</p>`;
     }
     items.slice(0, 20).forEach((link) => {
@@ -777,7 +792,16 @@ async function submitKanbanTask(event) {
   }
   const submitBtn = kanbanTaskForm.querySelector('button[type="submit"]');
   if (submitBtn) submitBtn.disabled = true;
+  const pendingId = `pending-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const pendingEntry = { id: pendingId, title: content.slice(0, 80) };
+  kanbanState.pendingCreations.push(pendingEntry);
+  renderKanbanTasks();
+  pendingEntry.timeoutId = window.setTimeout(() => {
+    kanbanState.pendingCreations = kanbanState.pendingCreations.filter((item) => item.id !== pendingId);
+    renderKanbanTasks();
+  }, 30000);
   setKanbanStatus("正在创建 Kanban 父任务…");
+  let created = false;
   try {
     const response = await fetch("/api/messages", {
       method: "POST",
@@ -789,10 +813,25 @@ async function submitKanbanTask(event) {
     kanbanTaskInput.value = "";
     const message = data.message || {};
     setKanbanStatus(`已创建：${message.kanban_task_id || message.user_task_id || "Kanban 任务"}`, "success");
+    created = true;
+    const newTaskId = message.kanban_task_id || "";
     await refreshKanbanTasks({ silent: true });
+    const matched = newTaskId
+      ? (kanbanState.links || []).some((link) => link.kanban_task_id === newTaskId)
+      : false;
+    if (matched) {
+      window.clearTimeout(pendingEntry.timeoutId);
+      kanbanState.pendingCreations = kanbanState.pendingCreations.filter((item) => item.id !== pendingId);
+      renderKanbanTasks();
+    }
   } catch (error) {
     setKanbanStatus(error.message || "任务创建失败", "error");
   } finally {
+    if (!created) {
+      window.clearTimeout(pendingEntry.timeoutId);
+      kanbanState.pendingCreations = kanbanState.pendingCreations.filter((item) => item.id !== pendingId);
+      renderKanbanTasks();
+    }
     if (submitBtn) submitBtn.disabled = false;
   }
 }
@@ -2775,6 +2814,10 @@ function handleRuntimeEvent(event) {
   }
   if (rememberChatEvent(event)) renderInteractions();
   if (String(event.event_type || "").startsWith("kanban.")) {
+    if (kanbanState.pendingCreations.length) {
+      kanbanState.pendingCreations.forEach((item) => window.clearTimeout(item.timeoutId));
+      kanbanState.pendingCreations = [];
+    }
     refreshKanbanTasks({ silent: true });
   }
 }
