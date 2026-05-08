@@ -443,6 +443,30 @@ function normalizeTerminalLogText(value) {
   return String(value || "").replace(/\r?\n/g, "\r\n");
 }
 
+function getTerminalScrollState(session) {
+  const viewport = session?.pane?.querySelector(".xterm-viewport");
+  if (!viewport) return null;
+  const distanceFromBottom = viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop;
+  return {
+    scrollTop: viewport.scrollTop,
+    distanceFromBottom,
+    wasNearBottom: distanceFromBottom < 24,
+  };
+}
+
+function restoreTerminalScrollState(session, state) {
+  if (!state) return;
+  const viewport = session?.pane?.querySelector(".xterm-viewport");
+  if (!viewport) return;
+  requestAnimationFrame(() => {
+    if (state.wasNearBottom) {
+      viewport.scrollTop = viewport.scrollHeight;
+    } else {
+      viewport.scrollTop = Math.max(0, Math.min(state.scrollTop, viewport.scrollHeight - viewport.clientHeight));
+    }
+  });
+}
+
 function formatKanbanTaskDetails(details) {
   const payload = details?.task || {};
   const task = payload.task || payload;
@@ -468,6 +492,7 @@ function formatKanbanTaskDetails(details) {
 function writeKanbanLogToTerminal(session, link, agent, logText, message = "") {
   if (!session) return;
   const taskId = link?.kanban_task_id || "";
+  const scrollState = getTerminalScrollState(session);
   session.term.reset();
   session.term.clear();
   session.hasRenderedOutput = true;
@@ -479,10 +504,12 @@ function writeKanbanLogToTerminal(session, link, agent, logText, message = "") {
   session.term.write(header);
   if (message) {
     session.term.write(`\x1b[90m${message}\x1b[0m\r\n`);
+    restoreTerminalScrollState(session, scrollState);
     return;
   }
   const body = normalizeTerminalLogText(logText).trim();
   session.term.write(body || "\x1b[90m暂无 Kanban 运行日志。任务可能刚启动，稍后会自动刷新。\x1b[0m");
+  restoreTerminalScrollState(session, scrollState);
 }
 
 async function refreshKanbanTaskLog(link, agent) {
