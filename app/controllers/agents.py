@@ -12,6 +12,7 @@ from flask import Blueprint, jsonify, request
 from ..models.store import store
 from ..services import registry
 from ..services import agents as agents_service
+from ..services import soul as soul_service
 from ..services import skill_installer
 from ..services.acp import pool as session_pool
 from ..services.profiles import ProfileError, check_hermes_ready, list_hermes_profiles
@@ -218,6 +219,37 @@ def update_agent_soul(agent_id: str):
             "agent": store.find_agent(agent_id),
         }
     )
+
+
+@bp.post("/agents/<agent_id>/soul/regenerate")
+def regenerate_agent_soul(agent_id: str):
+    agent = store.find_agent(agent_id)
+    if agent is None:
+        return jsonify({"ok": False, "error": "agent not found"}), 404
+    if (agent.get("readiness_status") or "ready") == "preparing":
+        return jsonify({"ok": False, "error": "SOUL.md is still being generated"}), 409
+
+    store.update_agent(
+        agent_id,
+        readiness_status="preparing",
+        readiness_message="正在重新生成 SOUL.md",
+        current_task="正在重新生成 SOUL.md",
+    )
+    store.push_event(
+        "agent.soul.regenerate.started",
+        agent_id,
+        None,
+        {"text": "SOUL.md 重新生成已开始"},
+    )
+    soul_service.spawn_generate(
+        store,
+        agent_id=agent["agent_id"],
+        name=agent["name"],
+        role=agent["role"],
+        description=agent.get("description") or "",
+        profile_name=agent["profile_name"],
+    )
+    return jsonify({"ok": True, "agent": store.find_agent(agent_id)}), 202
 
 
 @bp.post("/agents/<agent_id>/interactions/<request_id>/respond")

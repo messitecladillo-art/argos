@@ -101,6 +101,40 @@ def test_put_agent_soul_rejects_preparing_agent(monkeypatch, tmp_path):
     assert response.get_json()["ok"] is False
 
 
+def test_post_agent_soul_regenerate_starts_generation(monkeypatch, tmp_path):
+    client, store = _client(monkeypatch, tmp_path)
+    _register_agent(store)
+    calls = []
+
+    def fake_spawn_generate(runtime_store, **kwargs):
+        calls.append((runtime_store, kwargs))
+
+    monkeypatch.setattr(agents_controller.soul_service, "spawn_generate", fake_spawn_generate)
+
+    response = client.post("/api/agents/agent_dev/soul/regenerate")
+
+    assert response.status_code == 202
+    data = response.get_json()
+    assert data["ok"] is True
+    agent = store.find_agent("agent_dev")
+    assert agent["readiness_status"] == "preparing"
+    assert agent["readiness_message"] == "正在重新生成 SOUL.md"
+    assert calls[0][0] is store
+    assert calls[0][1]["agent_id"] == "agent_dev"
+    assert calls[0][1]["profile_name"] == "dev"
+
+
+def test_post_agent_soul_regenerate_rejects_preparing_agent(monkeypatch, tmp_path):
+    client, store = _client(monkeypatch, tmp_path)
+    agent = _register_agent(store)
+    agent["readiness_status"] = "preparing"
+
+    response = client.post("/api/agents/agent_dev/soul/regenerate")
+
+    assert response.status_code == 409
+    assert response.get_json()["ok"] is False
+
+
 def test_agent_soul_unknown_agent_returns_404(monkeypatch, tmp_path):
     client, _store = _client(monkeypatch, tmp_path)
 

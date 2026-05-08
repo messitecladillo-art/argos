@@ -37,6 +37,7 @@ const soulEditor = document.getElementById("soul-editor");
 const soulPreview = document.getElementById("soul-preview");
 const soulDirtyHint = document.getElementById("soul-dirty-hint");
 const saveSoul = document.getElementById("save-soul");
+const regenerateSoul = document.getElementById("regenerate-soul");
 const skillsDrawer = document.getElementById("skills-drawer");
 const skillsDrawerAgent = document.getElementById("skills-drawer-agent");
 const skillsStatus = document.getElementById("skills-status");
@@ -155,6 +156,8 @@ const soulState = {
   runtimeStatus: "stopped",
   originalContent: "",
   saving: false,
+  regenerating: false,
+  pollTimer: 0,
   scrollSyncSource: "",
   scrollSyncTimer: 0,
 };
@@ -1334,6 +1337,7 @@ function updateSoulDirtyState() {
   const dirty = hasUnsavedSoulChanges();
   if (soulDirtyHint) soulDirtyHint.hidden = !dirty;
   if (saveSoul) saveSoul.disabled = soulState.saving || !dirty || !soulEditor?.value.trim();
+  if (regenerateSoul) regenerateSoul.disabled = soulState.saving || soulState.regenerating || !soulState.agentId;
 }
 
 function renderInlineMarkdown(value) {
@@ -1431,6 +1435,68 @@ function syncSoulScroll(source, target, sourceName) {
 function syncSoulPreviewToEditor() {
   if (!soulEditor || !soulPreview) return;
   setScrollRatio(soulPreview, getScrollRatio(soulEditor));
+}
+
+function clearSoulPollTimer() {
+  if (!soulState.pollTimer) return;
+  window.clearTimeout(soulState.pollTimer);
+  soulState.pollTimer = 0;
+}
+
+async function refreshSoulContent({ focusEditor = false, showFreshStatus = true } = {}) {
+  if (!soulState.agentId) return null;
+  const requestedAgentId = soulState.agentId;
+  const response = await fetch(`/api/agents/${requestedAgentId}/soul`);
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.ok) {
+    throw new Error(data.error || "SOUL.md 加载失败");
+  }
+  if (soulState.agentId !== requestedAgentId) return null;
+
+  soulState.originalContent = data.content || "";
+  soulState.runtimeStatus = data.agent?.runtime_status || "stopped";
+  const isPreparing = data.agent?.readiness_status === "preparing";
+  if (soulDrawerAgent) {
+    soulDrawerAgent.textContent = `${data.agent?.name || requestedAgentId} · ${data.agent?.profile_name || ""}`;
+  }
+  if (soulDrawerPath) soulDrawerPath.textContent = data.path || "—";
+  if (soulEditor) {
+    soulEditor.disabled = isPreparing;
+    soulEditor.value = soulState.originalContent;
+    if (focusEditor && !isPreparing) soulEditor.focus();
+  }
+  renderMarkdownPreview(soulState.originalContent);
+  syncSoulPreviewToEditor();
+  if (showFreshStatus) {
+    setSoulStatus(isPreparing ? "SOUL.md 正在生成中，完成后才能编辑。" : (data.updated_at ? `最后保存：${formatDateTime(data.updated_at)}` : "SOUL.md 尚未创建，保存后会写入文件。"), "muted");
+  }
+  updateSoulDirtyState();
+  return data;
+}
+
+function pollSoulRegeneration() {
+  clearSoulPollTimer();
+  if (!soulState.agentId || !soulState.regenerating) return;
+  const requestedAgentId = soulState.agentId;
+  soulState.pollTimer = window.setTimeout(async () => {
+    try {
+      const data = await refreshSoulContent({ showFreshStatus: false });
+      if (!data || soulState.agentId !== requestedAgentId) return;
+      if (data.agent?.readiness_status === "preparing") {
+        setSoulStatus("SOUL.md 正在重新生成…", "muted");
+        pollSoulRegeneration();
+        return;
+      }
+      soulState.regenerating = false;
+      const runningHint = (data.agent?.runtime_status || soulState.runtimeStatus) === "running" ? "，重启该 agent 后生效" : "";
+      setSoulStatus(`SOUL.md 已重新生成${runningHint}。`, "success");
+      updateSoulDirtyState();
+    } catch (error) {
+      soulState.regenerating = false;
+      setSoulStatus(error.message || "SOUL.md 重新生成失败", "error");
+      updateSoulDirtyState();
+    }
+  }, 1500);
 }
 
 function skillLetterForSlug(slug) {
@@ -2150,10 +2216,12 @@ async function uninstallSelectedSkill() {
 async function openSoulPanel(agentId) {
   if (!soulDrawer || !agentId) return;
   closeAgentContextMenu();
+  clearSoulPollTimer();
   const requestedAgentId = agentId;
   soulState.agentId = agentId;
   soulState.originalContent = "";
   soulState.runtimeStatus = "stopped";
+  soulState.regenerating = false;
   if (soulEditor) {
     soulEditor.value = "";
     soulEditor.disabled = true;
@@ -2165,27 +2233,7 @@ async function openSoulPanel(agentId) {
   openAnimatedLayer(soulDrawer);
 
   try {
-    const response = await fetch(`/api/agents/${agentId}/soul`);
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.ok) {
-      throw new Error(data.error || "SOUL.md 加载失败");
-    }
-    if (soulState.agentId !== requestedAgentId) return;
-    soulState.originalContent = data.content || "";
-    soulState.runtimeStatus = data.agent?.runtime_status || "stopped";
-    const isPreparing = data.agent?.readiness_status === "preparing";
-    if (soulDrawerAgent) {
-      soulDrawerAgent.textContent = `${data.agent?.name || agentId} · ${data.agent?.profile_name || ""}`;
-    }
-    if (soulDrawerPath) soulDrawerPath.textContent = data.path || "—";
-    if (soulEditor) {
-      soulEditor.disabled = isPreparing;
-      soulEditor.value = soulState.originalContent;
-      if (!isPreparing) soulEditor.focus();
-    }
-    renderMarkdownPreview(soulState.originalContent);
-    syncSoulPreviewToEditor();
-    setSoulStatus(isPreparing ? "SOUL.md 正在生成中，完成后才能编辑。" : (data.updated_at ? `最后保存：${formatDateTime(data.updated_at)}` : "SOUL.md 尚未创建，保存后会写入文件。"), "muted");
+    await refreshSoulContent({ focusEditor: true });
   } catch (error) {
     if (soulState.agentId !== requestedAgentId) return;
     setSoulStatus(error.message || "SOUL.md 加载失败", "error");
@@ -2206,9 +2254,11 @@ async function closeSoulPanel({ force = false } = {}) {
     if (!confirmed) return;
   }
   closeAnimatedLayer(soulDrawer, () => {
+    clearSoulPollTimer();
     soulState.agentId = "";
     soulState.originalContent = "";
     soulState.runtimeStatus = "stopped";
+    soulState.regenerating = false;
     setSoulStatus("", "muted");
   });
 }
@@ -2249,6 +2299,40 @@ async function saveSoulContent() {
     soulState.saving = false;
     saveSoul.textContent = "保存";
     updateSoulDirtyState();
+  }
+}
+
+async function regenerateSoulContent() {
+  if (!soulState.agentId || !regenerateSoul) return;
+  if (hasUnsavedSoulChanges()) {
+    const confirmed = await confirmAction({
+      title: "重新生成 SOUL.md",
+      message: "当前有未保存修改，重新生成会覆盖文件内容。确认继续吗？",
+      confirmText: "重新生成",
+      confirmVariant: "warning",
+    });
+    if (!confirmed) return;
+  }
+
+  soulState.regenerating = true;
+  regenerateSoul.textContent = "生成中…";
+  if (soulEditor) soulEditor.disabled = true;
+  setSoulStatus("正在重新生成 SOUL.md…", "muted");
+  updateSoulDirtyState();
+  try {
+    const response = await fetch(`/api/agents/${soulState.agentId}/soul/regenerate`, { method: "POST" });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || "SOUL.md 重新生成失败");
+    }
+    pollSoulRegeneration();
+  } catch (error) {
+    soulState.regenerating = false;
+    if (soulEditor) soulEditor.disabled = false;
+    setSoulStatus(error.message || "SOUL.md 重新生成失败", "error");
+    updateSoulDirtyState();
+  } finally {
+    regenerateSoul.textContent = "重新生成";
   }
 }
 
@@ -3430,6 +3514,7 @@ if (soulPreview) {
   });
 }
 if (saveSoul) saveSoul.addEventListener("click", saveSoulContent);
+if (regenerateSoul) regenerateSoul.addEventListener("click", regenerateSoulContent);
 if (modal) {
   modal.addEventListener("click", (event) => {
     if (event.target instanceof HTMLElement && event.target.dataset.closeModal !== undefined) {
