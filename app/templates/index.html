@@ -87,7 +87,10 @@
             <div class="agent-row__top">
               <div>
                 <strong>{{ agent.name }}</strong>
-                <p>{{ agent.role }} · {{ agent.profile_name }}{% if agent.model_summary and agent.model_summary.default %} · {{ agent.model_summary.default }}{% endif %}</p>
+                <p>{{ agent.role }} · {{ agent.profile_name }}</p>
+                {% if agent.model_summary and agent.model_summary.default %}
+                <p class="agent-row__model" title="{{ agent.model_summary.default }}">{{ agent.model_summary.default }}</p>
+                {% endif %}
               </div>
               <span class="status-badge status-{{ display_status_class }}">{{ display_status_label }}</span>
             </div>
@@ -565,6 +568,6 @@
     </script>
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
-    <script src="{{ url_for('static', filename='app.js') }}?v=business-light-2"></script>
+    <script src="{{ url_for('static', filename='app.js') }}?v=business-light-3"></script>
   </body>
 </html>
