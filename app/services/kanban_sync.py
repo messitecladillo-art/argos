@@ -61,6 +61,8 @@ class KanbanSyncWorker:
     def _sync_link(self, link: dict) -> None:
         if (link.get("metadata") or {}).get("seeded_for_ui_test"):
             return
+        if (link.get("kanban_status") or "").lower() == "pending_dispatch":
+            return
         task_id = link["kanban_task_id"]
         try:
             task = self.service.show_task(task_id)

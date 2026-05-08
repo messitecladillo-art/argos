@@ -380,6 +380,7 @@ function kanbanRoleLabel(role) {
 
 function kanbanStatusLabel(status) {
   const value = String(status || "").toLowerCase();
+  if (value === "pending_dispatch") return "待派发";
   if (value === "ready") return "待执行";
   if (value === "todo") return "待处理";
   if (value === "triage") return "待分诊";
@@ -399,12 +400,12 @@ function kanbanColumnForStatus(status) {
   if (value === "running") return "running";
   if (value === "done" || value === "archived") return "done";
   if (["blocked", "failed", "crashed", "timed_out", "gave_up"].includes(value)) return "blocked";
-  if (value === "ready" || value === "todo" || value === "triage") return "ready";
+  if (value === "pending_dispatch" || value === "ready" || value === "todo" || value === "triage") return "ready";
   return "unknown";
 }
 
 function hasDispatchableKanbanTask() {
-  return (kanbanState.links || []).some((link) => kanbanColumnForStatus(link.kanban_status) === "ready");
+  return (kanbanState.links || []).some((link) => String(link.kanban_status || "").toLowerCase() === "pending_dispatch");
 }
 
 function agentForKanbanLink(link) {

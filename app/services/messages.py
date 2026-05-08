@@ -90,7 +90,7 @@ def send_user_task(store: RuntimeStore, *, content: str) -> dict:
             f"leader_agent_id: {leader_id}\n\n"
             f"{body}"
         ),
-        assignee=leader["profile_name"],
+        assignee=None,
         workspace=workspace_for_agent(leader),
         idempotency_key=f"user_task:{user_task['user_task_id']}",
     )
@@ -100,9 +100,9 @@ def send_user_task(store: RuntimeStore, *, content: str) -> dict:
         local_id=user_task["user_task_id"],
         kanban_task_id=kanban_task_id,
         kanban_role="parent",
-        kanban_status=task_status(kanban_task) or "ready",
+        kanban_status="pending_dispatch",
         assignee_profile=leader["profile_name"],
-        metadata={"task_title": task_title},
+        metadata={"task_title": task_title, "pending_dispatch": True},
     )
     store.push_event(
         "kanban.task.created",

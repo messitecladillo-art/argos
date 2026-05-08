@@ -38,7 +38,7 @@ class KanbanService:
         title: str,
         *,
         body: str,
-        assignee: str,
+        assignee: str | None,
         parent: str | list[str] | None = None,
         workspace: str = KANBAN_DEFAULT_WORKSPACE,
         priority: int | None = None,
@@ -51,12 +51,12 @@ class KanbanService:
             title,
             "--body",
             body,
-            "--assignee",
-            assignee,
             "--workspace",
             workspace,
             "--json",
         ]
+        if assignee:
+            args.extend(["--assignee", assignee])
         parents = [parent] if isinstance(parent, str) else list(parent or [])
         for parent_id in parents:
             if parent_id:
@@ -121,6 +121,9 @@ class KanbanService:
         if max_workers is not None:
             args.extend(["--max", str(max_workers)])
         return self._run_json(args)
+
+    def assign_task(self, task_id: str, profile: str) -> str:
+        return self._run(["assign", task_id, profile])
 
     def unblock_task(self, task_id: str) -> str:
         return self._run(["unblock", task_id])
