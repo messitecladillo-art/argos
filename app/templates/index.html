@@ -548,7 +548,7 @@
           </label>
           <label>
             <span>API Key</span>
-            <input name="api_key" required placeholder="sk-xxx 或 ${OPENAI_API_KEY}">
+            <input name="api_key" type="password" required autocomplete="new-password" placeholder="sk-xxx 或 ${OPENAI_API_KEY}">
           </label>
           <p class="form-hint">Provider 固定写入 custom；连通性测试会请求 Base URL 下的 /models。</p>
           <div class="modal__actions">
