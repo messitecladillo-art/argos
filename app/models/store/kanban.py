@@ -59,6 +59,12 @@ class KanbanLinksMixin:
                 existing["updated_at"] = now
                 snapshot = dict(existing)
         self._persist("upsert_kanban_task_link", snapshot)
+        self.push_event(
+            "kanban.link.changed",
+            agent_id="",
+            task_id=snapshot.get("kanban_task_id"),
+            data={"action": "upsert", "link": snapshot},
+        )
         return snapshot
 
     def update_kanban_task_link(self, kanban_task_id: str, **patch) -> dict | None:
@@ -77,6 +83,12 @@ class KanbanLinksMixin:
             link["updated_at"] = now_iso()
             snapshot = dict(link)
         self._persist("upsert_kanban_task_link", snapshot)
+        self.push_event(
+            "kanban.link.changed",
+            agent_id="",
+            task_id=snapshot.get("kanban_task_id"),
+            data={"action": "update", "link": snapshot},
+        )
         return snapshot
 
     def find_kanban_task_link(

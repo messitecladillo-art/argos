@@ -25,6 +25,9 @@ NON_PERSISTED_EVENT_TYPES = {
     # audit history. Persisting them can generate thousands of rows per task.
     "agent.terminal.output",
     "agent.terminal.snapshot",
+    # Kanban link changes are UI sync cues, not audit history.
+    "kanban.link.changed",
+    "kanban.sync.done",
 }
 
 
