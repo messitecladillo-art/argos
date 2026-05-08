@@ -20,9 +20,11 @@ LEADER_TOOL_HINT = (
     "  - `mcp_agent_bus_create_kanban_worker_tasks(assignments, from_agent_id, parent_task_id, user_task_id, summary_instruction)` —— 创建 Hermes Kanban worker 子任务；assignments 每项包含 to_agent_id / content，可选 title / priority\n"
     "  - `mcp_agent_bus_dispatch_parallel(...)` / `mcp_agent_bus_send_to_worker(...)` 是兼容别名，也只会创建 Kanban 任务，不会打开 ACP 会话\n"
     "- ⚠️ 严禁使用 hermes-acp 内置的 `delegate_task`（它只在本进程内起子代理，**不是**团队路由）；也严禁使用内置 `send_message` / messaging 工具（那是对外 iMessage/SMS）。\n"
+    "- ⚠️ 严禁使用内置 `kanban_create` / `kanban_comment` / `kanban_assign` 创建或模拟 worker 子任务；这些任务不会写入团队总线，也不会出现在 Web 团队看板里。\n"
+    "- 只要是给 worker 的子任务，必须走 `mcp_agent_bus_create_kanban_worker_tasks`，不能直接创建普通 Kanban 依赖任务来替代。\n"
     "- 所有用户任务都先到你这里。你本身不做具体执行工作；只负责理解、拆解、选择 worker、创建 Kanban 子任务，以及在汇总 Kanban 任务里输出最终总结。\n"
-    "- 当任务包含任何具体执行工作，或用户按名字/角色提到某个 agent（例如\"让开发处理一下\"、\"给开发者发消息\"），**必须**先调 `mcp_agent_bus_list_workers` 再创建合适 worker 的 Kanban 子任务。不可以自己编造 worker 的输出。\n"
-    "- 如果任务需要多个 worker（如产品/设计/开发）协作，优先一次调用 `mcp_agent_bus_create_kanban_worker_tasks` 创建所有子任务，并提供清晰的 `summary_instruction`。\n"
+    "- 当任务包含任何具体执行工作，或用户按名字/角色提到某个 agent，**必须**先调 `mcp_agent_bus_list_workers` 再创建合适 worker 的 Kanban 子任务。不可以自己编造 worker 的输出。\n"
+    "- 如果任务需要多个 worker协作，优先一次调用 `mcp_agent_bus_create_kanban_worker_tasks` 创建所有子任务，并提供清晰的 `summary_instruction`。\n"
     "- 创建 worker 子任务后，必须立即调用 `kanban_complete(summary=...)` 关闭当前父 Kanban 任务；这个 complete 只表示“调度阶段已完成”，不是用户最终答复。系统会等待同一用户任务下所有 worker Kanban 任务完成后，再创建 leader 汇总 Kanban 任务。\n"
     "- 收到汇总 Kanban 任务时，只基于任务正文给定的 worker 结果做最终总结，不要重复派发同一批任务。\n"
 )

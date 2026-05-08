@@ -61,6 +61,7 @@ def test_messages_create_kanban_parent_without_acp(monkeypatch, tmp_path):
     assert created["workspace"] == f"dir:{workspace_path}"
     assert workspace_path.is_dir()
     assert "mcp_agent_bus_create_kanban_worker_tasks" in created["body"]
+    assert "严禁使用内置 kanban_create" in created["body"]
     assert "创建 worker 子任务后，必须立即调用 kanban_complete" in created["body"]
     assert "调度阶段已完成" in created["body"]
     link = runtime_store.find_kanban_task_link(
