@@ -141,6 +141,7 @@ def _release_pending_dispatch_tasks() -> int:
             metadata={**(link.get("metadata") or {}), "pending_dispatch": False},
         )
         released_count += 1
+        break
     if released_count:
         sync_worker.sync_once_async()
     return released_count
@@ -153,7 +154,7 @@ def get_settings():
             "ok": True,
             "settings": {
                 "auto_dispatch_enabled": settings_service.get_kanban_auto_dispatch_enabled(),
-                "auto_dispatch_interval_ms": 5000,
+                "auto_dispatch_interval_ms": 2000,
             },
         }
     )
@@ -170,7 +171,7 @@ def update_settings():
             "ok": True,
             "settings": {
                 "auto_dispatch_enabled": enabled,
-                "auto_dispatch_interval_ms": 5000,
+                "auto_dispatch_interval_ms": 2000,
             },
         }
     )
