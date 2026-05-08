@@ -87,7 +87,7 @@ class KanbanDispatchWorker:
                 [item.get("kanban_task_id") for item in dispatchable],
             )
             result = self.service.dispatch_once(max_workers=effective_max_workers)
-            self._mark_dispatched(dispatchable)
+            self._mark_dispatched(dispatchable, result)
             return {"skipped": False, "released_count": released_count, "result": result}
         finally:
             self._lock.release()
@@ -120,11 +120,15 @@ class KanbanDispatchWorker:
             return True
         return False
 
-    def _mark_dispatched(self, links: list[dict]) -> None:
+    def _mark_dispatched(self, links: list[dict], result: Any) -> None:
+        spawned_ids = _spawned_task_ids(result)
         dispatched_at = time.time()
         for link in links:
             task_id = link.get("kanban_task_id") or ""
             if not task_id:
+                continue
+            if spawned_ids is not None and task_id not in spawned_ids:
+                self._sync_link_after_dispatch(link)
                 continue
             self.store.update_kanban_task_link(
                 task_id,
@@ -137,6 +141,28 @@ class KanbanDispatchWorker:
                 link.get("assignee_profile"),
                 DISPATCH_LEASE_SECONDS,
             )
+
+    def _sync_link_after_dispatch(self, link: dict) -> None:
+        """Refresh tasks that were eligible locally but not spawned by dispatch.
+
+        This happens for child tasks whose parent is still active: the CLI keeps
+        them in todo/ready, so marking them running locally would make the UI
+        report work that has not actually started.
+        """
+        task_id = link.get("kanban_task_id") or ""
+        if not task_id:
+            return
+        try:
+            task = self.service.show_task(task_id)
+        except KanbanError as exc:
+            logger.warning("[kanban-dispatch] post-dispatch show failed task=%s error=%s", task_id, exc)
+            return
+        status = str(task.get("status") or task.get("state") or task.get("task", {}).get("status") or "")
+        if not status:
+            return
+        metadata = dict(link.get("metadata") or {})
+        metadata.pop("dispatch_started_at", None)
+        self.store.update_kanban_task_link(task_id, kanban_status=status, metadata=metadata)
 
     def _sync_ready_links(self) -> None:
         for link in self.store.snapshot().get("kanban_task_links", []) or []:
@@ -204,3 +230,18 @@ class KanbanDispatchWorker:
 
 
 dispatch_worker = KanbanDispatchWorker()
+
+
+def _spawned_task_ids(result: Any) -> set[str] | None:
+    if not isinstance(result, dict) or "spawned" not in result:
+        return None
+    spawned = result.get("spawned") or []
+    task_ids: set[str] = set()
+    for item in spawned:
+        if isinstance(item, dict):
+            task_id = item.get("task_id") or item.get("id") or item.get("key")
+            if task_id:
+                task_ids.add(str(task_id))
+        elif item:
+            task_ids.add(str(item))
+    return task_ids

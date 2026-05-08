@@ -9,13 +9,14 @@ class FakeKanban:
         self.assigned = []
         self.dispatched = 0
         self.tasks = {}
+        self.dispatch_result = None
 
     def assign_task(self, task_id, profile):
         self.assigned.append((task_id, profile))
 
     def dispatch_once(self, *, max_workers=None):
         self.dispatched += 1
-        return {"ok": True, "max_workers": max_workers}
+        return self.dispatch_result or {"ok": True, "max_workers": max_workers}
 
     def show_task(self, task_id):
         return self.tasks.get(task_id, {"status": "ready"})
@@ -126,3 +127,40 @@ def test_dispatch_lease_prevents_immediate_duplicate_when_remote_stays_ready():
     link = runtime_store.find_kanban_task_link(kanban_task_id="kb_1")
     assert link["kanban_status"] == "running"
     assert link["metadata"]["dispatch_started_at"]
+
+
+def test_dispatch_marks_only_spawned_tasks_running():
+    runtime_store = RuntimeStore()
+    runtime_store.upsert_kanban_task_link(
+        local_type="user_task",
+        local_id="ut_1",
+        kanban_task_id="kb_parent",
+        kanban_role="parent",
+        kanban_status="ready",
+        assignee_profile="leader",
+    )
+    runtime_store.upsert_kanban_task_link(
+        local_type="assignment",
+        local_id="asg_1",
+        kanban_task_id="kb_child",
+        kanban_role="worker",
+        kanban_status="ready",
+        assignee_profile="developer",
+        parent_local_id="ut_1",
+    )
+    service = FakeKanban()
+    service.tasks = {
+        "kb_parent": {"status": "ready"},
+        "kb_child": {"status": "todo"},
+    }
+    service.dispatch_result = {"spawned": [{"task_id": "kb_parent", "assignee": "leader"}]}
+    worker = KanbanDispatchWorker(runtime_store=runtime_store, service=service)
+
+    outcome = worker.dispatch_now()
+
+    assert outcome["skipped"] is False
+    assert service.dispatched == 1
+    assert runtime_store.find_kanban_task_link(kanban_task_id="kb_parent")["kanban_status"] == "running"
+    child = runtime_store.find_kanban_task_link(kanban_task_id="kb_child")
+    assert child["kanban_status"] == "todo"
+    assert "dispatch_started_at" not in child["metadata"]

@@ -129,6 +129,17 @@ class KanbanSyncWorker:
             )
             return
         if local_status == "running" and remote_status in {"ready", "todo", "triage"}:
+            if link.get("kanban_role") == "worker" and not _task_has_started(task):
+                metadata = dict(link.get("metadata") or {})
+                metadata.pop("dispatch_started_at", None)
+                self.store.update_kanban_task_link(
+                    task_id,
+                    kanban_status=status,
+                    last_result=task_result(task) or link.get("last_result") or "",
+                    last_summary=_task_summary(task) or link.get("last_summary") or "",
+                    metadata=metadata,
+                )
+                return
             logger.warning(
                 "[kanban-sync] ignore active rollback task=%s local=%s remote=%s",
                 task_id,
@@ -342,6 +353,18 @@ def _task_title(task: dict[str, Any]) -> str:
     if isinstance(nested, dict):
         return _task_title(nested)
     return ""
+
+
+def _task_has_started(task: dict[str, Any]) -> bool:
+    if task.get("started_at") or task.get("completed_at"):
+        return True
+    runs = task.get("runs")
+    if isinstance(runs, list) and runs:
+        return True
+    nested = task.get("task")
+    if isinstance(nested, dict):
+        return _task_has_started(nested)
+    return False
 
 
 def _agent_for_link(runtime_store: RuntimeStore, link: dict) -> str:
