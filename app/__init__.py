@@ -1,4 +1,5 @@
 from flask import Flask
+from pathlib import Path
 
 from .controllers import register_blueprints
 from .db import init_database
@@ -16,6 +17,24 @@ def create_app() -> Flask:
         SEND_FILE_MAX_AGE_DEFAULT=0,
     )
     init_database()
+
+    @app.context_processor
+    def inject_asset_version():
+        def asset_version(filename: str) -> str:
+            static_root = Path(app.static_folder or "")
+            paths = [static_root / filename]
+            if filename == "styles.css":
+                paths.extend((static_root / "css").glob("*.css"))
+            mtimes = []
+            for path in paths:
+                try:
+                    mtimes.append(int(path.stat().st_mtime))
+                except OSError:
+                    continue
+            return str(max(mtimes, default=0))
+
+        return {"asset_version": asset_version}
+
     store.load_persisted_state()
     registry.bootstrap(store)
     register_blueprints(app)

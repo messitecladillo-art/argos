@@ -1020,7 +1020,6 @@ function buildAgentRow(agent, isActive) {
       <span class="status-badge status-${escapeHtml(displayStatus.className)}">${escapeHtml(displayStatus.label)}</span>
     </div>
     <div class="agent-row__body">
-      <div class="load-track"><span style="width: ${agent.load || 0}%"></span></div>
       <dl>
         <div><dt>最后消息</dt><dd>${escapeHtml(formatAgentTime(agent.last_output_at))}</dd></div>
         <div><dt>任务数量</dt><dd>${agent.queue_depth || 0}</dd></div>

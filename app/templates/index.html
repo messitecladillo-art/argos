@@ -8,7 +8,7 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
-    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v=clarity-5">
+    <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}?v={{ asset_version('styles.css') }}">
   </head>
   <body>
     <div class="shell-grid"></div>
@@ -95,9 +95,6 @@
               <span class="status-badge status-{{ display_status_class }}">{{ display_status_label }}</span>
             </div>
             <div class="agent-row__body">
-              <div class="load-track">
-                <span style="width: {{ agent.load }}%"></span>
-              </div>
               <dl>
                 <div>
                   <dt>最后消息</dt>
@@ -568,6 +565,6 @@
     </script>
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>
-    <script src="{{ url_for('static', filename='app.js') }}?v=business-light-9"></script>
+    <script src="{{ url_for('static', filename='app.js') }}?v={{ asset_version('app.js') }}"></script>
   </body>
 </html>
