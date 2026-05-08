@@ -131,6 +131,10 @@ function closeAnimatedLayer(element, afterClose = null) {
   overlayCloseTimers.set(element, closeTimer);
 }
 
+function sleep(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 function checkHermesStatus() {
   if (!hermesStatusPromise) {
     hermesStatusPromise = fetch("/api/hermes/status")
@@ -185,6 +189,7 @@ const kanbanState = {
   autoDispatchIntervalMs: 5000,
   autoDispatchTimer: 0,
   autoDispatchRunning: false,
+  deletingTaskIds: new Set(),
 };
 let transferLastInspectedFile = null;
 const notificationAgentStates = new Map();
@@ -520,7 +525,7 @@ function kanbanTaskCanUnblock(link) {
 }
 
 function kanbanTaskCanArchive(link) {
-  return kanbanColumnForStatus(link?.kanban_status) === "done";
+  return Boolean(link?.kanban_task_id);
 }
 
 function ensureKanbanContextMenu() {
@@ -566,7 +571,7 @@ function showKanbanTaskContextMenu(event, link) {
   if (archiveBtn) {
     const canArchive = kanbanTaskCanArchive(link);
     archiveBtn.disabled = !canArchive;
-    archiveBtn.textContent = canArchive ? "删除" : "仅已完成任务可删除";
+    archiveBtn.textContent = canArchive ? "删除" : "无法删除";
   }
   positionAgentContextMenu(menu, event.clientX, event.clientY);
 }
@@ -614,7 +619,7 @@ async function handleKanbanContextMenuClick(event) {
   if (archiveBtn && !archiveBtn.disabled) {
     const confirmed = await confirmAction({
       title: "确认删除",
-      message: `删除已完成任务 ${taskId}？`,
+      message: `删除任务 ${taskId}？`,
       confirmText: "删除",
       confirmVariant: "danger",
     });
@@ -623,12 +628,17 @@ async function handleKanbanContextMenuClick(event) {
       return;
     }
     archiveBtn.disabled = true;
+    kanbanState.deletingTaskIds.add(taskId);
+    renderKanbanTasks();
+    closeKanbanContextMenu();
     try {
+      await sleep(420);
       await postKanbanTaskAction(taskId, "", { method: "DELETE" });
       setKanbanStatus(`已删除：${taskId}`, "success");
-      closeKanbanContextMenu();
     } catch (error) {
       setKanbanStatus(error.message || "删除失败", "error");
+      kanbanState.deletingTaskIds.delete(taskId);
+      renderKanbanTasks();
       archiveBtn.disabled = false;
     }
   }
@@ -671,6 +681,8 @@ function renderKanbanTasks() {
     items.slice(0, 20).forEach((link) => {
       const card = document.createElement("article");
       card.className = "kanban-task-card";
+      card.dataset.kanbanTaskId = link.kanban_task_id || "";
+      if (kanbanState.deletingTaskIds.has(link.kanban_task_id)) card.classList.add("is-deleting");
       card.setAttribute("role", "button");
       card.tabIndex = 0;
       card.title = "打开对应 Agent 终端";
@@ -702,32 +714,34 @@ function renderKanbanTasks() {
 async function clearDoneKanbanTasks(event) {
   event.preventDefault();
   event.stopPropagation();
+  const button = event.currentTarget;
   const count = (kanbanState.links || []).filter((link) => kanbanColumnForStatus(link.kanban_status) === "done").length;
   if (!count) return;
-  const confirmed = await confirmAction({
-    title: "确认删除",
-    message: `删除所有已完成团队任务（${count} 个）？`,
-    confirmText: "删除",
-    confirmVariant: "danger",
-  });
-  if (!confirmed) return;
-  const button = event.currentTarget;
-  button.disabled = true;
+  if (!window.confirm(`删除所有已完成团队任务（${count} 个）？`)) return;
+  if (button) button.disabled = true;
+  const doneLinks = (kanbanState.links || []).filter((link) => kanbanColumnForStatus(link.kanban_status) === "done");
+  doneLinks.forEach((link) => kanbanState.deletingTaskIds.add(link.kanban_task_id));
+  renderKanbanTasks();
   setKanbanStatus("正在删除已完成 Kanban 任务…");
   try {
+    await sleep(420);
     const response = await fetch("/api/kanban/tasks/done", { method: "DELETE" });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.ok) throw new Error(data.error || "删除已完成任务失败");
     kanbanState.links = Array.isArray(data.links) ? data.links : kanbanState.links;
+    doneLinks.forEach((link) => kanbanState.deletingTaskIds.delete(link.kanban_task_id));
     renderKanbanTasks();
     setKanbanStatus(`已删除 ${data.archived_count || count} 个已完成任务。`, "success");
   } catch (error) {
     setKanbanStatus(error.message || "删除已完成任务失败", "error");
-    button.disabled = false;
+    doneLinks.forEach((link) => kanbanState.deletingTaskIds.delete(link.kanban_task_id));
+    renderKanbanTasks();
+    if (button) button.disabled = false;
   }
 }
 
 async function refreshKanbanTasks({ silent = false } = {}) {
+  if (kanbanState.deletingTaskIds.size) return;
   if (!kanbanTaskList || kanbanState.loading) return;
   kanbanState.loading = true;
   if (!silent) setKanbanStatus("正在刷新 Kanban 任务…");
@@ -818,6 +832,7 @@ function stopKanbanAutoDispatchTimer() {
 }
 
 async function runKanbanAutoDispatchTick() {
+  if (kanbanState.deletingTaskIds.size) return;
   if (!kanbanState.autoDispatchEnabled || kanbanState.autoDispatchRunning) return;
   if (!hasDispatchableKanbanTask()) return;
   kanbanState.autoDispatchRunning = true;
@@ -2953,11 +2968,10 @@ function ensureConfirmModal() {
   `;
   modalEl.resolve = null;
   const closeWith = (value) => {
-    closeAnimatedLayer(modalEl, () => {
-      const resolve = modalEl.resolve;
-      modalEl.resolve = null;
-      if (resolve) resolve(value);
-    });
+    const resolve = modalEl.resolve;
+    modalEl.resolve = null;
+    if (resolve) resolve(value);
+    closeAnimatedLayer(modalEl);
   };
   modalEl.addEventListener("click", (event) => {
     if (event.target.closest("[data-confirm-submit]")) {

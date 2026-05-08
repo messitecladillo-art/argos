@@ -51,27 +51,6 @@ def task_details(task_id: str):
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
-@bp.post("/tasks/<task_id>/unblock")
-def unblock_task(task_id: str):
-    try:
-        output = kanban_service.unblock_task(task_id)
-        sync_worker.sync_once()
-        return jsonify({"ok": True, "output": output, "links": _visible_kanban_links()})
-    except KanbanError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
-
-
-@bp.delete("/tasks/<task_id>")
-def archive_task(task_id: str):
-    try:
-        output = kanban_service.archive_task(task_id)
-        store.update_kanban_task_link(task_id, kanban_status="archived")
-        sync_worker.sync_once()
-        return jsonify({"ok": True, "output": output, "links": _visible_kanban_links()})
-    except KanbanError as exc:
-        return jsonify({"ok": False, "error": str(exc)}), 500
-
-
 @bp.delete("/tasks/done")
 def archive_done_tasks():
     done_links = [
@@ -95,6 +74,27 @@ def archive_done_tasks():
                 "links": _visible_kanban_links(),
             }
         )
+    except KanbanError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@bp.post("/tasks/<task_id>/unblock")
+def unblock_task(task_id: str):
+    try:
+        output = kanban_service.unblock_task(task_id)
+        sync_worker.sync_once()
+        return jsonify({"ok": True, "output": output, "links": _visible_kanban_links()})
+    except KanbanError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@bp.delete("/tasks/<task_id>")
+def archive_task(task_id: str):
+    try:
+        output = kanban_service.archive_task(task_id)
+        store.update_kanban_task_link(task_id, kanban_status="archived")
+        sync_worker.sync_once()
+        return jsonify({"ok": True, "output": output, "links": _visible_kanban_links()})
     except KanbanError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
 

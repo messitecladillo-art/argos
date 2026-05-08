@@ -716,7 +716,22 @@ label span,
   background: linear-gradient(180deg, rgba(28, 22, 10, 0.96), rgba(10, 8, 3, 0.98));
   box-shadow: inset 0 1px 0 rgba(255, 225, 147, 0.1), 0 10px 24px rgba(0, 0, 0, 0.32);
   cursor: pointer;
-  transition: border-color 180ms ease, background 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+  transition: opacity 180ms ease, filter 180ms ease, border-color 180ms ease, background 180ms ease, transform 180ms ease, box-shadow 180ms ease;
+}
+
+.kanban-task-card.is-deleting {
+  opacity: 0.42;
+  filter: grayscale(0.35) saturate(0.65);
+  pointer-events: none;
+  transform: scale(0.985);
+}
+
+.kanban-task-card.is-deleting::after {
+  content: "删除中…";
+  display: block;
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 0.72rem;
 }
 
 .kanban-task-card:hover,
