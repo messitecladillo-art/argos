@@ -86,6 +86,22 @@ body {
   color: rgba(100, 116, 139, 0.7);
 }
 
+.agent-row__top > div {
+  min-width: 0;
+}
+
+.agent-row__model {
+  max-width: 100%;
+  margin-top: 3px;
+  overflow: hidden;
+  color: #7a8aa0;
+  font-size: 0.72rem;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  text-transform: none;
+  white-space: nowrap;
+}
+
 .status-pill,
 .kanban-task-badge,
 .mono-label,

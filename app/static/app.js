@@ -896,6 +896,21 @@ function formatAgentTime(value) {
   return date.toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false });
 }
 
+function formatDateTime(value) {
+  if (!value) return "—";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "—";
+  return date.toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  });
+}
+
 function formatRuntimeStatus(value) {
   if (value === "running") return "在岗";
   if (value === "crashed") return "异常";
@@ -958,7 +973,7 @@ function buildAgentRow(agent, isActive) {
   row.dataset.readinessStatus = readinessStatus;
   const displayStatus = getAgentDisplayStatus(agent);
   const modelName = agent.model_summary?.default || "";
-  const agentMeta = [agent.role, agent.profile_name, modelName].filter(Boolean).join(" · ");
+  const agentMeta = [agent.role, agent.profile_name].filter(Boolean).join(" · ");
   debugLog("agent-row", {
     agent_id: agent.agent_id,
     status: agent.status,
@@ -979,6 +994,7 @@ function buildAgentRow(agent, isActive) {
       <div>
         <strong>${escapeHtml(agent.name)}</strong>
         <p>${escapeHtml(agentMeta)}</p>
+        ${modelName ? `<p class="agent-row__model" title="${escapeHtml(modelName)}">${escapeHtml(modelName)}</p>` : ""}
       </div>
       <span class="status-badge status-${escapeHtml(displayStatus.className)}">${escapeHtml(displayStatus.label)}</span>
     </div>
@@ -2077,7 +2093,7 @@ async function openSoulPanel(agentId) {
     }
     renderMarkdownPreview(soulState.originalContent);
     syncSoulPreviewToEditor();
-    setSoulStatus(isPreparing ? "SOUL.md 正在生成中，完成后才能编辑。" : (data.updated_at ? `最后保存：${formatAgentTime(data.updated_at)}` : "SOUL.md 尚未创建，保存后会写入文件。"), "muted");
+    setSoulStatus(isPreparing ? "SOUL.md 正在生成中，完成后才能编辑。" : (data.updated_at ? `最后保存：${formatDateTime(data.updated_at)}` : "SOUL.md 尚未创建，保存后会写入文件。"), "muted");
   } catch (error) {
     if (soulState.agentId !== requestedAgentId) return;
     setSoulStatus(error.message || "SOUL.md 加载失败", "error");
