@@ -120,7 +120,7 @@ class KanbanService:
         args = ["dispatch", "--json"]
         if max_workers is not None:
             args.extend(["--max", str(max_workers)])
-        return self._run_json(args)
+        return self._run_json(args, timeout=600)
 
     def assign_task(self, task_id: str, profile: str) -> str:
         return self._run(["assign", task_id, profile])
@@ -142,13 +142,14 @@ class KanbanService:
             return ["hermes", "kanban", "--board", self.board]
         return ["hermes", "kanban"]
 
-    def _run(self, args: list[str], *, scoped: bool = True) -> str:
+    def _run(self, args: list[str], *, scoped: bool = True, timeout: int | None = None) -> str:
         try:
             result = subprocess.run(
                 [*self._base_args(scoped=scoped), *args],
                 capture_output=True,
                 text=True,
-                timeout=self.timeout,
+                timeout=timeout if timeout is not None else self.timeout,
+                start_new_session=True,
             )
         except FileNotFoundError as exc:
             raise KanbanError("hermes CLI not found in PATH") from exc
@@ -161,8 +162,8 @@ class KanbanService:
             raise KanbanError(detail)
         return output
 
-    def _run_json(self, args: list[str], *, scoped: bool = True) -> Any:
-        output = self._run(args, scoped=scoped)
+    def _run_json(self, args: list[str], *, scoped: bool = True, timeout: int | None = None) -> Any:
+        output = self._run(args, scoped=scoped, timeout=timeout)
         if not output:
             return {}
         try:

@@ -54,12 +54,38 @@ def task_details(task_id: str):
 
 @bp.delete("/tasks/done")
 def archive_done_tasks():
-    done_links = [
+    return _archive_column("done")
+
+
+@bp.delete("/tasks/column/<column_key>")
+def archive_column_tasks(column_key: str):
+    return _archive_column(column_key)
+
+
+_COLUMN_STATUS_MAP = {
+    "ready": {"pending_dispatch", "ready", "todo", "triage"},
+    "running": {"running"},
+    "blocked": {"blocked", "failed", "crashed", "timed_out", "gave_up"},
+    "done": {"done"},
+}
+
+
+def _column_for_status(status: str) -> str:
+    value = (status or "").lower()
+    for column, statuses in _COLUMN_STATUS_MAP.items():
+        if value in statuses:
+            return column
+    return "unknown"
+
+
+def _archive_column(column_key: str):
+    column_key = (column_key or "").lower()
+    matched = [
         link
         for link in _visible_kanban_links()
-        if (link.get("kanban_status") or "").lower() == "done"
+        if _column_for_status(link.get("kanban_status") or "") == column_key
     ]
-    task_ids = [link["kanban_task_id"] for link in done_links]
+    task_ids = [link["kanban_task_id"] for link in matched if link.get("kanban_task_id")]
     if not task_ids:
         return jsonify({"ok": True, "archived_count": 0, "links": _visible_kanban_links()})
     try:

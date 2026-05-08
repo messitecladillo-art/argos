@@ -669,13 +669,13 @@ function renderKanbanTasks() {
     section.innerHTML = `
       <div class="kanban-column__head">
         <strong>${escapeHtml(column.title)}</strong>
-        ${column.key === "done" && items.length ? `<button class="kanban-column__clear" type="button" data-kanban-clear-done>删除所有</button>` : ""}
+        ${items.length ? `<button class="kanban-column__clear" type="button" data-kanban-clear-column="${escapeHtml(column.key)}" data-kanban-column-title="${escapeHtml(column.title)}">删除所有</button>` : `<button class="kanban-column__clear" type="button" disabled>删除所有</button>`}
         <span>${items.length}</span>
       </div>
       <div class="kanban-column__body"></div>
     `;
-    const clearDoneButton = section.querySelector("[data-kanban-clear-done]");
-    if (clearDoneButton) clearDoneButton.addEventListener("click", clearDoneKanbanTasks);
+    const clearButton = section.querySelector("[data-kanban-clear-column]");
+    if (clearButton) clearButton.addEventListener("click", clearColumnKanbanTasks);
     const body = section.querySelector(".kanban-column__body");
     const pendingForColumn = column.key === "ready" ? kanbanState.pendingCreations : [];
     pendingForColumn.forEach((pending) => {
@@ -727,36 +727,41 @@ function renderKanbanTasks() {
   });
 }
 
-async function clearDoneKanbanTasks(event) {
+async function clearColumnKanbanTasks(event) {
   event.preventDefault();
   event.stopPropagation();
   const button = event.currentTarget;
-  const count = (kanbanState.links || []).filter((link) => kanbanColumnForStatus(link.kanban_status) === "done").length;
+  const columnKey = button?.dataset?.kanbanClearColumn || "done";
+  const columnTitle = button?.dataset?.kanbanColumnTitle || "该";
+  const matchedLinks = (kanbanState.links || []).filter((link) => kanbanColumnForStatus(link.kanban_status) === columnKey);
+  const count = matchedLinks.length;
   if (!count) return;
   const confirmed = await confirmAction({
     title: "确认删除",
-    message: `删除所有已完成团队任务（${count} 个）？`,
+    message: `删除「${columnTitle}」列中所有团队任务（${count} 个）？`,
     confirmText: "删除",
     confirmVariant: "danger",
   });
   if (!confirmed) return;
   if (button) button.disabled = true;
-  const doneLinks = (kanbanState.links || []).filter((link) => kanbanColumnForStatus(link.kanban_status) === "done");
-  doneLinks.forEach((link) => kanbanState.deletingTaskIds.add(link.kanban_task_id));
+  matchedLinks.forEach((link) => kanbanState.deletingTaskIds.add(link.kanban_task_id));
   renderKanbanTasks();
-  setKanbanStatus("正在删除已完成 Kanban 任务…");
+  setKanbanStatus(`正在删除「${columnTitle}」列任务…`);
   try {
     await sleep(420);
-    const response = await fetch("/api/kanban/tasks/done", { method: "DELETE" });
+    const endpoint = columnKey === "done"
+      ? "/api/kanban/tasks/done"
+      : `/api/kanban/tasks/column/${encodeURIComponent(columnKey)}`;
+    const response = await fetch(endpoint, { method: "DELETE" });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.ok) throw new Error(data.error || "删除已完成任务失败");
+    if (!response.ok || !data.ok) throw new Error(data.error || "删除任务失败");
     kanbanState.links = Array.isArray(data.links) ? data.links : kanbanState.links;
-    doneLinks.forEach((link) => kanbanState.deletingTaskIds.delete(link.kanban_task_id));
+    matchedLinks.forEach((link) => kanbanState.deletingTaskIds.delete(link.kanban_task_id));
     renderKanbanTasks();
-    setKanbanStatus(`已删除 ${data.archived_count || count} 个已完成任务。`, "success");
+    setKanbanStatus(`已删除「${columnTitle}」列 ${data.archived_count || count} 个任务。`, "success");
   } catch (error) {
-    setKanbanStatus(error.message || "删除已完成任务失败", "error");
-    doneLinks.forEach((link) => kanbanState.deletingTaskIds.delete(link.kanban_task_id));
+    setKanbanStatus(error.message || "删除任务失败", "error");
+    matchedLinks.forEach((link) => kanbanState.deletingTaskIds.delete(link.kanban_task_id));
     renderKanbanTasks();
     if (button) button.disabled = false;
   }
