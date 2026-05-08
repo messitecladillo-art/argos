@@ -133,23 +133,23 @@
           <div class="kanban-console">
             <div class="section-head kanban-console__head">
               <div>
-                <h2>Kanban 任务</h2>
-                <p class="section-kicker">Hermes Kanban Gateway</p>
+                <h2>团队任务</h2>
+                <p class="section-kicker">Agents Team Tasks</p>
               </div>
               <div class="kanban-console__actions">
                 <button class="filter-chip" type="button" id="kanban-refresh">刷新</button>
-                <button class="filter-chip" type="button" id="kanban-auto-dispatch" aria-pressed="false">自动 Dispatch：关</button>
-                <button class="filter-chip" type="button" id="kanban-dispatch">Dispatch</button>
               </div>
             </div>
+            <div class="kanban-task-list" id="kanban-task-list"></div>
             <form class="kanban-submit" id="kanban-task-form">
-              <textarea id="kanban-task-input" rows="3" placeholder="输入用户任务，例如：让开发者实现登录接口，让测试补充验收用例"></textarea>
-              <div class="kanban-submit__footer">
-                <p class="kanban-status" id="kanban-task-status" hidden></p>
+              <textarea id="kanban-task-input" rows="3" placeholder="发消息或输入任务，例如：让开发者实现登录接口"></textarea>
+              <div class="kanban-submit__toolbar">
+                <p class="kanban-status" id="kanban-task-status" role="status" aria-live="polite" hidden></p>
+                <button class="composer-action" type="button" id="kanban-auto-dispatch" aria-pressed="false">自动派发：关</button>
+                <button class="composer-action" type="button" id="kanban-dispatch">派发</button>
                 <button class="primary-button" type="submit">创建任务</button>
               </div>
             </form>
-            <div class="kanban-task-list" id="kanban-task-list"></div>
           </div>
 
           <p class="empty-hint" id="event-empty" hidden>暂无终端输出。</p>

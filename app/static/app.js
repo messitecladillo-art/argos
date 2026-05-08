@@ -79,6 +79,7 @@ const terminalReconnectDelay = 900;
 const hermesDebug = window.localStorage?.getItem("hermesDebug") !== "0";
 let activeKanbanTerminalTaskId = "";
 let kanbanTerminalLogTimer = 0;
+let kanbanStatusTimer = 0;
 let agentContextMenu = null;
 let kanbanContextMenu = null;
 let deletingAgentId = "";
@@ -327,9 +328,19 @@ function escapeHtml(value) {
 
 function setKanbanStatus(message, kind = "muted") {
   if (!kanbanTaskStatus) return;
+  if (kanbanStatusTimer) {
+    window.clearTimeout(kanbanStatusTimer);
+    kanbanStatusTimer = 0;
+  }
   kanbanTaskStatus.textContent = message || "";
   kanbanTaskStatus.hidden = !message;
   kanbanTaskStatus.dataset.kind = kind;
+  if (message && kind !== "muted") {
+    kanbanStatusTimer = window.setTimeout(() => {
+      kanbanTaskStatus.hidden = true;
+      kanbanStatusTimer = 0;
+    }, kind === "error" ? 5200 : 3200);
+  }
 }
 
 function kanbanRoleLabel(role) {
@@ -759,9 +770,10 @@ async function dispatchKanbanOnce() {
 
 function renderKanbanAutoDispatch() {
   if (!kanbanAutoDispatch) return;
-  kanbanAutoDispatch.textContent = `自动 Dispatch：${kanbanState.autoDispatchEnabled ? "开" : "关"}`;
+  kanbanAutoDispatch.textContent = `自动派发：${kanbanState.autoDispatchEnabled ? "开" : "关"}`;
   kanbanAutoDispatch.classList.toggle("is-active", kanbanState.autoDispatchEnabled);
   kanbanAutoDispatch.setAttribute("aria-pressed", kanbanState.autoDispatchEnabled ? "true" : "false");
+  if (kanbanDispatch) kanbanDispatch.hidden = kanbanState.autoDispatchEnabled;
 }
 
 function stopKanbanAutoDispatchTimer() {
@@ -781,11 +793,11 @@ async function runKanbanAutoDispatchTick() {
       body: JSON.stringify({}),
     });
     const data = await response.json().catch(() => ({}));
-    if (!response.ok || !data.ok) throw new Error(data.error || "自动 Dispatch 失败");
-    setKanbanStatus("自动 Dispatch 已触发。", "success");
+    if (!response.ok || !data.ok) throw new Error(data.error || "自动派发失败");
+    setKanbanStatus("自动派发已触发。", "success");
     await refreshKanbanTasks({ silent: true });
   } catch (error) {
-    setKanbanStatus(error.message || "自动 Dispatch 失败", "error");
+    setKanbanStatus(error.message || "自动派发失败", "error");
   } finally {
     kanbanState.autoDispatchRunning = false;
   }
@@ -834,7 +846,7 @@ async function toggleKanbanAutoDispatch() {
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.ok) throw new Error(data.error || "Kanban 设置保存失败");
     applyKanbanSettings(data.settings || {});
-    setKanbanStatus(`自动 Dispatch 已${kanbanState.autoDispatchEnabled ? "开启" : "关闭"}。`, "success");
+    setKanbanStatus(`自动派发已${kanbanState.autoDispatchEnabled ? "开启" : "关闭"}。`, "success");
   } catch (error) {
     setKanbanStatus(error.message || "Kanban 设置保存失败", "error");
   } finally {
