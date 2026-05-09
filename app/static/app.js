@@ -196,6 +196,7 @@ const teamRuntimeLabels = {
   stop: "关闭",
   restart: "重启",
 };
+const kanbanPanelsStorageKey = "hermesKanbanPanelsExpanded";
 const kanbanState = {
   links: Array.isArray(window.__BOOTSTRAP__?.kanban_task_links)
     ? window.__BOOTSTRAP__.kanban_task_links.filter((link) => String(link?.kanban_status || "").toLowerCase() !== "archived")
@@ -205,7 +206,7 @@ const kanbanState = {
   autoDispatchIntervalMs: 5000,
   autoDispatchTimer: 0,
   autoDispatchRunning: false,
-  panelsExpanded: false,
+  panelsExpanded: window.localStorage?.getItem(kanbanPanelsStorageKey) === "1",
   deletingTaskIds: new Set(),
   pendingCreations: [],
 };
@@ -424,6 +425,7 @@ function renderKanbanPanelsToggle() {
 
 function toggleKanbanPanels() {
   kanbanState.panelsExpanded = !kanbanState.panelsExpanded;
+  window.localStorage?.setItem(kanbanPanelsStorageKey, kanbanState.panelsExpanded ? "1" : "0");
   renderKanbanPanelsToggle();
 }
 
