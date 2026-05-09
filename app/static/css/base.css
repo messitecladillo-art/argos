@@ -745,9 +745,10 @@ label span,
 .kanban-team-ornament__links path {
   fill: none;
   stroke: #9bbcff;
-  stroke-width: 2;
+  stroke-width: 1.35;
   stroke-linecap: round;
-  stroke-opacity: 0.36;
+  stroke-opacity: 0.18;
+  filter: blur(1.2px);
 }
 
 .kanban-team-ornament__nodes circle {
