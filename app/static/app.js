@@ -86,6 +86,7 @@ const kanbanTaskForm = document.getElementById("kanban-task-form");
 const kanbanTaskInput = document.getElementById("kanban-task-input");
 const kanbanTaskStatus = document.getElementById("kanban-task-status");
 const kanbanTaskList = document.getElementById("kanban-task-list");
+const kanbanTeamOrnament = document.getElementById("kanban-team-ornament");
 const kanbanPanelsToggle = document.getElementById("kanban-panels-toggle");
 const kanbanRefresh = document.getElementById("kanban-refresh");
 const kanbanAutoDispatch = document.getElementById("kanban-auto-dispatch");
@@ -387,6 +388,10 @@ function setKanbanStatus(message, kind = "muted") {
 function renderKanbanPanelsToggle() {
   if (!kanbanTaskList || !kanbanPanelsToggle) return;
   kanbanTaskList.hidden = false;
+  if (kanbanTeamOrnament) {
+    kanbanTeamOrnament.classList.toggle("is-hidden", kanbanState.panelsExpanded);
+    kanbanTeamOrnament.setAttribute("aria-hidden", kanbanState.panelsExpanded ? "true" : "false");
+  }
   if (kanbanPanelsAnimationTimer) {
     window.clearTimeout(kanbanPanelsAnimationTimer);
     kanbanPanelsAnimationTimer = 0;

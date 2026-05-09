@@ -58,7 +58,31 @@
                 <button class="filter-chip" type="button" id="kanban-refresh">刷新</button>
               </div>
             </div>
-            <div class="kanban-task-list is-collapsed" id="kanban-task-list" aria-hidden="true"></div>
+            <div class="kanban-stage">
+              <div class="kanban-team-ornament" id="kanban-team-ornament" aria-hidden="false">
+                <svg viewBox="0 0 520 260" aria-hidden="true" focusable="false">
+                  <defs>
+                    <radialGradient id="team-ornament-glow" cx="50%" cy="50%" r="55%">
+                      <stop offset="0%" stop-color="currentColor" stop-opacity="0.18" />
+                      <stop offset="100%" stop-color="currentColor" stop-opacity="0" />
+                    </radialGradient>
+                  </defs>
+                  <ellipse cx="260" cy="132" rx="230" ry="110" fill="url(#team-ornament-glow)" />
+                  <g class="kanban-team-ornament__links">
+                    <path d="M260 132 126 70M260 132 394 68M260 132 92 178M260 132 428 178M260 132 260 42" />
+                  </g>
+                  <g class="kanban-team-ornament__nodes">
+                    <circle cx="260" cy="132" r="42" />
+                    <circle cx="126" cy="70" r="19" />
+                    <circle cx="394" cy="68" r="19" />
+                    <circle cx="92" cy="178" r="17" />
+                    <circle cx="428" cy="178" r="17" />
+                    <circle cx="260" cy="42" r="13" />
+                  </g>
+                </svg>
+              </div>
+              <div class="kanban-task-list is-collapsed" id="kanban-task-list" aria-hidden="true"></div>
+            </div>
             <form class="kanban-submit" id="kanban-task-form">
               <textarea id="kanban-task-input" rows="3" placeholder="发消息或输入任务，例如：让开发者实现登录接口"></textarea>
               <div class="kanban-submit__toolbar">

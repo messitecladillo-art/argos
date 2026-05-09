@@ -704,6 +704,65 @@ label span,
   }
 }
 
+.kanban-stage {
+  position: relative;
+  display: grid;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.kanban-team-ornament,
+.kanban-task-list {
+  grid-area: 1 / 1;
+}
+
+.kanban-team-ornament {
+  display: grid;
+  place-items: center;
+  min-height: 0;
+  color: rgba(74, 131, 255, 0.64);
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  transition: opacity 220ms ease, transform 220ms ease, visibility 220ms step-start;
+  pointer-events: none;
+}
+
+.kanban-team-ornament.is-hidden {
+  visibility: hidden;
+  opacity: 0;
+  transform: translateY(-14px) scale(0.985);
+  transition: opacity 220ms ease, transform 220ms ease, visibility 220ms step-end;
+}
+
+.kanban-team-ornament svg {
+  width: min(58vw, 760px);
+  max-width: 84%;
+  height: auto;
+  opacity: 0.42;
+  filter: drop-shadow(0 24px 40px rgba(50, 109, 255, 0.16));
+}
+
+.kanban-team-ornament__links path {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-opacity: 0.34;
+}
+
+.kanban-team-ornament__nodes circle {
+  fill: currentColor;
+  fill-opacity: 0.16;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-opacity: 0.56;
+}
+
+.kanban-team-ornament__nodes circle:first-child {
+  fill-opacity: 0.24;
+  stroke-opacity: 0.74;
+}
+
 .kanban-task-list {
   display: grid;
   grid-template-columns: repeat(5, minmax(170px, 1fr));
@@ -733,6 +792,8 @@ label span,
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .kanban-team-ornament,
+  .kanban-team-ornament.is-hidden,
   .kanban-task-list,
   .kanban-task-list.is-collapsing {
     transition: none;
