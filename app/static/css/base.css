@@ -738,30 +738,30 @@ label span,
   width: min(58vw, 760px);
   max-width: 84%;
   height: auto;
-  opacity: 0.42;
-  filter: drop-shadow(0 24px 40px rgba(50, 109, 255, 0.16));
+  opacity: 0.72;
+  filter: drop-shadow(0 22px 34px rgba(50, 109, 255, 0.13));
 }
 
 .kanban-team-ornament__links path {
   fill: none;
   stroke: #9bbcff;
-  stroke-width: 1.5;
+  stroke-width: 2;
   stroke-linecap: round;
-  stroke-opacity: 0.22;
+  stroke-opacity: 0.36;
 }
 
 .kanban-team-ornament__nodes circle {
-  stroke-width: 2.5;
-  stroke-opacity: 0.32;
-  filter: drop-shadow(0 10px 18px rgba(96, 165, 250, 0.12));
+  stroke-width: 3;
+  stroke-opacity: 0.48;
+  filter: drop-shadow(0 9px 16px rgba(96, 165, 250, 0.14));
 }
 
 .kanban-team-ornament__nodes .node-core {
   fill: url(#team-node-core);
   stroke: #7da8ff;
-  stroke-width: 3;
-  stroke-opacity: 0.36;
-  filter: drop-shadow(0 18px 34px rgba(96, 165, 250, 0.18));
+  stroke-width: 3.5;
+  stroke-opacity: 0.54;
+  filter: drop-shadow(0 16px 30px rgba(96, 165, 250, 0.2));
 }
 
 .kanban-team-ornament__nodes .node-mint {
