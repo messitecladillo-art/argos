@@ -751,42 +751,33 @@ label span,
 }
 
 .kanban-team-ornament__nodes circle {
-  stroke-width: 3;
-  stroke-opacity: 0.48;
-  filter: drop-shadow(0 9px 16px rgba(96, 165, 250, 0.14));
+  stroke: none;
+  filter: blur(3px);
 }
 
 .kanban-team-ornament__nodes .node-core {
   fill: url(#team-node-core);
-  stroke: #7da8ff;
-  stroke-width: 3.5;
-  stroke-opacity: 0.54;
-  filter: drop-shadow(0 16px 30px rgba(96, 165, 250, 0.2));
+  filter: blur(5px);
 }
 
 .kanban-team-ornament__nodes .node-mint {
   fill: url(#team-node-mint);
-  stroke: #6ee7b7;
 }
 
 .kanban-team-ornament__nodes .node-sky {
   fill: url(#team-node-sky);
-  stroke: #7dd3fc;
 }
 
 .kanban-team-ornament__nodes .node-lilac {
   fill: url(#team-node-lilac);
-  stroke: #c4b5fd;
 }
 
 .kanban-team-ornament__nodes .node-peach {
   fill: url(#team-node-peach);
-  stroke: #fdba74;
 }
 
 .kanban-team-ornament__nodes .node-rose {
   fill: url(#team-node-rose);
-  stroke: #fda4af;
 }
 
 .kanban-task-list {
