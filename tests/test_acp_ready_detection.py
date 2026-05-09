@@ -55,7 +55,7 @@ def test_selection_parser_uses_latest_input_prompt():
 │   2. 开发者（agent_dev1）  │
 ╰───────────────────────────╯
 
-⚡ mcp_agent_bus_send_to_worker  (0.0s)
+⚡ mcp_agent_bus_create_kanban_worker_tasks  (0.0s)
 
 ╭─ Hermes needs your input ─╮
 │   1. 开发（agent_dev）      │
@@ -76,7 +76,7 @@ def test_selection_parser_ignores_stale_choice_fragments_without_prompt():
   3. Other (type your answer)
   1. 开发（agent_dev）
 ❯ 2. 开发者（agent_dev1）
-⚡ mcp_agent_bus_send_to_worker  (0.0s)
+⚡ mcp_agent_bus_create_kanban_worker_tasks  (0.0s)
 leader ❯
 """
 

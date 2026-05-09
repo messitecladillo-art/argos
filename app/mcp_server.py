@@ -74,40 +74,6 @@ def list_workers() -> list[dict]:
 
 
 @mcp.tool()
-def send_to_worker(to_agent_id: str, content: str, from_agent_id: str) -> dict:
-    """leader 把子任务派给指定 worker agent。
-
-    ⚠️ 这是团队内通信专用工具，不同于 hermes-acp 内置的 `delegate_task`
-    （后者是在本进程内生成子代理，与团队路由无关）。团队协作**必须**用这个。
-
-    立即返回"已投递"；如果这是用户任务中的 worker 派发，平台会等待同一用户
-    任务下所有 worker 完成后，再自动请求 leader 做一次最终汇总。
-
-    参数：
-    - to_agent_id: 目标 worker 的 agent_id（先调 list_workers 获取）
-    - content: 任务正文
-    - from_agent_id: 本 leader 自己的 agent_id，用于结果回推
-    """
-    result = create_kanban_worker_tasks(
-        assignments=[{"to_agent_id": to_agent_id, "content": content}],
-        from_agent_id=from_agent_id,
-        summary_instruction="请基于 worker 的执行结果，面向用户输出最终总结。",
-    )
-    assignment = result["assignments"][0]
-    return {
-        "ok": True,
-        "message_id": assignment.get("message_id"),
-        "kanban_task_id": assignment.get("kanban_task_id"),
-        "delegation_id": result["delegation_id"],
-        "assignment_id": assignment["assignment_id"],
-        "status": "waiting_workers",
-        "to_agent_id": to_agent_id,
-        "to_name": assignment["to_name"],
-        "note": "已创建 Kanban worker 子任务；gateway 会执行，平台会在全部完成后创建 leader 汇总任务。",
-    }
-
-
-@mcp.tool()
 def dispatch_parallel(
     assignments: list[dict],
     from_agent_id: str,

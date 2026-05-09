@@ -601,7 +601,7 @@ hermes kanban dispatch
 - Web 请求和 MCP 工具不再调用 `pool.prompt`。
 - Flask 启动不再自动启动 ACP session。
 - Profile 创建、Skills 安装、MCP 配置继续保留，用于准备 Kanban assignee profiles。
-- 旧 `send_to_worker` / `dispatch_parallel` 工具仅作为兼容别名，内部创建 Kanban task。
+- 旧 `dispatch_parallel` 工具仅作为兼容别名，内部创建 Kanban task。
 
 验收标准：
 

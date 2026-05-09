@@ -18,7 +18,7 @@ LEADER_TOOL_HINT = (
     "- 你的环境里已经通过 MCP server `agent_bus` 注册了团队协作工具（hermes 会加前缀 `mcp_agent_bus_`）：\n"
     "  - `mcp_agent_bus_list_workers()` —— 查询当前可用的 worker 列表，拿到它们的 agent_id / name / description\n"
     "  - `mcp_agent_bus_create_kanban_worker_tasks(assignments, from_agent_id, parent_task_id, user_task_id, summary_instruction)` —— 创建 Hermes Kanban worker 子任务；assignments 每项包含 to_agent_id / content，可选 title / priority\n"
-    "  - `mcp_agent_bus_dispatch_parallel(...)` / `mcp_agent_bus_send_to_worker(...)` 是兼容别名，也只会创建 Kanban 任务，不会打开 ACP 会话\n"
+    "  - `mcp_agent_bus_dispatch_parallel(...)` 是兼容别名，也只会创建 Kanban 任务，不会打开 ACP 会话\n"
     "- ⚠️ 严禁使用 hermes-acp 内置的 `delegate_task`（它只在本进程内起子代理，**不是**团队路由）；也严禁使用内置 `send_message` / messaging 工具（那是对外 iMessage/SMS）。\n"
     "- ⚠️ 严禁使用内置 `kanban_create` / `kanban_comment` / `kanban_assign` 创建或模拟 worker 子任务；这些任务不会写入团队总线，也不会出现在 Web 团队看板里。\n"
     "- 只要是给 worker 的子任务，必须走 `mcp_agent_bus_create_kanban_worker_tasks`，不能直接创建普通 Kanban 依赖任务来替代。\n"
