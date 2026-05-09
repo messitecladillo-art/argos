@@ -100,6 +100,7 @@ const hermesDebug = window.localStorage?.getItem("hermesDebug") !== "0";
 let activeKanbanTerminalTaskId = "";
 let kanbanTerminalLogTimer = 0;
 let kanbanPanelsAnimationTimer = 0;
+let kanbanOrnamentAnimationId = 0;
 let kanbanStatusTimer = 0;
 let agentContextMenu = null;
 let kanbanContextMenu = null;
@@ -421,6 +422,54 @@ function renderKanbanPanelsToggle() {
 function toggleKanbanPanels() {
   kanbanState.panelsExpanded = !kanbanState.panelsExpanded;
   renderKanbanPanelsToggle();
+}
+
+function initKanbanTeamOrnamentMotion() {
+  if (!kanbanTeamOrnament || window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) return;
+  const linkPath = kanbanTeamOrnament.querySelector("[data-team-ornament-links]");
+  const nodes = Array.from(kanbanTeamOrnament.querySelectorAll("[data-team-ornament-node]"));
+  const core = nodes.find((node) => node.dataset.teamOrnamentNode === "core");
+  if (!linkPath || !core || !nodes.length) return;
+
+  const configs = nodes.map((node, index) => ({
+    node,
+    baseX: Number(node.getAttribute("cx")) || 0,
+    baseY: Number(node.getAttribute("cy")) || 0,
+    ampX: index === 0 ? 9 : 12 + ((index * 5) % 10),
+    ampY: index === 0 ? 7 : 10 + ((index * 7) % 12),
+    speedX: 0.00022 + index * 0.00004,
+    speedY: 0.00018 + index * 0.000045,
+    phaseX: index * 1.77 + 0.4,
+    phaseY: index * 2.13 + 1.1,
+  }));
+
+  const update = (time) => {
+    const positions = new Map();
+    configs.forEach((config) => {
+      const x = config.baseX + Math.sin(time * config.speedX + config.phaseX) * config.ampX;
+      const y = config.baseY + Math.cos(time * config.speedY + config.phaseY) * config.ampY;
+      config.node.setAttribute("cx", x.toFixed(2));
+      config.node.setAttribute("cy", y.toFixed(2));
+      positions.set(config.node.dataset.teamOrnamentNode, { x, y });
+    });
+
+    const center = positions.get("core");
+    const linkTargets = ["mint", "sky", "lilac", "peach", "rose"];
+    linkPath.setAttribute(
+      "d",
+      linkTargets
+        .map((key) => {
+          const target = positions.get(key);
+          return target ? `M${center.x.toFixed(2)} ${center.y.toFixed(2)} ${target.x.toFixed(2)} ${target.y.toFixed(2)}` : "";
+        })
+        .filter(Boolean)
+        .join(""),
+    );
+    kanbanOrnamentAnimationId = window.requestAnimationFrame(update);
+  };
+
+  if (kanbanOrnamentAnimationId) window.cancelAnimationFrame(kanbanOrnamentAnimationId);
+  kanbanOrnamentAnimationId = window.requestAnimationFrame(update);
 }
 
 function kanbanRoleLabel(role) {
@@ -3736,6 +3785,7 @@ hydrateNotificationStates(window.__BOOTSTRAP__?.agents || []);
 renderAgents(window.__BOOTSTRAP__?.agents || [], window.__BOOTSTRAP__?.stats || []);
 renderKanbanTasks();
 renderKanbanPanelsToggle();
+initKanbanTeamOrnamentMotion();
 renderKanbanAutoDispatch();
 void loadModelConfigs({ silent: true });
 void loadKanbanSettings();
