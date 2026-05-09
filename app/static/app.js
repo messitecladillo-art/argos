@@ -98,6 +98,7 @@ const terminalReconnectDelay = 900;
 const hermesDebug = window.localStorage?.getItem("hermesDebug") !== "0";
 let activeKanbanTerminalTaskId = "";
 let kanbanTerminalLogTimer = 0;
+let kanbanPanelsAnimationTimer = 0;
 let kanbanStatusTimer = 0;
 let agentContextMenu = null;
 let kanbanContextMenu = null;
@@ -386,7 +387,25 @@ function setKanbanStatus(message, kind = "muted") {
 function renderKanbanPanelsToggle() {
   if (!kanbanTaskList || !kanbanPanelsToggle) return;
   kanbanTaskList.hidden = false;
-  kanbanTaskList.classList.toggle("is-collapsed", !kanbanState.panelsExpanded);
+  if (kanbanPanelsAnimationTimer) {
+    window.clearTimeout(kanbanPanelsAnimationTimer);
+    kanbanPanelsAnimationTimer = 0;
+  }
+  if (kanbanState.panelsExpanded) {
+    kanbanTaskList.classList.remove("is-collapsed", "is-collapsing");
+    kanbanTaskList.classList.add("is-expanded");
+  } else if (kanbanTaskList.classList.contains("is-expanded")) {
+    kanbanTaskList.classList.remove("is-expanded");
+    kanbanTaskList.classList.add("is-collapsing");
+    kanbanPanelsAnimationTimer = window.setTimeout(() => {
+      kanbanTaskList.classList.remove("is-collapsing");
+      kanbanTaskList.classList.add("is-collapsed");
+      kanbanPanelsAnimationTimer = 0;
+    }, 220);
+  } else {
+    kanbanTaskList.classList.remove("is-expanded", "is-collapsing");
+    kanbanTaskList.classList.add("is-collapsed");
+  }
   kanbanTaskList.setAttribute("aria-hidden", kanbanState.panelsExpanded ? "false" : "true");
   kanbanPanelsToggle.classList.toggle("is-expanded", kanbanState.panelsExpanded);
   kanbanPanelsToggle.setAttribute("aria-expanded", kanbanState.panelsExpanded ? "true" : "false");
