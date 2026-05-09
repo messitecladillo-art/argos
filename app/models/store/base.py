@@ -123,24 +123,15 @@ class RuntimeStoreBase:
             if a["status"] != "offline"
             and (a.get("readiness_status") or "ready") == "ready"
         )
-        active = sum(
+        active_tasks = sum(
             1
-            for a in self.agents
-            if (a.get("readiness_status") or "ready") == "ready"
-            and (
-                a["status"] in {"busy", "waiting"}
-                or a.get("orchestration_state") == "waiting_workers"
-                or any(
-                    item["leader_agent_id"] == a["agent_id"]
-                    and item["status"]
-                    in {"running", "waiting_workers", "ready_to_summarize", "summarizing"}
-                    for item in self.user_tasks
-                )
-            )
+            for link in self.kanban_task_links
+            if (link.get("kanban_status") or "").lower()
+            not in {"done", "archived"}
         )
         return [
             {"label": "在职员工", "value": f"{online:02d}", "hint": "当前接入运行单元"},
-            {"label": "当前任务", "value": f"{active:02d}", "hint": "正在协同推进中"},
+            {"label": "当前任务", "value": f"{active_tasks:02d}", "hint": "未完成 Kanban 任务"},
         ]
 
     # ------------------------------------------------------------------ locked lookups (shared)

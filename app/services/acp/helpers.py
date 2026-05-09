@@ -48,6 +48,10 @@ INPUT_PATTERNS = (
     re.compile(r"\b(?:enter|type|provide)\b.+\b(?:input|response|value)\b", re.IGNORECASE),
     re.compile(r"\bwaiting for input\b", re.IGNORECASE),
 )
+NON_INTERACTION_PATTERNS = (
+    re.compile(r"Welcome to Hermes Agent! Type your message or /help for commands\.", re.IGNORECASE),
+    re.compile(r"Tip: Long dangerous commands .+ approval prompt", re.IGNORECASE),
+)
 SELECTION_PATTERNS = (
     re.compile(r"\bto select,\s*Enter to confirm\b", re.IGNORECASE),
     re.compile(r"\bHermes needs your input\b", re.IGNORECASE),
@@ -59,6 +63,11 @@ def _strip_ansi(text: str) -> str:
     text = re.sub(r"\x1b\[[0-9;?: ]*[A-Za-z~]", "", text)
     text = re.sub(r"\x1b[()#][0-9A-Za-z]", "", text)
     return re.sub(r"\x1b.", "", text)
+
+
+def _is_non_interaction_text(text: str) -> bool:
+    clean = _strip_ansi(text).replace("\r", "\n")
+    return any(pattern.search(clean) for pattern in NON_INTERACTION_PATTERNS)
 
 
 def _is_tui_noise_line(value: str) -> bool:

@@ -27,6 +27,7 @@ from .helpers import (
     _has_active_selection_prompt,
     _has_interrupt_hint,
     _interaction_signature,
+    _is_non_interaction_text,
     _is_substantive_output,
     _is_suspicious_terminal_text,
     _is_tui_noise_line,

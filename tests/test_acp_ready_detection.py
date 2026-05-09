@@ -1,4 +1,10 @@
-from app.services.acp import STUCK_HINT_SECONDS, _extract_selection, _looks_ready_for_next_input, _should_show_stuck_hint
+from app.services.acp import (
+    STUCK_HINT_SECONDS,
+    _extract_selection,
+    _is_non_interaction_text,
+    _looks_ready_for_next_input,
+    _should_show_stuck_hint,
+)
 
 
 def test_ready_prompt_without_symbol_is_detected():
@@ -75,3 +81,12 @@ leader ❯
 """
 
     assert _extract_selection(text) is None
+
+
+def test_welcome_tip_is_not_treated_as_interaction():
+    text = """
+Welcome to Hermes Agent! Type your message or /help for commands.
+✦ Tip: Long dangerous commands (>70 chars) get a 'view' option in the approval prompt to see the full text first.
+"""
+
+    assert _is_non_interaction_text(text)

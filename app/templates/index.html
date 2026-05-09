@@ -40,89 +40,7 @@
           {% endfor %}
         </div>
 
-        <div class="agent-list" id="agent-list">
-          {% for agent in agents %}
-          {% set runtime_status = agent.runtime_status or 'stopped' %}
-          {% set interaction_state = agent.interaction_state or 'idle' %}
-          {% set orchestration_state = agent.orchestration_state or 'none' %}
-          {% set agent_status = agent.status or 'idle' %}
-          {% set current_task = agent.current_task or '' %}
-          {% set readiness_status = agent.readiness_status or 'ready' %}
-          {% set is_agent_ready = readiness_status == 'ready' %}
-          {% if readiness_status == 'preparing' %}
-            {% set display_status_label = '准备中' %}
-            {% set display_status_class = 'preparing' %}
-          {% elif readiness_status == 'failed' %}
-            {% set display_status_label = '未就绪' %}
-            {% set display_status_class = 'unready' %}
-          {% elif runtime_status in ['stopped', 'crashed'] %}
-            {% set display_status_label = '不可用' %}
-            {% set display_status_class = 'offline' %}
-          {% elif interaction_state in ['awaiting_approval', 'awaiting_selection', 'awaiting_input'] %}
-            {% set display_status_label = '需介入' %}
-            {% set display_status_class = 'waiting' %}
-          {% elif '可能卡住' in current_task %}
-            {% set display_status_label = '卡住' %}
-            {% set display_status_class = 'stuck' %}
-          {% elif agent_status in ['busy', 'waiting'] or interaction_state in ['queued', 'running'] or orchestration_state in ['waiting_workers', 'summarizing', 'kanban_ready', 'kanban_running'] %}
-            {% set display_status_label = '处理中' %}
-            {% set display_status_class = 'busy' %}
-          {% else %}
-            {% set display_status_label = '空闲' %}
-            {% set display_status_class = 'idle' %}
-          {% endif %}
-          <div
-            class="agent-row {% if not is_agent_ready %}is-disabled{% endif %} {% if is_agent_ready and message_target and agent.agent_id == message_target.agent_id %}is-active{% endif %}"
-            role="button"
-            tabindex="{% if is_agent_ready %}0{% else %}-1{% endif %}"
-            aria-disabled="{% if is_agent_ready %}false{% else %}true{% endif %}"
-            data-agent-id="{{ agent.agent_id }}"
-            data-agent-name="{{ agent.name }}"
-            data-agent-role="{{ agent.role }}"
-            data-agent-status="{{ agent_status }}"
-            data-agent-orchestration-state="{{ orchestration_state }}"
-            data-agent-runtime-status="{{ runtime_status }}"
-            data-readiness-status="{{ readiness_status }}"
-          >
-            <div class="agent-row__top">
-              <div>
-                <strong>{{ agent.name }}</strong>
-                <p>{{ agent.role }} · {{ agent.profile_name }}</p>
-                {% if agent.model_summary and agent.model_summary.default %}
-                <p class="agent-row__model" title="{{ agent.model_summary.default }}">{{ agent.model_summary.default }}</p>
-                {% endif %}
-              </div>
-              <span class="status-badge status-{{ display_status_class }}">{{ display_status_label }}</span>
-            </div>
-            <div class="agent-row__body">
-              <dl>
-                <div>
-                  <dt>最后消息</dt>
-                  <dd>{{ agent.last_output_at[11:19] if agent.last_output_at else '—' }}</dd>
-                </div>
-                <div>
-                  <dt>任务数量</dt>
-                  <dd>{{ agent.queue_depth or 0 }}</dd>
-                </div>
-              </dl>
-              <div class="agent-row__session">
-                <span class="acp-dot acp-{{ runtime_status }}"></span>
-                <span class="acp-label">
-                  {% if runtime_status == 'running' %}在岗{% elif runtime_status == 'crashed' %}异常{% else %}离岗{% endif %}
-                </span>
-                <button class="acp-btn acp-btn--config" type="button" data-agent-config data-agent-id="{{ agent.agent_id }}">配置 ▾</button>
-                {% if not is_agent_ready %}
-                <button class="acp-btn acp-btn--start acp-btn--runtime" type="button" data-session-action="start" data-agent-id="{{ agent.agent_id }}" disabled>启动</button>
-                {% elif agent.runtime_status == 'running' %}
-                <button class="acp-btn acp-btn--stop acp-btn--runtime" type="button" data-session-action="stop" data-agent-id="{{ agent.agent_id }}">停止</button>
-                {% else %}
-                <button class="acp-btn acp-btn--start acp-btn--runtime" type="button" data-session-action="start" data-agent-id="{{ agent.agent_id }}">启动</button>
-                {% endif %}
-              </div>
-            </div>
-          </div>
-          {% endfor %}
-        </div>
+        <div class="agent-list" id="agent-list"></div>
         <p class="empty-hint" id="agent-empty" {% if agents %}hidden{% endif %}>
           还没有 Agent，点击右上角「新建 Agent」开始。
         </p>
@@ -562,7 +480,7 @@
     </div>
 
     <script>
-      window.__BOOTSTRAP__ = {{ {"agents": agents, "events": events, "kanban_task_links": kanban_task_links}|tojson }};
+      window.__BOOTSTRAP__ = {{ {"agents": agents, "events": events, "kanban_task_links": kanban_task_links, "stats": stats}|tojson }};
     </script>
     <script src="https://cdn.jsdelivr.net/npm/xterm@5.3.0/lib/xterm.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/xterm-addon-fit@0.8.0/lib/xterm-addon-fit.min.js"></script>

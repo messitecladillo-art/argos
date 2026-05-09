@@ -744,6 +744,7 @@ function renderKanbanTasks() {
       const agent = agentForKanbanLink(link);
       const assigneeName = agent?.name || link.assignee_profile || "unassigned";
       const taskTitle = link.metadata?.task_title || kanbanRoleLabel(link.kanban_role);
+      const createdAt = formatDateTime(link.created_at);
       card.innerHTML = `
         <div class="kanban-task-card__top">
           <strong title="${escapeHtml(taskTitle)}">${escapeHtml(taskTitle)}</strong>
@@ -751,6 +752,7 @@ function renderKanbanTasks() {
         </div>
         <p>执行人：${escapeHtml(assigneeName)}</p>
         ${resultPreview ? `<div class="kanban-task-card__result">${escapeHtml(resultPreview)}</div>` : ""}
+        <small>创建时间：${escapeHtml(createdAt)}</small>
       `;
       body.appendChild(card);
     });
@@ -1096,7 +1098,6 @@ function buildAgentRow(agent, isActive) {
     </div>
     <div class="agent-row__body">
       <dl>
-        <div><dt>最后消息</dt><dd>${escapeHtml(formatAgentTime(agent.last_output_at))}</dd></div>
         <div><dt>任务数量</dt><dd>${agent.queue_depth || 0}</dd></div>
       </dl>
       <div class="agent-row__session">
@@ -3612,6 +3613,7 @@ stream.onmessage = (event) => {
 
 hydrateChatEvents();
 hydrateNotificationStates(window.__BOOTSTRAP__?.agents || []);
+renderAgents(window.__BOOTSTRAP__?.agents || [], window.__BOOTSTRAP__?.stats || []);
 renderKanbanTasks();
 renderKanbanAutoDispatch();
 void loadModelConfigs({ silent: true });
