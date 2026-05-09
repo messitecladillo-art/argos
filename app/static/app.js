@@ -1101,10 +1101,14 @@ function buildAgentRow(agent, isActive) {
         <div><dt>任务数量</dt><dd>${agent.queue_depth || 0}</dd></div>
       </dl>
       <div class="agent-row__session">
-        <span class="acp-dot acp-${runtimeStatus}"></span>
-        <span class="acp-label">${escapeHtml(formatRuntimeStatus(runtimeStatus))}</span>
-        <button class="acp-btn acp-btn--config" type="button" data-agent-config data-agent-id="${agent.agent_id}">配置 ▾</button>
-        ${btn}
+        <span class="agent-row__runtime">
+          <span class="acp-dot acp-${runtimeStatus}"></span>
+          <span class="acp-label">${escapeHtml(formatRuntimeStatus(runtimeStatus))}</span>
+        </span>
+        <span class="agent-row__actions">
+          <button class="acp-btn acp-btn--config" type="button" data-agent-config data-agent-id="${agent.agent_id}">配置 ▾</button>
+          ${btn}
+        </span>
       </div>
     </div>
   `;

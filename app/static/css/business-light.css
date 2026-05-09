@@ -102,6 +102,24 @@ body {
   white-space: nowrap;
 }
 
+.agent-row__body {
+  border-top-color: rgba(37, 99, 235, 0.1);
+}
+
+.agent-row dl div {
+  color: #61738d;
+}
+
+.agent-row dd {
+  color: #172033;
+  font-weight: 600;
+}
+
+.agent-row__runtime {
+  background: rgba(22, 163, 74, 0.08);
+  color: #172033;
+}
+
 .status-pill,
 .kanban-task-badge,
 .mono-label,

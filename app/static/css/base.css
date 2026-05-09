@@ -172,7 +172,7 @@ label span,
   border: 1.5px solid rgba(246, 207, 117, 0.28);
   background: linear-gradient(180deg, rgba(18, 13, 6, 0.9), rgba(5, 4, 2, 0.94));
   border-radius: 16px;
-  padding: 12px 14px;
+  padding: 14px 16px;
   color: inherit;
   text-align: left;
   cursor: pointer;
@@ -218,7 +218,7 @@ label span,
 }
 
 .agent-row__top {
-  align-items: start;
+  align-items: flex-start;
 }
 
 .agent-row__top > div,
@@ -233,8 +233,13 @@ label span,
   font-size: 0.78rem;
 }
 
+.agent-row strong {
+  display: block;
+  line-height: 1.18;
+}
+
 .status-badge {
-  padding: 5px 10px;
+  padding: 6px 12px;
   border-radius: 999px;
   font-size: 0.74rem;
   text-transform: uppercase;
@@ -295,9 +300,20 @@ label span,
   margin: 0;
 }
 
-.agent-row dl div {
-  padding-top: 6px;
+.agent-row__body {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 10px;
+  margin-top: 12px;
+  padding-top: 12px;
   border-top: 1px solid rgba(246, 207, 117, 0.14);
+}
+
+.agent-row dl div {
+  align-items: center;
+  gap: 12px;
+  padding-top: 0;
+  border-top: 0;
 }
 
 .agent-row dt,
@@ -308,7 +324,7 @@ label span,
 }
 
 .agent-row dd {
-  max-width: 62%;
+  max-width: 56%;
   text-align: right;
   color: var(--text);
   white-space: nowrap;
@@ -319,16 +335,37 @@ label span,
 .agent-row__session {
   display: flex;
   align-items: center;
-  gap: 10px;
-  margin-top: 12px;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 0;
   min-width: 0;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
 }
 
 .agent-row__session .acp-label {
-  margin-right: auto;
   min-width: 2.5em;
   white-space: nowrap;
+}
+
+.agent-row__runtime,
+.agent-row__actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.agent-row__runtime {
+  min-height: 32px;
+  padding: 5px 10px;
+  border-radius: 999px;
+  background: rgba(103, 245, 198, 0.08);
+}
+
+.agent-row__actions {
+  gap: 10px;
+  margin-left: auto;
+  flex-shrink: 0;
 }
 
 .main-panel {
