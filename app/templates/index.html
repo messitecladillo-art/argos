@@ -397,10 +397,20 @@
           <button class="modal__close" type="button" data-close-transfer aria-label="close">×</button>
         </div>
         <div class="transfer-tabs" role="tablist">
+          <button class="filter-chip" type="button" data-transfer-tab="runtime">一键操作</button>
           <button class="filter-chip is-active" type="button" data-transfer-tab="export">导出</button>
           <button class="filter-chip" type="button" data-transfer-tab="import">导入</button>
           <button class="filter-chip" type="button" data-transfer-tab="models">模型配置</button>
         </div>
+        <section class="transfer-pane" data-transfer-pane="runtime" hidden>
+          <p class="form-hint">批量管理当前团队所有 Agent 的运行状态。</p>
+          <div class="team-runtime-panel">
+            <button class="primary-button primary-button--sm" type="button" data-team-runtime-action="start">全部启动</button>
+            <button class="primary-button primary-button--sm" type="button" data-team-runtime-action="restart">全部重启</button>
+            <button class="filter-chip team-runtime-panel__stop" type="button" data-team-runtime-action="stop">全部关闭</button>
+          </div>
+          <p class="form-error" id="team-runtime-status" hidden></p>
+        </section>
         <section class="transfer-pane" data-transfer-pane="export">
           <p class="form-hint">选择要打包的 Agent，导出为 `hermes-agent-team-时间.zip`。</p>
           <div class="transfer-agent-list" id="transfer-agent-list"></div>

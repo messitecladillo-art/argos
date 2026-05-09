@@ -284,6 +284,25 @@
   display: none !important;
 }
 
+.team-runtime-panel {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid rgba(246, 207, 117, 0.18);
+  border-radius: 16px;
+  background: rgba(8, 7, 5, 0.58);
+}
+
+.team-runtime-panel button {
+  min-height: 44px;
+}
+
+.team-runtime-panel__stop {
+  border-color: rgba(255, 123, 115, 0.28);
+  color: #ff9a76;
+}
+
 .transfer-file-picker {
   display: flex;
   align-items: center;

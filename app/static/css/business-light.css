@@ -390,9 +390,15 @@ textarea:focus {
 
 .transfer-agent-list,
 .transfer-preview,
-.transfer-check {
+.transfer-check,
+.team-runtime-panel {
   background: rgba(248, 251, 255, 0.86);
   border-color: var(--panel-edge);
+}
+
+.team-runtime-panel__stop {
+  border-color: rgba(220, 38, 38, 0.22);
+  color: var(--danger);
 }
 
 .modal__form textarea,

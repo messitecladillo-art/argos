@@ -23,6 +23,7 @@ const transferInspectSubmit = document.getElementById("transfer-inspect-submit")
 const transferImportSubmit = document.getElementById("transfer-import-submit");
 const transferImportStatus = document.getElementById("transfer-import-status");
 const transferImportPreview = document.getElementById("transfer-import-preview");
+const teamRuntimeStatus = document.getElementById("team-runtime-status");
 const terminalDrawer = document.getElementById("terminal-drawer");
 const openHistoryDrawer = document.getElementById("open-history-drawer");
 const historyDrawer = document.getElementById("history-drawer");
@@ -182,6 +183,11 @@ const modelConfigState = {
   editingId: "",
   agentId: "",
   agentName: "",
+};
+const teamRuntimeLabels = {
+  start: "启动",
+  stop: "关闭",
+  restart: "重启",
 };
 const kanbanState = {
   links: Array.isArray(window.__BOOTSTRAP__?.kanban_task_links)
@@ -2394,11 +2400,19 @@ function setTransferStatus(element, message, isError = false) {
   element.style.color = isError ? "#ff8a8a" : "#8ff0b3";
 }
 
+function setTeamRuntimeStatus(message, kind = "muted") {
+  if (!teamRuntimeStatus) return;
+  teamRuntimeStatus.textContent = message || "";
+  teamRuntimeStatus.hidden = !message;
+  teamRuntimeStatus.dataset.kind = kind;
+}
+
 function openTransferModal() {
   if (!transferModal) return;
   renderTransferAgents();
   setTransferStatus(transferExportStatus, "");
   setTransferStatus(transferImportStatus, "");
+  setTeamRuntimeStatus("");
   setModelConfigStatus("", "muted");
   if (transferImportPreview) transferImportPreview.hidden = true;
   if (transferImportSubmit) transferImportSubmit.disabled = true;
@@ -2434,6 +2448,33 @@ function switchTransferTab(tabName) {
     pane.hidden = pane.dataset.transferPane !== tabName;
   });
   if (tabName === "models") void loadModelConfigs();
+}
+
+async function runTeamRuntimeAction(action, button) {
+  const label = teamRuntimeLabels[action] || action;
+  const buttons = transferModal ? Array.from(transferModal.querySelectorAll("[data-team-runtime-action]")) : [];
+  buttons.forEach((item) => { item.disabled = true; });
+  setTeamRuntimeStatus(`正在${label}所有 Agent...`, "muted");
+  try {
+    const response = await fetch("/api/agents/runtime", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ action }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) {
+      throw new Error(data.error || `全部${label}失败`);
+    }
+    const total = Array.isArray(data.results) ? data.results.length : 0;
+    const skipped = Number(data.skipped || 0);
+    const suffix = skipped ? `，跳过 ${skipped} 个未就绪 Agent` : "";
+    setTeamRuntimeStatus(`已${label} ${total - skipped}/${total} 个 Agent${suffix}。`, "success");
+  } catch (error) {
+    setTeamRuntimeStatus(error.message || `全部${label}失败`, "error");
+  } finally {
+    buttons.forEach((item) => { item.disabled = false; });
+    if (button) button.blur();
+  }
 }
 
 async function exportTeamArchive() {
@@ -3234,6 +3275,8 @@ if (transferModal) {
     }
     const tab = event.target.closest("[data-transfer-tab]");
     if (tab) switchTransferTab(tab.dataset.transferTab || "export");
+    const runtimeBtn = event.target.closest("[data-team-runtime-action]");
+    if (runtimeBtn) void runTeamRuntimeAction(runtimeBtn.dataset.teamRuntimeAction || "", runtimeBtn);
   });
 }
 

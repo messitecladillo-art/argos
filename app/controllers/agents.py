@@ -91,6 +91,57 @@ def start_agent(agent_id: str):
     return jsonify({"ok": ok, "agent": store.find_agent(agent_id)})
 
 
+@bp.post("/agents/runtime")
+def bulk_agent_runtime():
+    payload = request.get_json(silent=True) or {}
+    action = str(payload.get("action") or "").strip().lower()
+    if action not in {"start", "stop", "restart"}:
+        return jsonify({"ok": False, "error": "action must be start, stop, or restart"}), 400
+
+    agents = store.snapshot().get("agents", [])
+    results = []
+    for agent in agents:
+        agent_id = agent.get("agent_id") or ""
+        name = agent.get("name") or agent_id
+        if action in {"start", "restart"} and (agent.get("readiness_status") or "ready") != "ready":
+            results.append(
+                {
+                    "agent_id": agent_id,
+                    "name": name,
+                    "ok": False,
+                    "skipped": True,
+                    "error": "agent is not ready",
+                }
+            )
+            continue
+        if action == "stop":
+            session_pool.stop(agent_id)
+            results.append({"agent_id": agent_id, "name": name, "ok": True})
+            continue
+        ok = session_pool.restart(agent) if action == "restart" else session_pool.start(agent)
+        results.append(
+            {
+                "agent_id": agent_id,
+                "name": name,
+                "ok": bool(ok),
+                "error": "agent runtime action failed" if not ok else "",
+            }
+        )
+
+    failed = [item for item in results if not item.get("ok") and not item.get("skipped")]
+    skipped = [item for item in results if item.get("skipped")]
+    return jsonify(
+        {
+            "ok": not failed,
+            "action": action,
+            "results": results,
+            "failed": len(failed),
+            "skipped": len(skipped),
+            "agents": store.snapshot().get("agents", []),
+        }
+    )
+
+
 def _ensure_agent_workspace(agent: dict) -> Path:
     raw_path = agent.get("workspace_path") or registry.workspace_path_for(agent["profile_name"])
     path = Path(raw_path).expanduser().resolve(strict=False)
