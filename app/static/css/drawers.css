@@ -362,6 +362,7 @@
   display: grid;
   align-content: start;
   gap: 12px;
+  padding-bottom: 12px;
 }
 
 .mcp-card {
