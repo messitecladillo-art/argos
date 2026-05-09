@@ -3026,7 +3026,7 @@ function writeEmptyTerminalHint() {
     terminalSessions.set("__empty__", session);
   }
   if (session) {
-    resetTerminalSessionView(session, "还没有 Agent。创建并启动 Agent 后，这里会显示交互终端。");
+    resetTerminalSessionView(session, "还没有员工。创建并启动员工后，这里会显示交互终端。");
     session.pane.classList.add("is-active");
     scheduleTerminalFit(0);
   }

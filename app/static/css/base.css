@@ -165,6 +165,13 @@ label span,
   display: none;
 }
 
+.agent-empty {
+  align-self: center;
+  justify-self: center;
+  max-width: 260px;
+  margin: 0;
+}
+
 .agent-row {
   width: 100%;
   min-width: 0;
