@@ -744,23 +744,49 @@ label span,
 
 .kanban-team-ornament__links path {
   fill: none;
-  stroke: currentColor;
+  stroke: #9bbcff;
   stroke-width: 1.5;
   stroke-linecap: round;
-  stroke-opacity: 0.34;
+  stroke-opacity: 0.22;
 }
 
 .kanban-team-ornament__nodes circle {
-  fill: currentColor;
-  fill-opacity: 0.16;
-  stroke: currentColor;
-  stroke-width: 2;
-  stroke-opacity: 0.56;
+  stroke-width: 2.5;
+  stroke-opacity: 0.32;
+  filter: drop-shadow(0 10px 18px rgba(96, 165, 250, 0.12));
 }
 
-.kanban-team-ornament__nodes circle:first-child {
-  fill-opacity: 0.24;
-  stroke-opacity: 0.74;
+.kanban-team-ornament__nodes .node-core {
+  fill: url(#team-node-core);
+  stroke: #7da8ff;
+  stroke-width: 3;
+  stroke-opacity: 0.36;
+  filter: drop-shadow(0 18px 34px rgba(96, 165, 250, 0.18));
+}
+
+.kanban-team-ornament__nodes .node-mint {
+  fill: url(#team-node-mint);
+  stroke: #6ee7b7;
+}
+
+.kanban-team-ornament__nodes .node-sky {
+  fill: url(#team-node-sky);
+  stroke: #7dd3fc;
+}
+
+.kanban-team-ornament__nodes .node-lilac {
+  fill: url(#team-node-lilac);
+  stroke: #c4b5fd;
+}
+
+.kanban-team-ornament__nodes .node-peach {
+  fill: url(#team-node-peach);
+  stroke: #fdba74;
+}
+
+.kanban-team-ornament__nodes .node-rose {
+  fill: url(#team-node-rose);
+  stroke: #fda4af;
 }
 
 .kanban-task-list {
