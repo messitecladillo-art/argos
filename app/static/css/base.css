@@ -561,11 +561,78 @@ label span,
 
 .kanban-submit__toolbar {
   display: grid;
-  grid-template-columns: max-content minmax(180px, 1fr) max-content max-content max-content;
+  grid-template-columns: max-content minmax(190px, max-content) minmax(120px, 1fr) max-content max-content max-content;
   min-height: 42px;
   align-items: center;
   gap: 12px;
   padding-top: 4px;
+}
+
+.kanban-assignee-picker {
+  grid-column: 2;
+}
+
+.kanban-assignee-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: min(280px, 100%);
+  min-height: 42px;
+  border: 1px solid rgba(37, 99, 235, 0.3);
+  border-radius: 14px;
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
+  padding: 0 14px;
+  font: inherit;
+  font-size: 0.9rem;
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, transform 160ms ease;
+}
+
+.kanban-assignee-trigger:hover,
+.kanban-assignee-trigger[aria-expanded="true"] {
+  border-color: rgba(37, 99, 235, 0.46);
+  background: rgba(37, 99, 235, 0.12);
+  transform: translateY(-1px);
+}
+
+.kanban-assignee-trigger:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+}
+
+.kanban-assignee-trigger svg {
+  width: 16px;
+  height: 16px;
+  fill: currentColor;
+  flex: 0 0 auto;
+}
+
+.kanban-assignee-trigger span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.kanban-assignee-menu {
+  min-width: 190px;
+  padding: 14px 12px;
+  border-radius: 18px;
+}
+
+.kanban-assignee-menu__item {
+  min-height: 48px;
+  border-radius: 12px;
+  font-size: 0.95rem;
+  color: #172033;
+}
+
+.kanban-assignee-menu__item.is-active,
+.kanban-assignee-menu__item:hover {
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
 }
 
 .kanban-panels-toggle {
@@ -634,15 +701,15 @@ label span,
 }
 
 #kanban-auto-dispatch {
-  grid-column: 3;
-}
-
-#kanban-dispatch {
   grid-column: 4;
 }
 
-.kanban-submit__toolbar .primary-button {
+#kanban-dispatch {
   grid-column: 5;
+}
+
+.kanban-submit__toolbar .primary-button {
+  grid-column: 6;
   margin-left: 0;
   align-self: center;
 }
@@ -1049,6 +1116,12 @@ label span,
 
   .kanban-submit__toolbar {
     grid-template-columns: 1fr 1fr;
+  }
+
+  .kanban-assignee-picker,
+  .kanban-assignee-trigger {
+    grid-column: 1 / -1;
+    width: 100%;
   }
 
   #kanban-auto-dispatch {

@@ -84,6 +84,7 @@ const modelConfigEditTitle = document.getElementById("model-config-edit-title");
 const modelConfigSaveTest = document.getElementById("model-config-save-test");
 const kanbanTaskForm = document.getElementById("kanban-task-form");
 const kanbanTaskInput = document.getElementById("kanban-task-input");
+const kanbanAssigneeTrigger = document.getElementById("kanban-assignee-trigger");
 const kanbanTaskStatus = document.getElementById("kanban-task-status");
 const kanbanTaskList = document.getElementById("kanban-task-list");
 const kanbanTeamOrnament = document.getElementById("kanban-team-ornament");
@@ -104,6 +105,8 @@ let kanbanOrnamentAnimationId = 0;
 let kanbanStatusTimer = 0;
 let agentContextMenu = null;
 let kanbanContextMenu = null;
+let kanbanAssigneeMenu = null;
+let selectedKanbanAssigneeId = "";
 let deletingAgentId = "";
 let confirmModal = null;
 let resizeTimer = 0;
@@ -664,6 +667,63 @@ function kanbanTaskCanArchive(link) {
   return Boolean(link?.kanban_task_id);
 }
 
+function renderKanbanAssigneeOptions(agents = window.__BOOTSTRAP__?.agents || []) {
+  if (!kanbanAssigneeTrigger) return;
+  const previous = selectedKanbanAssigneeId;
+  const readyAgents = (Array.isArray(agents) ? agents : []).filter((agent) => (agent.readiness_status || "ready") === "ready");
+  const leaders = readyAgents.filter((agent) => agent.role === "leader");
+  const workers = readyAgents.filter((agent) => agent.role === "worker");
+  const options = [...leaders, ...workers];
+  const fallback = leaders[0]?.agent_id || options[0]?.agent_id || "";
+  selectedKanbanAssigneeId = options.some((agent) => agent.agent_id === previous) ? previous : fallback;
+  const selected = options.find((agent) => agent.agent_id === selectedKanbanAssigneeId);
+  const label = selected ? (selected.name || selected.agent_id) : "Leader";
+  const labelNode = kanbanAssigneeTrigger.querySelector("span");
+  if (labelNode) labelNode.textContent = label;
+  kanbanAssigneeTrigger.disabled = options.length === 0;
+  if (!kanbanAssigneeMenu) return;
+  kanbanAssigneeMenu.innerHTML = options
+    .map((agent) => {
+      const name = agent.name || agent.agent_id;
+      return `<button class="agent-context-menu__item kanban-assignee-menu__item${agent.agent_id === selectedKanbanAssigneeId ? " is-active" : ""}" type="button" data-kanban-assignee-id="${escapeHtml(agent.agent_id)}">${escapeHtml(name)}</button>`;
+    })
+    .join("");
+}
+
+function ensureKanbanAssigneeMenu() {
+  if (kanbanAssigneeMenu) return kanbanAssigneeMenu;
+  kanbanAssigneeMenu = document.createElement("div");
+  kanbanAssigneeMenu.className = "agent-context-menu kanban-assignee-menu";
+  kanbanAssigneeMenu.hidden = true;
+  kanbanAssigneeMenu.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const item = event.target.closest("[data-kanban-assignee-id]");
+    if (!item) return;
+    selectedKanbanAssigneeId = item.dataset.kanbanAssigneeId || "";
+    renderKanbanAssigneeOptions(window.__BOOTSTRAP__?.agents || []);
+    closeKanbanAssigneeMenu();
+  });
+  document.body.appendChild(kanbanAssigneeMenu);
+  return kanbanAssigneeMenu;
+}
+
+function openKanbanAssigneeMenu() {
+  if (!kanbanAssigneeTrigger || kanbanAssigneeTrigger.disabled) return;
+  closeAgentContextMenu();
+  closeKanbanContextMenu();
+  const menu = ensureKanbanAssigneeMenu();
+  renderKanbanAssigneeOptions(window.__BOOTSTRAP__?.agents || []);
+  const rect = kanbanAssigneeTrigger.getBoundingClientRect();
+  positionAgentContextMenu(menu, rect.left, rect.bottom + 10);
+  kanbanAssigneeTrigger.setAttribute("aria-expanded", "true");
+}
+
+function closeKanbanAssigneeMenu() {
+  if (!kanbanAssigneeMenu) return;
+  kanbanAssigneeMenu.hidden = true;
+  kanbanAssigneeTrigger?.setAttribute("aria-expanded", "false");
+}
+
 function ensureKanbanContextMenu() {
   if (kanbanContextMenu) return kanbanContextMenu;
   kanbanContextMenu = document.createElement("div");
@@ -970,7 +1030,7 @@ async function submitKanbanTask(event) {
     const response = await fetch("/api/messages", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content }),
+      body: JSON.stringify({ content, to_agent_id: selectedKanbanAssigneeId || "" }),
     });
     const data = await response.json().catch(() => ({}));
     if (!response.ok || !data.ok) throw new Error(data.error || "任务创建失败");
@@ -2495,6 +2555,7 @@ function renderAgents(agents, stats) {
     }
     agentList.appendChild(buildAgentRow(agent, agent.agent_id === selected));
   });
+  renderKanbanAssigneeOptions(agents);
   requestAnimationFrame(() => requestAnimationFrame(fitAllTerminalSessions));
   renderInteractions();
   if (agentEmpty) agentEmpty.hidden = agents.length > 0;
@@ -3268,6 +3329,7 @@ function closeAgentContextMenu() {
 function closeAllContextMenus() {
   closeAgentContextMenu();
   closeKanbanContextMenu();
+  closeKanbanAssigneeMenu();
 }
 
 function confirmAgentDismissal(agentName) {
@@ -3417,6 +3479,7 @@ transferImportFile?.addEventListener("change", () => {
 document.addEventListener("click", (event) => {
   if (agentContextMenu?.contains(event.target)) return;
   if (kanbanContextMenu?.contains(event.target)) return;
+  if (kanbanAssigneeMenu?.contains(event.target)) return;
   closeAllContextMenus();
 });
 
@@ -3507,6 +3570,14 @@ if (openCreateAgent) {
 if (openHistoryDrawer) openHistoryDrawer.addEventListener("click", openHistoryPanel);
 if (kanbanTaskForm) kanbanTaskForm.addEventListener("submit", submitKanbanTask);
 if (kanbanTaskInput) kanbanTaskInput.addEventListener("keydown", handleKanbanTaskInputKeydown);
+if (kanbanAssigneeTrigger) kanbanAssigneeTrigger.addEventListener("click", (event) => {
+  event.stopPropagation();
+  if (kanbanAssigneeMenu && !kanbanAssigneeMenu.hidden) {
+    closeKanbanAssigneeMenu();
+  } else {
+    openKanbanAssigneeMenu();
+  }
+});
 if (kanbanPanelsToggle) kanbanPanelsToggle.addEventListener("click", toggleKanbanPanels);
 if (kanbanRefresh) kanbanRefresh.addEventListener("click", () => refreshKanbanTasks());
 if (kanbanAutoDispatch) kanbanAutoDispatch.addEventListener("click", toggleKanbanAutoDispatch);
@@ -3782,6 +3853,7 @@ stream.onmessage = (event) => {
 
 hydrateChatEvents();
 hydrateNotificationStates(window.__BOOTSTRAP__?.agents || []);
+renderKanbanAssigneeOptions(window.__BOOTSTRAP__?.agents || []);
 renderAgents(window.__BOOTSTRAP__?.agents || [], window.__BOOTSTRAP__?.stats || []);
 renderKanbanTasks();
 renderKanbanPanelsToggle();

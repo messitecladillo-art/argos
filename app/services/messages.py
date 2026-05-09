@@ -33,6 +33,18 @@ def find_leader_agent_id(runtime_store: RuntimeStore) -> str:
     return leader["agent_id"]
 
 
+def _find_ready_agent(runtime_store: RuntimeStore, agent_id: str) -> dict:
+    agent_id = (agent_id or "").strip()
+    if not agent_id:
+        raise ValueError("to_agent_id is required")
+    agent = runtime_store.find_agent(agent_id)
+    if agent is None:
+        raise ValueError("target agent not found")
+    if (agent.get("readiness_status") or "ready") != "ready":
+        raise ValueError("target agent is not ready")
+    return agent
+
+
 def _format_user_task(content: str, leader_id: str) -> str:
     return (
         "[USER_TASK]\n"
@@ -78,11 +90,30 @@ def _format_team_message(
     )
 
 
-def send_user_task(store: RuntimeStore, *, content: str) -> dict:
+def _format_direct_worker_task(content: str, worker: dict) -> str:
+    return (
+        "[DIRECT_WORKER_TASK]\n"
+        "这个任务由用户在 Web 看板中直接指派给你，请直接执行。\n"
+        f"你的 agent_id 是：{worker.get('agent_id') or ''}\n"
+        "执行规则：\n"
+        "0. 当前 Kanban 任务必须以 kanban_complete(summary=...) 或 kanban_block(...) 结束；不要只输出自然语言就退出。\n"
+        "1. 不要再把这个任务派回 Leader，除非任务明确要求团队协作。\n"
+        f"{CONCISE_REPLY_RULES}"
+        "用户原始任务：\n"
+        f"{content}"
+    )
+
+
+def send_user_task(store: RuntimeStore, *, content: str, to_agent_id: str = "") -> dict:
     content = (content or "").strip()
     if not content:
         raise ValueError("content is required")
-    leader_id = find_leader_agent_id(store)
+    target = _find_ready_agent(store, to_agent_id) if (to_agent_id or "").strip() else None
+    leader_id = target["agent_id"] if target and target.get("role") == "leader" else find_leader_agent_id(store)
+    if target and target.get("role") == "worker":
+        return _send_direct_worker_task(store, content=content, leader_id=leader_id, worker=target)
+    if target and target.get("role") != "leader":
+        raise ValueError("target agent must be leader or worker")
     user_task = store.create_user_task(leader_agent_id=leader_id, content=content)
     leader = store.find_agent(leader_id) or {}
     body = _format_user_task(content, leader_id)
@@ -130,6 +161,58 @@ def send_user_task(store: RuntimeStore, *, content: str) -> dict:
         "message_id": None,
         "content": content,
         "to_agent_id": leader_id,
+        "user_task_id": user_task["user_task_id"],
+        "kanban_task_id": kanban_task_id,
+    }
+
+
+def _send_direct_worker_task(store: RuntimeStore, *, content: str, leader_id: str, worker: dict) -> dict:
+    user_task = store.create_user_task(leader_agent_id=leader_id, content=content)
+    body = _format_direct_worker_task(content, worker)
+    task_title = f"指派给 {worker.get('name') or worker['agent_id']}：{content[:60]}"
+    kanban_task = kanban_service.create_task(
+        task_title,
+        body=(
+            f"local_user_task_id: {user_task['user_task_id']}\n"
+            f"direct_worker_agent_id: {worker['agent_id']}\n\n"
+            f"{body}"
+        ),
+        assignee=worker["profile_name"],
+        workspace=workspace_for_agent(worker),
+        idempotency_key=f"direct_worker_task:{user_task['user_task_id']}:{worker['agent_id']}",
+    )
+    kanban_task_id = extract_task_id(kanban_task)
+    store.upsert_kanban_task_link(
+        local_type="user_task",
+        local_id=user_task["user_task_id"],
+        kanban_task_id=kanban_task_id,
+        kanban_role="worker",
+        kanban_status=task_status(kanban_task) or "ready",
+        assignee_profile=worker["profile_name"],
+        metadata={"task_title": task_title, "direct_worker": True},
+    )
+    store.push_event(
+        "kanban.task.created",
+        worker["agent_id"],
+        user_task["user_task_id"],
+        {
+            "text": f"已创建 Worker 直派任务 {kanban_task_id}",
+            "kanban_task_id": kanban_task_id,
+            "assignee": worker["profile_name"],
+        },
+    )
+    logger.warning(
+        "[agent-message] send_direct_worker_task worker=%s user_task=%s kanban_task=%s content_len=%s",
+        worker["agent_id"],
+        user_task["user_task_id"],
+        kanban_task_id,
+        len(content),
+    )
+    dispatch_worker.trigger_async()
+    return {
+        "message_id": None,
+        "content": content,
+        "to_agent_id": worker["agent_id"],
         "user_task_id": user_task["user_task_id"],
         "kanban_task_id": kanban_task_id,
     }

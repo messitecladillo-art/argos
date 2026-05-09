@@ -71,3 +71,43 @@ def test_messages_create_kanban_parent_without_acp(monkeypatch, tmp_path):
     )
     assert link["kanban_task_id"] == "kb_parent"
     assert link["assignee_profile"] == "leader_profile"
+
+
+def test_messages_can_create_direct_worker_kanban_task(monkeypatch, tmp_path):
+    runtime_store = RuntimeStore()
+    runtime_store.register_agent(_agent("agent_lead", "leader_profile", "leader", str(tmp_path / "leader_profile")))
+    worker_workspace = tmp_path / "developer_profile"
+    runtime_store.register_agent(_agent("agent_dev", "developer_profile", "worker", str(worker_workspace)))
+    monkeypatch.setattr(messages_controller, "store", runtime_store)
+
+    created = {}
+
+    def fake_create_task(title, **kwargs):
+        created.update({"title": title, **kwargs})
+        return {"task_id": "kb_worker", "status": "ready"}
+
+    monkeypatch.setattr(messages_controller.messages_service.kanban_service, "create_task", fake_create_task)
+
+    app = Flask(__name__)
+    app.register_blueprint(messages_controller.bp)
+    client = app.test_client()
+
+    response = client.post("/api/messages", json={"content": "Build login", "to_agent_id": "agent_dev"})
+
+    assert response.status_code == 201
+    data = response.get_json()
+    assert data["message"]["to_agent_id"] == "agent_dev"
+    assert data["message"]["kanban_task_id"] == "kb_worker"
+    assert created["assignee"] == "developer_profile"
+    assert created["workspace"] == f"dir:{worker_workspace}"
+    assert worker_workspace.is_dir()
+    assert "[DIRECT_WORKER_TASK]" in created["body"]
+    assert "kanban_complete" in created["body"]
+    link = runtime_store.find_kanban_task_link(
+        local_type="user_task",
+        local_id="ut_0001",
+        kanban_role="worker",
+    )
+    assert link["kanban_task_id"] == "kb_worker"
+    assert link["assignee_profile"] == "developer_profile"
+    assert link["metadata"]["direct_worker"] is True

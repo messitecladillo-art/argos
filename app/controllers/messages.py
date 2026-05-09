@@ -16,6 +16,7 @@ def create_message():
         message = messages_service.send_user_task(
             store,
             content=payload.get("content") or "",
+            to_agent_id=payload.get("to_agent_id") or "",
         )
     except ValueError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 400

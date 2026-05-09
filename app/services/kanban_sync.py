@@ -183,6 +183,14 @@ class KanbanSyncWorker:
 
     def _sync_worker_link(self, link: dict, status: str, result: str, task: dict) -> None:
         metadata = link.get("metadata") or {}
+        if metadata.get("direct_worker"):
+            if status in DONE_STATUSES | FAILED_STATUSES and not metadata.get("completed_projected"):
+                self.store.mark_user_task_completed(link["local_id"])
+                self.store.update_kanban_task_link(
+                    link["kanban_task_id"],
+                    metadata={**metadata, "completed_projected": True},
+                )
+            return
         delegation_id = metadata.get("delegation_id")
         assignment_id = link["local_id"]
         if not delegation_id:
