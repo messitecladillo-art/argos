@@ -189,3 +189,68 @@ def test_dispatch_marks_only_spawned_tasks_running():
     child = runtime_store.find_kanban_task_link(kanban_task_id="kb_child")
     assert child["kanban_status"] == "todo"
     assert "dispatch_started_at" not in child["metadata"]
+def test_dispatch_task_now_marks_only_target_running(monkeypatch):
+    runtime_store = RuntimeStore()
+    runtime_store.upsert_kanban_task_link(
+        local_type="user_task",
+        local_id="ut_1",
+        kanban_task_id="kb_target",
+        kanban_role="parent",
+        kanban_status="ready",
+        assignee_profile="leader",
+    )
+    runtime_store.upsert_kanban_task_link(
+        local_type="user_task",
+        local_id="ut_2",
+        kanban_task_id="kb_other",
+        kanban_role="parent",
+        kanban_status="ready",
+        assignee_profile="leader",
+    )
+    service = FakeKanban()
+    service.tasks = {"kb_target": {"status": "ready"}, "kb_other": {"status": "ready"}}
+    service.dispatch_one = lambda task_id, **kwargs: {
+        "spawned": [{"task_id": task_id, "assignee": "leader", "workspace": "/tmp/ws"}]
+    }
+    worker = KanbanDispatchWorker(runtime_store=runtime_store, service=service)
+
+    outcome = worker.dispatch_task_now("kb_target")
+
+    assert outcome["skipped"] is False
+    assert runtime_store.find_kanban_task_link(kanban_task_id="kb_target")["kanban_status"] == "running"
+    assert runtime_store.find_kanban_task_link(kanban_task_id="kb_other")["kanban_status"] == "ready"
+
+
+def test_dispatch_task_now_releases_pending_dispatch_target_only():
+    runtime_store = RuntimeStore()
+    runtime_store.upsert_kanban_task_link(
+        local_type="user_task",
+        local_id="ut_1",
+        kanban_task_id="kb_target",
+        kanban_role="parent",
+        kanban_status="pending_dispatch",
+        assignee_profile="leader",
+        metadata={"pending_dispatch": True},
+    )
+    runtime_store.upsert_kanban_task_link(
+        local_type="user_task",
+        local_id="ut_2",
+        kanban_task_id="kb_other",
+        kanban_role="parent",
+        kanban_status="pending_dispatch",
+        assignee_profile="leader",
+        metadata={"pending_dispatch": True},
+    )
+    service = FakeKanban()
+    service.tasks = {"kb_target": {"status": "ready"}, "kb_other": {"status": "pending_dispatch"}}
+    service.dispatch_one = lambda task_id, **kwargs: {
+        "spawned": [{"task_id": task_id, "assignee": "leader", "workspace": "/tmp/ws"}]
+    }
+    worker = KanbanDispatchWorker(runtime_store=runtime_store, service=service)
+
+    outcome = worker.dispatch_task_now("kb_target")
+
+    assert outcome["skipped"] is False
+    assert service.assigned == [("kb_target", "leader")]
+    assert runtime_store.find_kanban_task_link(kanban_task_id="kb_target")["kanban_status"] == "running"
+    assert runtime_store.find_kanban_task_link(kanban_task_id="kb_other")["kanban_status"] == "pending_dispatch"

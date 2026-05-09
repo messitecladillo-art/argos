@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import subprocess
+from pathlib import Path
 from typing import Any
 
 from ..config import KANBAN_BOARD, KANBAN_DEFAULT_WORKSPACE
@@ -122,6 +124,37 @@ class KanbanService:
             args.extend(["--max", str(max_workers)])
         return self._run_json(args, timeout=600)
 
+    def dispatch_one(self, task_id: str, *, assignee: str) -> dict[str, Any]:
+        claim_output = self._run(["claim", task_id], timeout=30)
+        workspace = _workspace_from_claim_output(claim_output)
+        log_path = self._worker_log_path(task_id)
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        env = dict(os.environ)
+        env["HERMES_KANBAN_TASK"] = task_id
+        env["HERMES_KANBAN_WORKSPACE"] = workspace
+        env["HERMES_KANBAN_BOARD"] = self.board
+        env["HERMES_PROFILE"] = assignee
+        with log_path.open("ab") as log_file:
+            proc = subprocess.Popen(
+                [
+                    "hermes",
+                    "-p",
+                    assignee,
+                    "--skills",
+                    "kanban-worker",
+                    "chat",
+                    "-q",
+                    f"work kanban task {task_id}",
+                ],
+                cwd=workspace if os.path.isdir(workspace) else None,
+                stdin=subprocess.DEVNULL,
+                stdout=log_file,
+                stderr=subprocess.STDOUT,
+                env=env,
+                start_new_session=True,
+            )
+        return {"spawned": [{"task_id": task_id, "assignee": assignee, "workspace": workspace, "pid": proc.pid}]}
+
     def assign_task(self, task_id: str, profile: str) -> str:
         return self._run(["assign", task_id, profile])
 
@@ -171,6 +204,14 @@ class KanbanService:
         except json.JSONDecodeError as exc:
             raise KanbanError(f"invalid hermes kanban JSON output: {output[:200]}") from exc
 
+    def _worker_log_path(self, task_id: str):
+        try:
+            from hermes_cli import kanban_db as kb
+
+            return kb.worker_logs_dir(board=self.board) / f"{task_id}.log"
+        except Exception:  # noqa: BLE001
+            return Path.home() / ".hermes" / "kanban" / "logs" / f"{task_id}.log"
+
 
 def extract_task_id(payload: dict[str, Any]) -> str:
     for key in ("task_id", "id", "key"):
@@ -215,6 +256,13 @@ def _contains_board(payload: Any, board: str) -> bool:
         if item == board:
             return True
     return False
+
+
+def _workspace_from_claim_output(output: str) -> str:
+    for line in output.splitlines():
+        if line.startswith("Workspace:"):
+            return line.split(":", 1)[1].strip()
+    return ""
 
 
 def _title_from_slug(slug: str) -> str:

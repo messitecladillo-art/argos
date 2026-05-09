@@ -564,6 +564,11 @@ function kanbanTaskCanUnblock(link) {
   return kanbanColumnForStatus(link?.kanban_status) === "blocked";
 }
 
+function kanbanTaskCanDispatch(link) {
+  const value = String(link?.kanban_status || "").toLowerCase();
+  return ["pending_dispatch", "ready"].includes(value) && Boolean(link?.assignee_profile);
+}
+
 function kanbanTaskCanArchive(link) {
   return Boolean(link?.kanban_task_id);
 }
@@ -576,6 +581,9 @@ function ensureKanbanContextMenu() {
   kanbanContextMenu.innerHTML = `
     <button class="agent-context-menu__item" type="button" data-kanban-open>
       查看详情
+    </button>
+    <button class="agent-context-menu__item" type="button" data-kanban-dispatch>
+      派发
     </button>
     <button class="agent-context-menu__item" type="button" data-kanban-unblock>
       解除阻塞
@@ -599,19 +607,27 @@ function showKanbanTaskContextMenu(event, link) {
   event.stopPropagation();
   closeAgentContextMenu();
   const menu = ensureKanbanContextMenu();
+  const dispatchBtn = menu.querySelector("[data-kanban-dispatch]");
   const unblockBtn = menu.querySelector("[data-kanban-unblock]");
   const archiveBtn = menu.querySelector("[data-kanban-archive]");
   menu.dataset.taskId = link?.kanban_task_id || "";
   menu.dataset.localId = link?.local_id || "";
+  if (dispatchBtn) {
+    const canDispatch = kanbanTaskCanDispatch(link);
+    dispatchBtn.hidden = !canDispatch;
+    dispatchBtn.disabled = !canDispatch;
+  }
   if (unblockBtn) {
     const canUnblock = kanbanTaskCanUnblock(link);
+    unblockBtn.hidden = !canUnblock;
     unblockBtn.disabled = !canUnblock;
-    unblockBtn.textContent = canUnblock ? "解除阻塞" : "仅阻塞任务可解除";
+    unblockBtn.textContent = "解除阻塞";
   }
   if (archiveBtn) {
     const canArchive = kanbanTaskCanArchive(link);
+    archiveBtn.hidden = !canArchive;
     archiveBtn.disabled = !canArchive;
-    archiveBtn.textContent = canArchive ? "删除" : "无法删除";
+    archiveBtn.textContent = "删除";
   }
   positionAgentContextMenu(menu, event.clientX, event.clientY);
 }
@@ -640,6 +656,20 @@ async function handleKanbanContextMenuClick(event) {
   if (event.target.closest("[data-kanban-open]")) {
     closeKanbanContextMenu();
     openKanbanLinkTerminal(link);
+    return;
+  }
+  const dispatchBtn = event.target.closest("[data-kanban-dispatch]");
+  if (dispatchBtn && !dispatchBtn.disabled) {
+    dispatchBtn.disabled = true;
+    closeKanbanContextMenu();
+    setKanbanStatus(`正在派发：${taskId}…`);
+    try {
+      await postKanbanTaskAction(taskId, "/dispatch", { method: "POST" });
+      setKanbanStatus(`已派发：${taskId}`, "success");
+    } catch (error) {
+      setKanbanStatus(error.message || "派发失败", "error");
+      dispatchBtn.disabled = false;
+    }
     return;
   }
   const unblockBtn = event.target.closest("[data-kanban-unblock]");

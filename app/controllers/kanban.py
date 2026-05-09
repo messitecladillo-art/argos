@@ -136,6 +136,22 @@ def unblock_task(task_id: str):
         return jsonify({"ok": False, "error": str(exc)}), 500
 
 
+@bp.post("/tasks/<task_id>/dispatch")
+def dispatch_task(task_id: str):
+    try:
+        outcome = dispatch_worker.dispatch_task_now(task_id)
+        return jsonify(
+            {
+                "ok": True,
+                "result": outcome.get("result"),
+                "skipped": outcome.get("skipped", False),
+                "links": _visible_kanban_links(),
+            }
+        )
+    except KanbanError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
+
+
 @bp.delete("/tasks/<task_id>")
 def archive_task(task_id: str):
     started = time.perf_counter()

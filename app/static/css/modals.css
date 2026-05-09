@@ -591,6 +591,10 @@
   cursor: pointer;
 }
 
+.agent-context-menu__item[hidden] {
+  display: none !important;
+}
+
 .agent-context-menu__item:hover {
   background: rgba(217, 154, 33, 0.1);
 }

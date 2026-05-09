@@ -95,6 +95,46 @@ class KanbanDispatchWorker:
         finally:
             self._lock.release()
 
+    def dispatch_task_now(self, task_id: str) -> dict[str, Any]:
+        """Dispatch exactly one ready/todo/triage task by filtering the spawn step."""
+        task_id = (task_id or "").strip()
+        if not task_id:
+            raise KanbanError("task_id is required")
+        if not self._lock.acquire(blocking=False):
+            logger.info("[kanban-dispatch] skip task=%s reason=locked", task_id)
+            return {"skipped": True, "released_count": 0, "result": None}
+        try:
+            link = self.store.find_kanban_task_link(kanban_task_id=task_id)
+            if not link:
+                raise KanbanError("kanban task not found")
+            status = (link.get("kanban_status") or "").lower()
+            if status not in {"pending_dispatch", "ready"}:
+                raise KanbanError("only pending tasks can be dispatched")
+            if not link.get("assignee_profile"):
+                raise KanbanError("kanban task has no assignee")
+
+            if status == "pending_dispatch":
+                self.service.assign_task(task_id, link.get("assignee_profile") or "")
+                self.store.update_kanban_task_link(
+                    task_id,
+                    kanban_status="ready",
+                    metadata={**(link.get("metadata") or {}), "pending_dispatch": False},
+                )
+
+            self._sync_ready_links()
+            link = self.store.find_kanban_task_link(kanban_task_id=task_id) or link
+            status = (link.get("kanban_status") or "").lower()
+            if status != "ready":
+                raise KanbanError("only pending tasks can be dispatched")
+            if self._has_active_dispatch_lease(link, time.time()):
+                return {"skipped": True, "released_count": 0, "result": None}
+
+            result = self.service.dispatch_one(task_id, assignee=link.get("assignee_profile") or "")
+            self._mark_dispatched([link], result)
+            return {"skipped": False, "released_count": 0, "result": result}
+        finally:
+            self._lock.release()
+
     def _dispatchable_tasks(self) -> list[dict]:
         now = time.time()
         return [
