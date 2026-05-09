@@ -86,6 +86,7 @@ const kanbanTaskForm = document.getElementById("kanban-task-form");
 const kanbanTaskInput = document.getElementById("kanban-task-input");
 const kanbanTaskStatus = document.getElementById("kanban-task-status");
 const kanbanTaskList = document.getElementById("kanban-task-list");
+const kanbanPanelsToggle = document.getElementById("kanban-panels-toggle");
 const kanbanRefresh = document.getElementById("kanban-refresh");
 const kanbanAutoDispatch = document.getElementById("kanban-auto-dispatch");
 const kanbanDispatch = document.getElementById("kanban-dispatch");
@@ -198,6 +199,7 @@ const kanbanState = {
   autoDispatchIntervalMs: 5000,
   autoDispatchTimer: 0,
   autoDispatchRunning: false,
+  panelsExpanded: false,
   deletingTaskIds: new Set(),
   pendingCreations: [],
 };
@@ -379,6 +381,22 @@ function setKanbanStatus(message, kind = "muted") {
       kanbanStatusTimer = 0;
     }, kind === "error" ? 5200 : 3200);
   }
+}
+
+function renderKanbanPanelsToggle() {
+  if (!kanbanTaskList || !kanbanPanelsToggle) return;
+  kanbanTaskList.hidden = false;
+  kanbanTaskList.classList.toggle("is-collapsed", !kanbanState.panelsExpanded);
+  kanbanTaskList.setAttribute("aria-hidden", kanbanState.panelsExpanded ? "false" : "true");
+  kanbanPanelsToggle.classList.toggle("is-expanded", kanbanState.panelsExpanded);
+  kanbanPanelsToggle.setAttribute("aria-expanded", kanbanState.panelsExpanded ? "true" : "false");
+  kanbanPanelsToggle.setAttribute("aria-label", kanbanState.panelsExpanded ? "收起看板面板" : "展开看板面板");
+  kanbanPanelsToggle.title = kanbanState.panelsExpanded ? "收起看板面板" : "展开看板面板";
+}
+
+function toggleKanbanPanels() {
+  kanbanState.panelsExpanded = !kanbanState.panelsExpanded;
+  renderKanbanPanelsToggle();
 }
 
 function kanbanRoleLabel(role) {
@@ -3416,6 +3434,7 @@ if (openCreateAgent) {
 if (openHistoryDrawer) openHistoryDrawer.addEventListener("click", openHistoryPanel);
 if (kanbanTaskForm) kanbanTaskForm.addEventListener("submit", submitKanbanTask);
 if (kanbanTaskInput) kanbanTaskInput.addEventListener("keydown", handleKanbanTaskInputKeydown);
+if (kanbanPanelsToggle) kanbanPanelsToggle.addEventListener("click", toggleKanbanPanels);
 if (kanbanRefresh) kanbanRefresh.addEventListener("click", () => refreshKanbanTasks());
 if (kanbanAutoDispatch) kanbanAutoDispatch.addEventListener("click", toggleKanbanAutoDispatch);
 if (kanbanDispatch) kanbanDispatch.addEventListener("click", dispatchKanbanOnce);
@@ -3692,6 +3711,7 @@ hydrateChatEvents();
 hydrateNotificationStates(window.__BOOTSTRAP__?.agents || []);
 renderAgents(window.__BOOTSTRAP__?.agents || [], window.__BOOTSTRAP__?.stats || []);
 renderKanbanTasks();
+renderKanbanPanelsToggle();
 renderKanbanAutoDispatch();
 void loadModelConfigs({ silent: true });
 void loadKanbanSettings();

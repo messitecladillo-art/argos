@@ -126,7 +126,8 @@ body {
 .filter-chip,
 .confirm-modal__confirm,
 .acp-btn,
-.icon-button {
+.icon-button,
+.kanban-panels-toggle {
   background: rgba(255, 255, 255, 0.72);
   border-color: var(--panel-edge);
   color: var(--muted);
@@ -192,6 +193,8 @@ body {
 }
 
 .icon-button:hover,
+.kanban-panels-toggle:hover,
+.kanban-panels-toggle:focus-visible,
 .filter-chip:hover,
 .acp-btn:hover,
 .confirm-modal__confirm:hover {

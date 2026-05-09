@@ -561,11 +561,49 @@ label span,
 
 .kanban-submit__toolbar {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) max-content max-content max-content;
+  grid-template-columns: max-content minmax(180px, 1fr) max-content max-content max-content;
   min-height: 42px;
   align-items: center;
   gap: 12px;
   padding-top: 4px;
+}
+
+.kanban-panels-toggle {
+  grid-column: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border: 1px solid rgba(246, 207, 117, 0.3);
+  border-radius: 999px;
+  background: rgba(255, 248, 234, 0.03);
+  color: rgba(255, 248, 234, 0.78);
+  cursor: pointer;
+  transition: background 160ms ease, border-color 160ms ease, color 160ms ease, transform 160ms ease;
+}
+
+.kanban-panels-toggle svg {
+  width: 18px;
+  height: 18px;
+  fill: currentColor;
+  transition: transform 180ms ease;
+}
+
+.kanban-panels-toggle:hover,
+.kanban-panels-toggle:focus-visible {
+  background: rgba(246, 207, 117, 0.12);
+  border-color: rgba(246, 207, 117, 0.5);
+  color: var(--accent);
+}
+
+.kanban-panels-toggle:focus-visible {
+  outline: 3px solid rgba(246, 207, 117, 0.22);
+  outline-offset: 3px;
+}
+
+.kanban-panels-toggle.is-expanded svg {
+  transform: rotate(90deg);
 }
 
 .kanban-status {
@@ -596,15 +634,15 @@ label span,
 }
 
 #kanban-auto-dispatch {
-  grid-column: 2;
-}
-
-#kanban-dispatch {
   grid-column: 3;
 }
 
-.kanban-submit__toolbar .primary-button {
+#kanban-dispatch {
   grid-column: 4;
+}
+
+.kanban-submit__toolbar .primary-button {
+  grid-column: 5;
   margin-left: 0;
   align-self: center;
 }
@@ -673,6 +711,11 @@ label span,
   min-height: 0;
   overflow: auto;
   padding: 2px 4px 10px 0;
+}
+
+.kanban-task-list.is-collapsed {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .kanban-column {
