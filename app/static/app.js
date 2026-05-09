@@ -4,7 +4,6 @@ const terminalTitle = document.getElementById("terminal-title");
 const eventList = terminalShell;
 const agentList = document.getElementById("agent-list");
 const agentEmpty = document.getElementById("agent-empty");
-const eventEmpty = document.getElementById("event-empty");
 const sidebarStats = document.getElementById("sidebar-stats");
 const openCreateAgent = document.getElementById("open-create-agent");
 const openTeamSettings = document.getElementById("open-team-settings");
@@ -2786,10 +2785,6 @@ function hydrateChatEvents() {
   });
 }
 
-function applyEventFilter() {
-  if (eventEmpty) eventEmpty.hidden = Boolean(eventList?.dataset.selectedAgent);
-}
-
 function createTerminalInstance(agentId) {
   const term = new Terminal({
     cursorBlink: true,
@@ -3150,7 +3145,6 @@ function setSelectedAgent(agentId, agentName, force = false) {
     });
   }
   scheduleTerminalFit(0);
-  applyEventFilter();
 }
 
 function handleRuntimeEvent(event) {
@@ -3870,4 +3864,3 @@ if (eventList?.dataset.selectedAgent) {
     setSelectedAgent(eventList.dataset.selectedAgent, row?.dataset.agentName, true);
   }
 }
-applyEventFilter();
