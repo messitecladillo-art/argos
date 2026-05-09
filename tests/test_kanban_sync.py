@@ -35,6 +35,7 @@ class FakeKanban:
     def __init__(self, tasks):
         self.tasks = tasks
         self.created = []
+        self.completed = []
 
     def show_task(self, task_id):
         return self.tasks[task_id]
@@ -43,6 +44,16 @@ class FakeKanban:
         self.created.append({"title": title, **kwargs})
         self.tasks["kb_summary"] = {"task_id": "kb_summary", "status": "ready"}
         return {"task_id": "kb_summary", "status": "ready"}
+
+    def complete_task(self, task_id, **kwargs):
+        self.completed.append({"task_id": task_id, **kwargs})
+        self.tasks[task_id] = {
+            **self.tasks[task_id],
+            "status": "done",
+            "result": kwargs.get("result"),
+            "summary": kwargs.get("summary"),
+        }
+        return "completed"
 
 
 def test_worker_done_creates_summary_once(tmp_path):
@@ -154,3 +165,53 @@ def test_sync_allows_unblocked_terminal_task_to_return_to_ready():
     worker.sync_once()
 
     assert runtime_store.find_kanban_task_link(kanban_task_id="kb_parent")["kanban_status"] == "ready"
+
+
+def test_worker_crashed_with_summary_is_completed_as_fallback():
+    runtime_store = RuntimeStore()
+    runtime_store.register_agent(_agent("agent_lead", "lead", "leader"))
+    runtime_store.register_agent(_agent("agent_dev", "dev", "worker"))
+    user_task = runtime_store.create_user_task(leader_agent_id="agent_lead", content="Build")
+    delegation = runtime_store.create_delegation(
+        leader_agent_id="agent_lead",
+        assignments=[{"to_agent_id": "agent_dev", "content": "Implement"}],
+        summary_instruction="Summarize",
+        user_task_id=user_task["user_task_id"],
+    )
+    assignment = delegation["assignments"][0]
+    runtime_store.close_user_task_dispatch(user_task["user_task_id"])
+    runtime_store.upsert_kanban_task_link(
+        local_type="assignment",
+        local_id=assignment["assignment_id"],
+        kanban_task_id="kb_worker",
+        kanban_role="worker",
+        kanban_status="running",
+        assignee_profile="dev",
+        parent_local_id=user_task["user_task_id"],
+        metadata={"delegation_id": delegation["delegation_id"]},
+    )
+
+    service = FakeKanban(
+        {
+            "kb_worker": {
+                "task_id": "kb_worker",
+                "status": "crashed",
+                "summary": "implemented but forgot complete",
+            }
+        }
+    )
+    worker = KanbanSyncWorker(runtime_store=runtime_store, service=service, interval=1)
+
+    worker.sync_once()
+
+    assert service.completed == [
+        {
+            "task_id": "kb_worker",
+            "result": "implemented but forgot complete",
+            "summary": "implemented but forgot complete",
+            "metadata": {"auto_completed_after_crash": True},
+        }
+    ]
+    updated_assignment = runtime_store.snapshot()["delegations"][0]["assignments"][0]
+    assert updated_assignment["status"] == "completed"
+    assert updated_assignment["result"] == "implemented but forgot complete"

@@ -7,6 +7,7 @@ from typing import Any
 
 from ..config import KANBAN_POLL_INTERVAL
 from ..models.store import RuntimeStore, store as default_store
+from .acp.helpers import _clean_agent_reply
 from .kanban import KanbanError, KanbanService, extract_task_id, kanban_service, task_result, task_status
 from .kanban_workspace import workspace_for_agent
 
@@ -212,12 +213,48 @@ class KanbanSyncWorker:
                     },
                 )
         elif status in FAILED_STATUSES:
+            if status == "crashed" and self._auto_complete_crashed_worker(link, task):
+                return
             self.store.complete_assignment(
                 delegation_id,
                 assignment_id,
                 result=result or f"Kanban task status: {status}",
                 failed=True,
             )
+
+    def _auto_complete_crashed_worker(self, link: dict, task: dict) -> bool:
+        metadata = link.get("metadata") or {}
+        if metadata.get("auto_complete_attempted"):
+            return False
+        summary = _crashed_task_summary(task)
+        if not summary:
+            return False
+        task_id = link["kanban_task_id"]
+        try:
+            self.service.complete_task(
+                task_id,
+                result=summary,
+                summary=summary,
+                metadata={"auto_completed_after_crash": True},
+            )
+        except KanbanError as exc:
+            logger.warning("[kanban-sync] auto-complete crashed worker failed task=%s error=%s", task_id, exc)
+            self.store.update_kanban_task_link(
+                task_id,
+                metadata={**metadata, "auto_complete_attempted": True, "auto_complete_error": str(exc)},
+            )
+            return False
+        self.store.update_kanban_task_link(
+            task_id,
+            kanban_status="done",
+            last_result=summary,
+            last_summary=summary,
+            metadata={**metadata, "auto_completed_after_crash": True, "auto_complete_attempted": True},
+        )
+        delegation_id = metadata.get("delegation_id")
+        if delegation_id:
+            self.store.complete_assignment(delegation_id, link["local_id"], result=summary)
+        return True
 
     def _sync_summary_link(self, link: dict, status: str, result: str, task: dict) -> None:
         if status not in DONE_STATUSES:
@@ -387,6 +424,27 @@ def _task_was_unblocked(task: dict[str, Any]) -> bool:
     if isinstance(nested, dict):
         return _task_was_unblocked(nested)
     return False
+
+
+def _crashed_task_summary(task: dict[str, Any]) -> str:
+    summary = _task_summary(task) or task_result(task)
+    if summary:
+        return summary.strip()
+    runs = task.get("runs")
+    if isinstance(runs, list):
+        for run in reversed(runs):
+            if not isinstance(run, dict):
+                continue
+            for key in ("summary", "output", "stdout", "log"):
+                value = run.get(key)
+                if isinstance(value, str) and value.strip():
+                    cleaned = _clean_agent_reply(value)
+                    if cleaned:
+                        return cleaned[-2000:]
+    nested = task.get("task")
+    if isinstance(nested, dict):
+        return _crashed_task_summary(nested)
+    return ""
 
 
 def _agent_for_link(runtime_store: RuntimeStore, link: dict) -> str:
