@@ -368,6 +368,7 @@ def _complete_parent_dispatch_task(
         "user_task_id": user_task_id,
         "delegation_id": delegation_id,
         "round": round_number,
+        "dispatched_round": round_number,
         "continuation": continuation,
         "dispatched_count": len(dispatched),
         "assignments": [
@@ -402,11 +403,13 @@ def _complete_parent_dispatch_task(
             {
                 "dispatch_phase_completed": True,
                 "delegation_id": delegation_id,
-                "round": round_number,
+                "dispatched_round": round_number,
                 "continuation": continuation,
                 "worker_task_ids": [item.get("kanban_task_id") for item in dispatched],
             }
         )
+        if not (continuation and parent_link.get("kanban_role") in {"review", "summary"}):
+            metadata_patch["round"] = round_number
         store.update_kanban_task_link(
             parent_task_id,
             kanban_status="done",

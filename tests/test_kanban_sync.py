@@ -171,6 +171,80 @@ def test_review_done_keeps_user_task_waiting_when_next_round_exists():
     assert snapshot["delegations"][0]["status"] == "reviewed"
 
 
+def test_second_round_worker_done_creates_second_round_review():
+    runtime_store = RuntimeStore()
+    runtime_store.register_agent(_agent("agent_lead", "lead", "leader"))
+    runtime_store.register_agent(_agent("agent_dev", "dev", "worker"))
+    user_task = runtime_store.create_user_task(leader_agent_id="agent_lead", content="Build")
+    round_one = runtime_store.create_delegation(
+        leader_agent_id="agent_lead",
+        assignments=[{"to_agent_id": "agent_dev", "content": "Round 1"}],
+        summary_instruction="Review",
+        user_task_id=user_task["user_task_id"],
+    )
+    runtime_store.close_user_task_dispatch(user_task["user_task_id"])
+    runtime_store.complete_assignment(
+        round_one["delegation_id"],
+        round_one["assignments"][0]["assignment_id"],
+        result="needs more",
+    )
+    runtime_store.mark_user_task_reviewing(user_task["user_task_id"], review_task_id="kb_review_1")
+    runtime_store.upsert_kanban_task_link(
+        local_type="user_task",
+        local_id=f"{user_task['user_task_id']}:round:1",
+        kanban_task_id="kb_review_1",
+        kanban_role="review",
+        kanban_status="running",
+        assignee_profile="lead",
+        parent_local_id=user_task["user_task_id"],
+        metadata={"user_task_id": user_task["user_task_id"], "round": 1, "dispatched_round": 2},
+    )
+    runtime_store.advance_user_task_round(user_task["user_task_id"])
+    round_two = runtime_store.create_delegation(
+        leader_agent_id="agent_lead",
+        assignments=[{"to_agent_id": "agent_dev", "content": "Round 2"}],
+        summary_instruction="Review",
+        user_task_id=user_task["user_task_id"],
+        round_number=2,
+    )
+    round_two_assignment = round_two["assignments"][0]
+    runtime_store.upsert_kanban_task_link(
+        local_type="assignment",
+        local_id=round_two_assignment["assignment_id"],
+        kanban_task_id="kb_worker_2",
+        kanban_role="worker",
+        kanban_status="running",
+        assignee_profile="dev",
+        parent_local_id=user_task["user_task_id"],
+        metadata={"delegation_id": round_two["delegation_id"], "user_task_id": user_task["user_task_id"], "round": 2},
+    )
+    service = FakeKanban(
+        {
+            "kb_review_1": {"task_id": "kb_review_1", "status": "done", "result": "continue"},
+            "kb_review_2": {"task_id": "kb_review_2", "status": "ready"},
+            "kb_worker_2": {"task_id": "kb_worker_2", "status": "done", "result": "round two done"},
+        }
+    )
+    service.created.append({"title": "existing review placeholder"})
+    worker = KanbanSyncWorker(runtime_store=runtime_store, service=service, interval=1)
+
+    worker.sync_once()
+    worker.sync_once()
+
+    snapshot = runtime_store.snapshot()
+    assert snapshot["user_tasks"][0]["status"] == "reviewing"
+    assert snapshot["user_tasks"][0]["current_round"] == 2
+    assert snapshot["delegations"][0]["status"] == "reviewed"
+    assert snapshot["delegations"][1]["status"] == "reviewing"
+    assert len(service.created) == 2
+    assert service.created[1]["idempotency_key"] == f"review:{user_task['user_task_id']}:round:2"
+    assert runtime_store.find_kanban_task_link(
+        local_type="user_task",
+        local_id=f"{user_task['user_task_id']}:round:2",
+        kanban_role="review",
+    )["kanban_task_id"] == "kb_review_2"
+
+
 def test_sync_does_not_roll_terminal_task_back_to_ready():
     runtime_store = RuntimeStore()
     runtime_store.upsert_kanban_task_link(
