@@ -61,7 +61,7 @@ class KanbanSyncWorker:
         links = list(self.store.snapshot().get("kanban_task_links") or [])
         for link in links:
             self._sync_link(link)
-        self._create_ready_summary_tasks()
+        self._create_ready_review_tasks()
         self._sync_agent_kanban_state()
 
     def sync_once_async(self) -> bool:
@@ -179,8 +179,8 @@ class KanbanSyncWorker:
             )
         if link.get("kanban_role") == "worker":
             self._sync_worker_link(link, status, result, task)
-        elif link.get("kanban_role") == "summary":
-            self._sync_summary_link(link, status, result, task)
+        elif link.get("kanban_role") in {"review", "summary"}:
+            self._sync_review_link(link, status, result, task)
 
     def _sync_worker_link(self, link: dict, status: str, result: str, task: dict) -> None:
         metadata = link.get("metadata") or {}
@@ -256,16 +256,40 @@ class KanbanSyncWorker:
             self.store.complete_assignment(delegation_id, link["local_id"], result=summary)
         return True
 
-    def _sync_summary_link(self, link: dict, status: str, result: str, task: dict) -> None:
-        if status not in DONE_STATUSES:
-            return
+    def _sync_review_link(self, link: dict, status: str, result: str, task: dict) -> None:
         user_task_id = (link.get("metadata") or {}).get("user_task_id") or link.get("parent_local_id")
         if not user_task_id:
+            return
+        if status in FAILED_STATUSES:
+            reason = result or _task_summary(task) or f"Kanban task status: {status}"
+            self.store.mark_user_task_blocked(user_task_id, reason)
+            self.store.update_kanban_task_link(
+                link["kanban_task_id"],
+                last_result=reason,
+                metadata={**(link.get("metadata") or {}), "completed_projected": True},
+            )
+            return
+        if status not in DONE_STATUSES:
             return
         current = self.store.find_kanban_task_link(kanban_task_id=link["kanban_task_id"])
         if current and current.get("metadata", {}).get("completed_projected"):
             return
-        self.store.mark_user_task_completed(user_task_id)
+        metadata = link.get("metadata") or {}
+        round_number = int(metadata.get("round") or 1)
+        has_next_round = any(
+            delegation.get("user_task_id") == user_task_id
+            and int(delegation.get("round") or 1) == round_number + 1
+            for delegation in self.store.snapshot().get("delegations", [])
+        )
+        for delegation in self.store.snapshot().get("delegations", []):
+            if (
+                delegation.get("user_task_id") == user_task_id
+                and int(delegation.get("round") or 1) == round_number
+                and delegation.get("status") != "reviewed"
+            ):
+                self.store.mark_delegation_reviewed(delegation["delegation_id"])
+        if not has_next_round:
+            self.store.mark_user_task_completed(user_task_id)
         self.store.update_kanban_task_link(
             link["kanban_task_id"],
             last_result=result or _task_summary(task),
@@ -276,25 +300,32 @@ class KanbanSyncWorker:
             _agent_for_link(self.store, link),
             user_task_id,
             {
-                "text": result or _task_summary(task) or "Leader 汇总任务已完成",
+                "text": result or _task_summary(task) or "Leader review 任务已完成",
                 "kanban_task_id": link["kanban_task_id"],
             },
         )
 
-    def _create_ready_summary_tasks(self) -> None:
+    def _create_ready_review_tasks(self) -> None:
         snapshot = self.store.snapshot()
         for user_task in snapshot["user_tasks"]:
-            if user_task.get("status") not in {"ready_to_summarize", "waiting_workers"}:
+            if user_task.get("status") not in {"ready_to_review", "ready_to_summarize", "waiting_workers"}:
                 continue
             user_task_id = user_task["user_task_id"]
-            existing = self.store.find_kanban_task_link(
-                local_type="user_task",
-                local_id=user_task_id,
-                kanban_role="summary",
+            current_round = int(user_task.get("current_round") or 1)
+            existing = next(
+                (
+                    link
+                    for link in snapshot.get("kanban_task_links", [])
+                    if link.get("local_type") == "user_task"
+                    and link.get("kanban_role") in {"review", "summary"}
+                    and (link.get("metadata") or {}).get("user_task_id") == user_task_id
+                    and int((link.get("metadata") or {}).get("round") or 1) == current_round
+                ),
+                None,
             )
             if existing:
                 continue
-            assignments = _assignments_for_user_task(snapshot, user_task_id)
+            assignments = _assignments_for_user_task_round(snapshot, user_task_id, current_round)
             if not assignments or not all(item["status"] in {"completed", "failed"} for item in assignments):
                 continue
             leader = self.store.find_agent(user_task["leader_agent_id"]) or {}
@@ -304,36 +335,44 @@ class KanbanSyncWorker:
                 if link.get("kanban_role") == "worker"
                 and link.get("local_id") in {item["assignment_id"] for item in assignments}
             ]
-            task_title = f"汇总用户任务：{user_task_id}"
-            summary_task = self.service.create_task(
+            task_title = f"Review 用户任务 {user_task_id} 第 {current_round} 轮"
+            review_task = self.service.create_task(
                 task_title,
-                body=_format_summary_body(user_task, assignments),
+                body=_format_review_body(user_task, assignments, current_round),
                 assignee=leader["profile_name"],
                 parent=[link["kanban_task_id"] for link in worker_links],
                 workspace=workspace_for_agent(leader),
-                idempotency_key=f"summary:{user_task_id}",
+                idempotency_key=f"review:{user_task_id}:round:{current_round}",
             )
-            summary_task_id = extract_task_id(summary_task)
-            self.store.mark_user_task_summarizing(user_task_id)
+            review_task_id = extract_task_id(review_task)
+            self.store.mark_user_task_reviewing(user_task_id, review_task_id=review_task_id)
             self.store.upsert_kanban_task_link(
                 local_type="user_task",
-                local_id=user_task_id,
-                kanban_task_id=summary_task_id,
-                kanban_role="summary",
-                kanban_status=task_status(summary_task) or "ready",
+                local_id=f"{user_task_id}:round:{current_round}",
+                kanban_task_id=review_task_id,
+                kanban_role="review",
+                kanban_status=task_status(review_task) or "ready",
                 assignee_profile=leader["profile_name"],
                 parent_local_id=user_task_id,
-                metadata={"user_task_id": user_task_id, "task_title": task_title},
+                metadata={
+                    "user_task_id": user_task_id,
+                    "round": current_round,
+                    "kind": "review",
+                    "task_title": task_title,
+                },
             )
             self.store.push_event(
                 "kanban.summary.created",
                 user_task["leader_agent_id"],
                 user_task_id,
                 {
-                    "text": f"已创建 leader 汇总 Kanban 任务 {summary_task_id}",
-                    "kanban_task_id": summary_task_id,
+                    "text": f"已创建 leader review Kanban 任务 {review_task_id}",
+                    "kanban_task_id": review_task_id,
                 },
             )
+
+    def _create_ready_summary_tasks(self) -> None:
+        self._create_ready_review_tasks()
 
     def _sync_agent_kanban_state(self) -> None:
         snapshot = self.store.snapshot()
@@ -464,7 +503,18 @@ def _assignments_for_user_task(snapshot: dict, user_task_id: str) -> list[dict]:
     return result
 
 
-def _format_summary_body(user_task: dict, assignments: list[dict]) -> str:
+def _assignments_for_user_task_round(snapshot: dict, user_task_id: str, round_number: int) -> list[dict]:
+    result = []
+    for delegation in snapshot["delegations"]:
+        if delegation.get("user_task_id") != user_task_id:
+            continue
+        if int(delegation.get("round") or 1) != round_number:
+            continue
+        result.extend(delegation.get("assignments") or [])
+    return result
+
+
+def _format_review_body(user_task: dict, assignments: list[dict], round_number: int) -> str:
     parts = []
     for index, assignment in enumerate(assignments, start=1):
         parts.append(
@@ -480,16 +530,30 @@ def _format_summary_body(user_task: dict, assignments: list[dict]) -> str:
             )
         )
     worker_results = "\n\n".join(parts) or "(没有 worker 结果)"
+    max_rounds = int(user_task.get("max_rounds") or 5)
     return (
-        "[KANBAN_LEADER_SUMMARY_TASK]\n"
+        "[KANBAN_LEADER_REVIEW_TASK]\n"
         f"user_task_id: {user_task['user_task_id']}\n\n"
-        "同一个用户任务拆分出的所有 worker Kanban 子任务已经结束。请只基于以下 worker 结果，面向用户输出最终总结。\n"
-        "不要重复派发同一批任务；如有缺失或失败，请在总结中明确说明。\n\n"
+        f"round: {round_number}\n"
+        f"max_rounds: {max_rounds}\n\n"
+        "这是长时任务 checkpoint。请基于用户原始目标和本轮 worker 结果判断下一步。\n"
+        "你必须选择一种行动：\n"
+        "1. 如果目标已经完成：调用 kanban_complete(summary=最终答复)。\n"
+        "2. 如果目标未完成且 round < max_rounds：调用 mcp_agent_bus_create_kanban_worker_tasks 创建下一轮 worker 子任务。\n"
+        "   - 必须传 user_task_id。\n"
+        "   - 必须传 parent_task_id 为当前 review Kanban task id。\n"
+        "   - 子任务必须是下一轮需要的新工作，不要重复当前轮已经完成的同一批任务。\n"
+        "   - 创建后调用 kanban_complete(summary=本轮复盘和下一轮计划)。\n"
+        "3. 如果无法继续或已达到 max_rounds：调用 kanban_complete(summary=当前最佳结果和未完成/阻塞原因)，不要继续派发。\n\n"
         "用户原始任务：\n"
         f"{user_task.get('content') or ''}\n\n"
-        "Worker 结果：\n"
+        "本轮 Worker 结果：\n"
         f"{worker_results}"
     )
+
+
+def _format_summary_body(user_task: dict, assignments: list[dict]) -> str:
+    return _format_review_body(user_task, assignments, int(user_task.get("current_round") or 1))
 
 
 sync_worker = KanbanSyncWorker()

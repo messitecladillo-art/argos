@@ -63,7 +63,7 @@ def test_messages_create_kanban_parent_without_acp(monkeypatch, tmp_path):
     assert "mcp_agent_bus_create_kanban_worker_tasks" in created["body"]
     assert "严禁使用内置 kanban_create" in created["body"]
     assert "创建 worker 子任务后，必须立即调用 kanban_complete" in created["body"]
-    assert "调度阶段已完成" in created["body"]
+    assert "本轮调度或复盘完成" in created["body"]
     link = runtime_store.find_kanban_task_link(
         local_type="user_task",
         local_id="ut_0001",

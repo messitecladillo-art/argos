@@ -6,6 +6,7 @@ hermes CLI subprocess) call `list_agents` to discover available workers.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import threading
 
@@ -112,6 +113,13 @@ def create_kanban_worker_tasks(
         raise ValueError("from_agent_id must be a leader agent")
     resolved_user_task_id = _resolve_user_task_id(sender_agent_id, user_task_id)
     parent_task_id = (parent_task_id or "").strip()
+    user_task = store.find_user_task(resolved_user_task_id) if resolved_user_task_id else None
+    current_round = int((user_task or {}).get("current_round") or 1)
+    max_rounds = int((user_task or {}).get("max_rounds") or 5)
+    continuation = bool(user_task and (user_task.get("status") in {"ready_to_review", "reviewing"}))
+    target_round = current_round + 1 if continuation else current_round
+    if user_task and target_round > max_rounds:
+        raise ValueError("max rounds reached for this user task")
     if not parent_task_id and resolved_user_task_id:
         parent_link = store.find_kanban_task_link(
             local_type="user_task",
@@ -121,13 +129,14 @@ def create_kanban_worker_tasks(
         if parent_link:
             parent_task_id = parent_link["kanban_task_id"]
     logger.warning(
-        "[agent-mcp] create_kanban_worker_tasks from=%s user_task=%s parent=%s assignments=%s",
+        "[agent-mcp] create_kanban_worker_tasks from=%s user_task=%s parent=%s round=%s assignments=%s",
         sender_agent_id,
         resolved_user_task_id,
         parent_task_id,
+        target_round,
         len(assignments),
     )
-    existing_dispatch = _existing_worker_dispatch(resolved_user_task_id, parent_task_id)
+    existing_dispatch = _existing_worker_dispatch(resolved_user_task_id, parent_task_id, target_round)
     if existing_dispatch:
         return {
             "ok": True,
@@ -137,6 +146,9 @@ def create_kanban_worker_tasks(
             "from_agent_id": sender_agent_id,
             "user_task_id": resolved_user_task_id,
             "parent_task_id": parent_task_id,
+            "round": target_round,
+            "max_rounds": max_rounds,
+            "continuation": continuation,
             "dispatched_count": len(existing_dispatch["assignments"]),
             "pending_count": len(existing_dispatch["assignments"]),
             "parent_completed": False,
@@ -152,11 +164,14 @@ def create_kanban_worker_tasks(
             raise ValueError(f"target agent not found: {worker_id}")
         if (worker.get("readiness_status") or "ready") != "ready":
             raise ValueError(f"target agent is not ready: {worker_id}")
+    if resolved_user_task_id and continuation:
+        store.advance_user_task_round(resolved_user_task_id)
     delegation = store.create_delegation(
         leader_agent_id=sender_agent_id,
         assignments=assignments,
         summary_instruction=summary_instruction,
         user_task_id=resolved_user_task_id,
+        round_number=target_round,
     )
     dispatched = []
     for assignment in delegation["assignments"]:
@@ -178,6 +193,7 @@ def create_kanban_worker_tasks(
                 user_task_id=resolved_user_task_id,
                 parent_task_id=parent_task_id,
                 assignment=assignment,
+                round_number=target_round,
             ),
         )
         kanban_task_id = extract_task_id(kanban_task)
@@ -193,6 +209,10 @@ def create_kanban_worker_tasks(
                 "delegation_id": delegation["delegation_id"],
                 "task_title": task_title,
                 "parent_task_id": parent_task_id,
+                "user_task_id": resolved_user_task_id,
+                "round": target_round,
+                "kind": "worker",
+                "continuation": continuation,
             },
         )
         store.attach_assignment_message(
@@ -217,6 +237,8 @@ def create_kanban_worker_tasks(
         user_task_id=resolved_user_task_id,
         delegation_id=delegation["delegation_id"],
         dispatched=dispatched,
+        round_number=target_round,
+        continuation=continuation,
     )
     dispatch_worker.trigger_async()
     return {
@@ -227,11 +249,14 @@ def create_kanban_worker_tasks(
         "from_agent_id": sender_agent_id,
         "user_task_id": resolved_user_task_id,
         "parent_task_id": parent_task_id,
+        "round": target_round,
+        "max_rounds": max_rounds,
+        "continuation": continuation,
         "dispatched_count": len(dispatched),
         "pending_count": len(dispatched),
         "parent_completed": parent_completed,
         "assignments": dispatched,
-        "note": "已创建 Kanban worker 子任务；gateway 会执行，平台会在全部完成后创建 leader 汇总任务。",
+        "note": "已创建 Kanban worker 子任务；gateway 会执行，平台会在全部完成后创建 leader review 任务。",
     }
 
 
@@ -243,7 +268,7 @@ def _resolve_user_task_id(leader_agent_id: str, user_task_id: str) -> str | None
         item
         for item in snapshot["user_tasks"]
         if item.get("leader_agent_id") == leader_agent_id
-        and item.get("status") in {"running", "waiting_workers"}
+        and item.get("status") in {"running", "waiting_workers", "ready_to_review", "reviewing"}
     ]
     if not active:
         return None
@@ -251,7 +276,11 @@ def _resolve_user_task_id(leader_agent_id: str, user_task_id: str) -> str | None
     return active[0]["user_task_id"]
 
 
-def _existing_worker_dispatch(user_task_id: str | None, parent_task_id: str) -> dict | None:
+def _existing_worker_dispatch(
+    user_task_id: str | None,
+    parent_task_id: str,
+    round_number: int | None,
+) -> dict | None:
     if not user_task_id and not parent_task_id:
         return None
     links = [
@@ -259,6 +288,7 @@ def _existing_worker_dispatch(user_task_id: str | None, parent_task_id: str) -> 
         for link in store.snapshot().get("kanban_task_links", [])
         if link.get("kanban_role") == "worker"
         and (link.get("kanban_status") or "").lower() != "archived"
+        and (round_number is None or int((link.get("metadata") or {}).get("round") or 1) == round_number)
         and (
             (user_task_id and link.get("parent_local_id") == user_task_id)
             or (parent_task_id and (link.get("metadata") or {}).get("parent_task_id") == parent_task_id)
@@ -308,11 +338,13 @@ def _worker_idempotency_key(
     user_task_id: str | None,
     parent_task_id: str,
     assignment: dict,
+    round_number: int | None = None,
 ) -> str:
+    content_hash = hashlib.sha1((assignment.get("content") or "").encode("utf-8")).hexdigest()[:12]
     if user_task_id:
-        return f"user-task-worker:{user_task_id}:{assignment['worker_agent_id']}"
+        return f"user-task-worker:{user_task_id}:round:{round_number or 1}:{assignment['worker_agent_id']}:{content_hash}"
     if parent_task_id:
-        return f"parent-worker:{parent_task_id}:{assignment['worker_agent_id']}"
+        return f"parent-worker:{parent_task_id}:{assignment['worker_agent_id']}:{content_hash}"
     return f"assignment:{assignment['assignment_id']}"
 
 
@@ -322,14 +354,21 @@ def _complete_parent_dispatch_task(
     user_task_id: str | None,
     delegation_id: str,
     dispatched: list[dict],
+    round_number: int,
+    continuation: bool,
 ) -> bool:
     if not parent_task_id:
         return False
-    summary = f"已创建 {len(dispatched)} 个 worker Kanban 子任务，等待全部完成后平台会创建 leader 汇总任务。"
+    if continuation:
+        summary = f"第 {round_number - 1} 轮 review 已完成，已创建第 {round_number} 轮 {len(dispatched)} 个 worker 子任务。"
+    else:
+        summary = f"已创建第 {round_number} 轮 {len(dispatched)} 个 worker Kanban 子任务，等待全部完成后平台会创建 leader review 任务。"
     metadata = {
         "dispatch_phase_completed": True,
         "user_task_id": user_task_id,
         "delegation_id": delegation_id,
+        "round": round_number,
+        "continuation": continuation,
         "dispatched_count": len(dispatched),
         "assignments": [
             {
@@ -363,6 +402,8 @@ def _complete_parent_dispatch_task(
             {
                 "dispatch_phase_completed": True,
                 "delegation_id": delegation_id,
+                "round": round_number,
+                "continuation": continuation,
                 "worker_task_ids": [item.get("kanban_task_id") for item in dispatched],
             }
         )

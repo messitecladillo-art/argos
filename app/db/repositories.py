@@ -17,11 +17,13 @@ from .models import (
     SettingRecord,
     UserTaskRecord,
 )
+from .migrations import ensure_runtime_schema
 from .session import Base, SessionLocal, engine
 
 
 def init_database() -> None:
     Base.metadata.create_all(bind=engine)
+    ensure_runtime_schema(engine)
 
 
 def _json_dumps(value: Any) -> str:
@@ -119,6 +121,11 @@ class SQLitePersistence:
             record.status = task.get("status") or "running"
             record.dispatch_closed = bool(task.get("dispatch_closed"))
             record.summary_requested_at = task.get("summary_requested_at")
+            record.current_round = int(task.get("current_round") or 1)
+            record.max_rounds = int(task.get("max_rounds") or 5)
+            record.review_task_ids_json = _json_dumps(task.get("review_task_ids") or [])
+            record.blocked_at = task.get("blocked_at")
+            record.block_reason = task.get("block_reason") or ""
             record.completed_at = task.get("completed_at")
             record.created_at = task.get("created_at")
             record.updated_at = task.get("updated_at")
@@ -138,8 +145,11 @@ class SQLitePersistence:
             record.leader_agent_id = delegation["leader_agent_id"]
             record.summary_instruction = delegation.get("summary_instruction") or ""
             record.status = delegation.get("status") or "waiting_workers"
+            record.round_number = int(delegation.get("round") or 1)
+            record.review_task_id = delegation.get("review_task_id")
             record.completed_at = delegation.get("completed_at")
             record.summarized_at = delegation.get("summarized_at")
+            record.reviewed_at = delegation.get("reviewed_at")
             record.created_at = delegation.get("created_at")
             record.updated_at = delegation.get("updated_at")
             record.deleted_at = delegation.get("deleted_at")
@@ -342,7 +352,11 @@ class SQLitePersistence:
 
     def _task_to_dict(self, record: UserTaskRecord) -> dict:
         status = record.status
-        if status in {"running", "waiting_workers", "ready_to_summarize", "summarizing"}:
+        if status == "ready_to_summarize":
+            status = "ready_to_review"
+        elif status == "summarizing":
+            status = "reviewing"
+        elif status in {"running", "waiting_workers"}:
             status = "interrupted"
         return {
             "user_task_id": record.user_task_id,
@@ -352,6 +366,11 @@ class SQLitePersistence:
             "status": status,
             "dispatch_closed": bool(record.dispatch_closed),
             "summary_requested_at": record.summary_requested_at,
+            "current_round": record.current_round or 1,
+            "max_rounds": record.max_rounds or 5,
+            "review_task_ids": _json_loads(record.review_task_ids_json, []),
+            "blocked_at": record.blocked_at,
+            "block_reason": record.block_reason or "",
             "completed_at": record.completed_at,
             "created_at": record.created_at or "",
         }
@@ -362,7 +381,13 @@ class SQLitePersistence:
         assignments_by_delegation: dict[str, list[dict]],
     ) -> dict:
         status = record.status
-        if status in {"waiting_workers", "ready_to_summarize", "summarizing"}:
+        if status == "ready_to_summarize":
+            status = "ready_to_review"
+        elif status == "summarizing":
+            status = "reviewing"
+        elif status == "summarized":
+            status = "reviewed"
+        elif status == "waiting_workers":
             status = "interrupted"
         return {
             "delegation_id": record.delegation_id,
@@ -371,9 +396,12 @@ class SQLitePersistence:
             "summary_instruction": record.summary_instruction or "",
             "assignments": assignments_by_delegation.get(record.delegation_id, []),
             "status": status,
+            "round": record.round_number or 1,
+            "review_task_id": record.review_task_id,
             "created_at": record.created_at or "",
             "completed_at": record.completed_at,
             "summarized_at": record.summarized_at,
+            "reviewed_at": record.reviewed_at,
         }
 
     def _assignment_to_dict(self, record: AssignmentRecord) -> dict:

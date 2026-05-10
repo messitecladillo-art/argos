@@ -151,17 +151,29 @@ class RuntimeStoreBase:
             raise ValueError("user task not found")
         return task
 
-    def _user_task_ready_to_summarize_locked(self, task: dict) -> bool:
-        if not task.get("dispatch_closed") or task.get("summary_requested_at"):
+    def _current_round_delegations_locked(self, task: dict) -> list[dict]:
+        current_round = int(task.get("current_round") or 1)
+        delegations = []
+        for delegation_id in task.get("delegation_ids") or []:
+            delegation = self._find_delegation_locked(delegation_id)
+            if int(delegation.get("round") or 1) == current_round:
+                delegations.append(delegation)
+        return delegations
+
+    def _current_round_ready_to_review_locked(self, task: dict) -> bool:
+        if not task.get("dispatch_closed"):
             return False
-        delegation_ids = task.get("delegation_ids") or []
-        if not delegation_ids:
+        delegations = self._current_round_delegations_locked(task)
+        if not delegations:
             return False
         return all(
-            self._find_delegation_locked(delegation_id)["status"]
-            in {"ready_to_summarize", "summarizing", "summarized"}
-            for delegation_id in delegation_ids
+            delegation["status"]
+            in {"ready_to_review", "reviewing", "reviewed", "ready_to_summarize", "summarizing", "summarized"}
+            for delegation in delegations
         )
+
+    def _user_task_ready_to_summarize_locked(self, task: dict) -> bool:
+        return self._current_round_ready_to_review_locked(task)
 
     def _find_assignment_locked(self, delegation_id: str, assignment_id: str) -> dict:
         delegation = self._find_delegation_locked(delegation_id)

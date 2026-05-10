@@ -57,6 +57,11 @@ class UserTaskRecord(TimestampMixin, Base):
     status: Mapped[str] = mapped_column(String(60), index=True)
     dispatch_closed: Mapped[bool] = mapped_column(Boolean, default=False)
     summary_requested_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    current_round: Mapped[int] = mapped_column(Integer, default=1)
+    max_rounds: Mapped[int] = mapped_column(Integer, default=5)
+    review_task_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    blocked_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    block_reason: Mapped[str] = mapped_column(Text, default="")
     completed_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
 
@@ -69,8 +74,11 @@ class DelegationRecord(TimestampMixin, Base):
     leader_agent_id: Mapped[str] = mapped_column(String(120), index=True)
     summary_instruction: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(60), index=True)
+    round_number: Mapped[int] = mapped_column("round", Integer, default=1)
+    review_task_id: Mapped[str | None] = mapped_column(String(120), nullable=True)
     completed_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
     summarized_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    reviewed_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
 
 
 class AssignmentRecord(TimestampMixin, Base):
