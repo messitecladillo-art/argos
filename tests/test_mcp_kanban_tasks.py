@@ -5,13 +5,19 @@ from app.models.store import RuntimeStore
 from app.services import mcp_installer
 
 
-def _agent(agent_id: str, profile_name: str, role: str, workspace_path: str | None = None) -> dict:
+def _agent(
+    agent_id: str,
+    profile_name: str,
+    role: str,
+    workspace_path: str | None = None,
+    description: str = "",
+) -> dict:
     return {
         "agent_id": agent_id,
         "profile_name": profile_name,
         "name": profile_name.title(),
         "role": role,
-        "description": "",
+        "description": description,
         "is_leader": role == "leader",
         "workspace_path": workspace_path or f"/tmp/{profile_name}",
         "status": "idle",
@@ -120,6 +126,44 @@ def test_kanban_worker_task_creation_is_idempotent_for_user_task(monkeypatch, tm
     assert second["idempotent"] is True
     assert second["assignments"][0]["kanban_task_id"] == first["assignments"][0]["kanban_task_id"]
     assert len(calls) == 1
+
+
+def test_worker_kanban_body_includes_role_output_requirements(monkeypatch, tmp_path):
+    runtime_store = RuntimeStore()
+    runtime_store.register_agent(_agent("agent_lead", "lead", "leader"))
+    runtime_store.register_agent(
+        _agent(
+            "agent_product",
+            "product_profile",
+            "worker",
+            str(tmp_path / "product_profile"),
+            description="负责整理需求。输出：PRD、功能清单、验收标准。",
+        )
+    )
+    task = runtime_store.create_user_task(leader_agent_id="agent_lead", content="Plan product")
+    monkeypatch.setattr(mcp_server, "store", runtime_store)
+
+    calls = []
+    monkeypatch.setattr(
+        mcp_server.kanban_service,
+        "create_task",
+        lambda title, **kwargs: calls.append({"title": title, **kwargs})
+        or {"task_id": "kb_worker_1", "status": "ready"},
+        raising=False,
+    )
+    monkeypatch.setattr(mcp_server.kanban_service, "complete_task", lambda *args, **kwargs: "completed", raising=False)
+
+    mcp_server.create_kanban_worker_tasks(
+        assignments=[{"to_agent_id": "agent_product", "content": "整理登录功能需求"}],
+        from_agent_id="agent_lead",
+        user_task_id=task["user_task_id"],
+    )
+
+    body = calls[0]["body"]
+    assert "你的 Agent 角色描述" in body
+    assert "输出：PRD、功能清单、验收标准" in body
+    assert "必须按其中列出的产物类型生成对应内容" in body
+    assert "kanban_complete(summary=...) 中列出文件路径" in body
 
 
 def test_review_can_dispatch_next_round_for_same_user_task(monkeypatch, tmp_path):
