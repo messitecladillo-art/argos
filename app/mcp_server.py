@@ -184,6 +184,7 @@ def create_kanban_worker_tasks(
                 delegation=delegation,
                 user_task_id=resolved_user_task_id,
                 leader_agent_id=sender_agent_id,
+                worker=worker,
             ),
             assignee=worker["profile_name"],
             parent=parent_task_id or None,
@@ -456,7 +457,19 @@ def _format_worker_kanban_body(
     delegation: dict,
     user_task_id: str | None,
     leader_agent_id: str,
+    worker: dict,
 ) -> str:
+    worker_description = (worker.get("description") or "").strip()
+    role_guidance = ""
+    if worker_description:
+        role_guidance = (
+            "\n\n你的 Agent 角色描述：\n"
+            f"{worker_description}\n\n"
+            "产物要求：\n"
+            "- 如果角色描述或子任务中包含 `输出：` / `输出:`，必须按其中列出的产物类型生成对应内容。\n"
+            "- 如果需要落地为文档，请优先在当前工作区创建 Markdown 文件，并在 kanban_complete(summary=...) 中列出文件路径。\n"
+            "- 如果无法生成某个产物，必须在 kanban_complete(summary=...) 中说明原因。"
+        )
     return (
         "[KANBAN_WORKER_TASK]\n"
         f"delegation_id: {delegation['delegation_id']}\n"
@@ -466,6 +479,7 @@ def _format_worker_kanban_body(
         "请直接执行以下 worker 子任务。完成时必须先调用 kanban_complete(summary=...)，用 Kanban 任务结果说明结论、关键依据、是否完成/阻塞；不要只输出自然语言就结束。\n\n"
         "子任务内容：\n"
         f"{assignment['content']}"
+        f"{role_guidance}"
     )
 
 
