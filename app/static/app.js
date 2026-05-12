@@ -2660,6 +2660,40 @@ async function runTeamRuntimeAction(action, button) {
   }
 }
 
+async function initializeTeamAgents(button) {
+  const confirmed = await confirmAction({
+    title: "确认初始化 Agents",
+    message: "将关闭所有 Agent，清空每个 workspace，并删除历史消息、任务、委派记录和 Kanban 关联；Agent 人设、模型配置、技能、MCP 配置会保留。确认继续？",
+    confirmText: "确认初始化",
+    confirmVariant: "danger",
+  });
+  if (!confirmed) return;
+  const buttons = transferModal ? Array.from(transferModal.querySelectorAll("[data-team-runtime-action], #team-initialize-agents")) : [];
+  buttons.forEach((item) => { item.disabled = true; });
+  setTeamRuntimeStatus("正在初始化所有 Agent...", "muted");
+  try {
+    const response = await fetch("/api/agents/initialize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clear_workspace: true, clear_history: true }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) {
+      const kanbanError = Array.isArray(data.kanban?.errors) ? data.kanban.errors[0] : "";
+      throw new Error(data.error || kanbanError || "初始化 Agents 失败");
+    }
+    const total = Array.isArray(data.results) ? data.results.length : 0;
+    const failed = Number(data.failed || 0);
+    setTeamRuntimeStatus(`已初始化 ${total - failed}/${total} 个 Agent。`, "success");
+    if (Array.isArray(data.agents)) renderAgents(data.agents, null);
+  } catch (error) {
+    setTeamRuntimeStatus(error.message || "初始化 Agents 失败", "error");
+  } finally {
+    buttons.forEach((item) => { item.disabled = false; });
+    if (button) button.blur();
+  }
+}
+
 async function exportTeamArchive() {
   const profileNames = Array.from(transferAgentList?.querySelectorAll("input:checked") || []).map((input) => input.value);
   if (!profileNames.length) {
@@ -3456,6 +3490,8 @@ if (transferModal) {
     if (tab) switchTransferTab(tab.dataset.transferTab || "export");
     const runtimeBtn = event.target.closest("[data-team-runtime-action]");
     if (runtimeBtn) void runTeamRuntimeAction(runtimeBtn.dataset.teamRuntimeAction || "", runtimeBtn);
+    const initBtn = event.target.closest("#team-initialize-agents");
+    if (initBtn) void initializeTeamAgents(initBtn);
   });
 }
 

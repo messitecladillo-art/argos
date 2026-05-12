@@ -13,6 +13,7 @@ from ..models.store import store
 from ..services import registry
 from ..services import agents as agents_service
 from ..services import soul as soul_service
+from ..services import team_initialization
 from ..services import skill_installer
 from ..services.acp import pool as session_pool
 from ..services.profiles import ProfileError, check_hermes_ready, list_hermes_profiles
@@ -140,6 +141,17 @@ def bulk_agent_runtime():
             "agents": store.snapshot().get("agents", []),
         }
     )
+
+
+@bp.post("/agents/initialize")
+def initialize_team_agents():
+    payload = request.get_json(silent=True) or {}
+    result = team_initialization.initialize_agents(
+        store,
+        clear_workspace=bool(payload.get("clear_workspace", True)),
+        clear_history=bool(payload.get("clear_history", True)),
+    )
+    return jsonify(result)
 
 
 def _ensure_agent_workspace(agent: dict) -> Path:

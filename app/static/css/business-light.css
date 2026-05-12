@@ -404,6 +404,11 @@ textarea:focus {
   color: var(--danger);
 }
 
+.team-runtime-panel__init {
+  border-color: rgba(220, 38, 38, 0.3);
+  color: var(--danger);
+}
+
 .modal__form textarea,
 .transfer-preview,
 .transfer-agent-list,
