@@ -43,3 +43,24 @@ def test_cli_error_becomes_kanban_error(monkeypatch):
 
     with pytest.raises(KanbanError, match="bad board"):
         KanbanService().list_tasks()
+
+
+def test_reset_board_deletes_and_recreates_non_default_board(monkeypatch):
+    calls = []
+
+    def fake_run(args, **kwargs):
+        calls.append(args)
+        return subprocess.CompletedProcess(args, 0, stdout="ok", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    result = KanbanService(board="team-board").reset_board()
+
+    assert result["board"] == "team-board"
+    assert calls[0] == ["hermes", "kanban", "boards", "rm", "team-board", "--delete"]
+    assert calls[1] == ["hermes", "kanban", "boards", "create", "team-board", "--name", "Team Board"]
+
+
+def test_reset_board_rejects_default_board():
+    with pytest.raises(KanbanError, match="default board cannot be reset"):
+        KanbanService(board="default").reset_board()

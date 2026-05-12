@@ -2663,7 +2663,7 @@ async function runTeamRuntimeAction(action, button) {
 async function initializeTeamAgents(button) {
   const confirmed = await confirmAction({
     title: "确认初始化 Agents",
-    message: "将关闭所有 Agent，清空每个 workspace，并删除历史消息、任务、委派记录和 Kanban 关联；Agent 人设、模型配置、技能、MCP 配置会保留。确认继续？",
+    message: "将关闭所有 Agent，重建 Kanban board，清空每个 workspace 和历史任务；Agent 人设、模型配置、技能、MCP 配置会保留。完成后会自动启动就绪 Agent。确认继续？",
     confirmText: "确认初始化",
     confirmVariant: "danger",
   });
@@ -2684,7 +2684,12 @@ async function initializeTeamAgents(button) {
     }
     const total = Array.isArray(data.results) ? data.results.length : 0;
     const failed = Number(data.failed || 0);
-    setTeamRuntimeStatus(`已初始化 ${total - failed}/${total} 个 Agent。`, "success");
+    const startup = data.startup || {};
+    const started = Number(startup.started || 0);
+    const skipped = Number(startup.skipped || 0);
+    const startFailed = Number(startup.failed || 0);
+    const suffix = skipped || startFailed ? `，启动 ${started} 个，跳过 ${skipped} 个，失败 ${startFailed} 个` : `，已启动 ${started} 个`;
+    setTeamRuntimeStatus(`已初始化 ${total - failed}/${total} 个 Agent${suffix}。`, "success");
     if (Array.isArray(data.agents)) renderAgents(data.agents, null);
   } catch (error) {
     setTeamRuntimeStatus(error.message || "初始化 Agents 失败", "error");

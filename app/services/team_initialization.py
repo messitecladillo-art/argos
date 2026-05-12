@@ -46,31 +46,35 @@ def initialize_agents(
     clear_history: bool = True,
 ) -> dict:
     agents = store.snapshot().get("agents", [])
-    archived_kanban = _archive_kanban_tasks(store) if clear_history else {"ok": True, "archived_count": 0, "errors": []}
-    if not archived_kanban.get("ok", False):
+    stop_results = _stop_agents(agents)
+    reset_kanban = _reset_kanban_board() if clear_history else {"ok": True, "reset": False, "errors": []}
+    if not reset_kanban.get("ok", False):
         return {
             "ok": False,
-            "results": [],
+            "results": stop_results,
             "failed": 0,
-            "kanban": archived_kanban,
+            "kanban": reset_kanban,
+            "startup": {"started": 0, "failed": 0, "skipped": 0, "results": []},
             "cleared": {"agents": len(agents), "workspaces": 0, "history_tables": []},
             "agents": store.snapshot().get("agents", []),
         }
     results = []
     for agent in agents:
-        results.append(_initialize_one_agent(agent, clear_workspace=clear_workspace))
+        results.append(_clear_one_agent_workspace(agent, clear_workspace=clear_workspace))
 
     if clear_history:
         _clear_runtime_history(store)
 
     _reset_agent_runtime_state(store)
+    startup = _start_ready_agents(store)
     store.push_agents_changed()
     failed = [item for item in results if not item.get("ok")]
     return {
-        "ok": not failed and archived_kanban.get("ok", False),
+        "ok": not failed and reset_kanban.get("ok", False) and startup.get("failed", 0) == 0,
         "results": results,
         "failed": len(failed),
-        "kanban": archived_kanban,
+        "kanban": reset_kanban,
+        "startup": startup,
         "cleared": {
             "agents": len(agents),
             "workspaces": sum(1 for item in results if item.get("workspace_cleared")),
@@ -80,53 +84,32 @@ def initialize_agents(
 }
 
 
-def _archive_kanban_tasks(store: RuntimeStore) -> dict:
-    task_ids = _linked_kanban_task_ids(store)
+def _reset_kanban_board() -> dict:
     try:
-        for task in kanban_service.list_tasks(archived=False):
-            task_id = _task_id(task)
-            if task_id:
-                task_ids.append(task_id)
+        result = kanban_service.reset_board()
     except KanbanError as exc:
-        return {"ok": False, "archived_count": 0, "errors": [str(exc)]}
-
-    ids = list(dict.fromkeys(task_ids))
-    if not ids:
-        return {"ok": True, "archived_count": 0, "errors": []}
-    try:
-        kanban_service.archive_tasks(ids)
-    except KanbanError as exc:
-        return {"ok": False, "archived_count": 0, "errors": [str(exc)]}
-    return {"ok": True, "archived_count": len(ids), "errors": []}
+        return {"ok": False, "reset": False, "errors": [str(exc)]}
+    return {"ok": True, "reset": True, "errors": [], **result}
 
 
-def _linked_kanban_task_ids(store: RuntimeStore) -> list[str]:
-    return [
-        link.get("kanban_task_id") or ""
-        for link in store.snapshot().get("kanban_task_links", [])
-        if link.get("kanban_task_id")
-    ]
+def _stop_agents(agents: list[dict]) -> list[dict]:
+    results = []
+    for agent in agents:
+        agent_id = agent.get("agent_id") or ""
+        name = agent.get("name") or agent_id
+        try:
+            session_pool.stop(agent_id)
+        except Exception as exc:  # noqa: BLE001
+            results.append({"agent_id": agent_id, "name": name, "ok": False, "error": f"stop failed: {exc}"})
+        else:
+            results.append({"agent_id": agent_id, "name": name, "ok": True})
+    return results
 
 
-def _task_id(task: dict) -> str:
-    for key in ("task_id", "id"):
-        value = task.get(key)
-        if value:
-            return str(value)
-    return ""
-
-
-def _initialize_one_agent(agent: dict, *, clear_workspace: bool) -> dict:
+def _clear_one_agent_workspace(agent: dict, *, clear_workspace: bool) -> dict:
     agent_id = agent.get("agent_id") or ""
     name = agent.get("name") or agent_id
     result = {"agent_id": agent_id, "name": name, "ok": True, "workspace_cleared": False}
-    try:
-        session_pool.stop(agent_id)
-    except Exception as exc:  # noqa: BLE001
-        result["ok"] = False
-        result["error"] = f"stop failed: {exc}"
-        return result
-
     if not clear_workspace:
         return result
 
@@ -138,6 +121,30 @@ def _initialize_one_agent(agent: dict, *, clear_workspace: bool) -> dict:
     else:
         result["workspace_cleared"] = True
     return result
+
+
+def _start_ready_agents(store: RuntimeStore) -> dict:
+    results = []
+    for agent in store.snapshot().get("agents", []):
+        agent_id = agent.get("agent_id") or ""
+        name = agent.get("name") or agent_id
+        if (agent.get("readiness_status") or "ready") != "ready":
+            results.append({"agent_id": agent_id, "name": name, "ok": False, "skipped": True, "error": "agent is not ready"})
+            continue
+        try:
+            ok = session_pool.start(agent)
+        except Exception as exc:  # noqa: BLE001
+            results.append({"agent_id": agent_id, "name": name, "ok": False, "error": f"start failed: {exc}"})
+        else:
+            results.append({"agent_id": agent_id, "name": name, "ok": bool(ok), "error": "agent runtime start failed" if not ok else ""})
+    failed = [item for item in results if not item.get("ok") and not item.get("skipped")]
+    skipped = [item for item in results if item.get("skipped")]
+    return {
+        "started": len(results) - len(failed) - len(skipped),
+        "failed": len(failed),
+        "skipped": len(skipped),
+        "results": results,
+    }
 
 
 def _clear_agent_workspace(agent: dict) -> None:

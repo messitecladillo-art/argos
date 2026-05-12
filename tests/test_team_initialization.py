@@ -41,6 +41,13 @@ def _agent(agent_id: str, profile_name: str, workspace: Path) -> dict:
     }
 
 
+def _unready_agent(agent_id: str, profile_name: str, workspace: Path) -> dict:
+    agent = _agent(agent_id, profile_name, workspace)
+    agent["readiness_status"] = "missing_soul"
+    agent["readiness_message"] = "missing"
+    return agent
+
+
 def _configure_env(monkeypatch, tmp_path):
     workspace_root = tmp_path / "agent_team"
     db_path = tmp_path / "initialize.db"
@@ -75,13 +82,10 @@ def test_initialize_agents_clears_workspace_history_and_resets_runtime(monkeypat
     )
     stopped = []
     monkeypatch.setattr(team_initialization.session_pool, "stop", lambda agent_id: stopped.append(agent_id))
-    archived = []
-    monkeypatch.setattr(
-        team_initialization.kanban_service,
-        "list_tasks",
-        lambda archived=False: [{"task_id": "kb_cli"}],
-    )
-    monkeypatch.setattr(team_initialization.kanban_service, "archive_tasks", lambda task_ids: archived.extend(task_ids) or "ok")
+    started = []
+    monkeypatch.setattr(team_initialization.session_pool, "start", lambda agent: started.append(agent["agent_id"]) or True)
+    resets = []
+    monkeypatch.setattr(team_initialization.kanban_service, "reset_board", lambda: resets.append(True) or {"board": "team-board"})
     with session_local.begin() as session:
         session.add(
             AgentRecord(
@@ -110,9 +114,11 @@ def test_initialize_agents_clears_workspace_history_and_resets_runtime(monkeypat
     result = team_initialization.initialize_agents(runtime_store)
 
     assert result["ok"] is True
-    assert result["kanban"]["archived_count"] == 2
-    assert archived == ["task-1", "kb_cli"]
+    assert result["kanban"]["reset"] is True
+    assert resets == [True]
     assert stopped == ["agent_dev"]
+    assert started == ["agent_dev"]
+    assert result["startup"]["started"] == 1
     assert workspace.exists()
     assert list(workspace.iterdir()) == []
     snapshot = runtime_store.snapshot()
@@ -145,8 +151,8 @@ def test_initialize_agents_endpoint(monkeypatch, tmp_path):
     test_store.register_agent(_agent("agent_dev", "dev", workspace))
     monkeypatch.setattr(agents_controller, "store", test_store)
     monkeypatch.setattr(team_initialization.session_pool, "stop", lambda agent_id: None)
-    monkeypatch.setattr(team_initialization.kanban_service, "list_tasks", lambda archived=False: [])
-    monkeypatch.setattr(team_initialization.kanban_service, "archive_tasks", lambda task_ids: "ok")
+    monkeypatch.setattr(team_initialization.session_pool, "start", lambda agent: True)
+    monkeypatch.setattr(team_initialization.kanban_service, "reset_board", lambda: {"board": "team-board"})
 
     app = Flask(__name__)
     app.register_blueprint(agents_controller.bp)
@@ -157,9 +163,10 @@ def test_initialize_agents_endpoint(monkeypatch, tmp_path):
     assert data["ok"] is True
     assert data["cleared"]["agents"] == 1
     assert data["agents"][0]["runtime_status"] == "stopped"
+    assert data["startup"]["started"] == 1
 
 
-def test_initialize_agents_aborts_when_kanban_archive_fails(monkeypatch, tmp_path):
+def test_initialize_agents_aborts_when_kanban_reset_fails(monkeypatch, tmp_path):
     workspace_root, session_local = _configure_env(monkeypatch, tmp_path)
     workspace = workspace_root / "dev"
     workspace.mkdir(parents=True)
@@ -167,7 +174,8 @@ def test_initialize_agents_aborts_when_kanban_archive_fails(monkeypatch, tmp_pat
     runtime_store = RuntimeStore()
     runtime_store.register_agent(_agent("agent_dev", "dev", workspace))
     runtime_store.record_message("hello", "agent_dev")
-    monkeypatch.setattr(team_initialization.kanban_service, "list_tasks", lambda archived=False: (_ for _ in ()).throw(KanbanError("kanban failed")))
+    monkeypatch.setattr(team_initialization.session_pool, "stop", lambda agent_id: None)
+    monkeypatch.setattr(team_initialization.kanban_service, "reset_board", lambda: (_ for _ in ()).throw(KanbanError("kanban failed")))
 
     result = team_initialization.initialize_agents(runtime_store)
 
@@ -175,3 +183,25 @@ def test_initialize_agents_aborts_when_kanban_archive_fails(monkeypatch, tmp_pat
     assert result["kanban"]["errors"] == ["kanban failed"]
     assert (workspace / "old.txt").exists()
     assert runtime_store.snapshot()["messages"]
+
+
+def test_initialize_agents_skips_unready_agent_start(monkeypatch, tmp_path):
+    workspace_root, _session_local = _configure_env(monkeypatch, tmp_path)
+    ready_workspace = workspace_root / "ready"
+    unready_workspace = workspace_root / "unready"
+    ready_workspace.mkdir(parents=True)
+    unready_workspace.mkdir(parents=True)
+    runtime_store = RuntimeStore()
+    runtime_store.register_agent(_agent("agent_ready", "ready", ready_workspace))
+    runtime_store.register_agent(_unready_agent("agent_unready", "unready", unready_workspace))
+    monkeypatch.setattr(team_initialization.session_pool, "stop", lambda agent_id: None)
+    started = []
+    monkeypatch.setattr(team_initialization.session_pool, "start", lambda agent: started.append(agent["agent_id"]) or True)
+    monkeypatch.setattr(team_initialization.kanban_service, "reset_board", lambda: {"board": "team-board"})
+
+    result = team_initialization.initialize_agents(runtime_store)
+
+    assert result["ok"] is True
+    assert started == ["agent_ready"]
+    assert result["startup"]["started"] == 1
+    assert result["startup"]["skipped"] == 1

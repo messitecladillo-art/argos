@@ -35,6 +35,24 @@ class KanbanService:
                 scoped=False,
             )
 
+    def reset_board(self) -> dict[str, Any]:
+        if self.board == "default":
+            raise KanbanError("default board cannot be reset")
+        try:
+            delete_output = self._run(
+                ["boards", "rm", self.board, "--delete"],
+                scoped=False,
+            )
+        except KanbanError as exc:
+            if "does not exist" not in str(exc):
+                raise
+            delete_output = ""
+        create_output = self._run(
+            ["boards", "create", self.board, "--name", _title_from_slug(self.board)],
+            scoped=False,
+        )
+        return {"board": self.board, "deleted": bool(delete_output), "output": create_output}
+
     def create_task(
         self,
         title: str,
