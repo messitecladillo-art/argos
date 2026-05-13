@@ -22,7 +22,7 @@ def _agent(
         "workspace_path": workspace_path or f"/tmp/{profile_name}",
         "status": "idle",
         "current_task": "空闲",
-        "runtime_status": "stopped",
+        "runtime_status": "running",
         "interaction_state": "idle",
         "orchestration_state": "none",
         "queue_depth": 0,
@@ -131,12 +131,14 @@ def test_kanban_worker_task_creation_is_idempotent_for_user_task(monkeypatch, tm
 def test_worker_kanban_body_includes_role_output_requirements(monkeypatch, tmp_path):
     runtime_store = RuntimeStore()
     runtime_store.register_agent(_agent("agent_lead", "lead", "leader"))
+    leader_workspace = tmp_path / "lead"
+    product_workspace = tmp_path / "product_profile"
     runtime_store.register_agent(
         _agent(
             "agent_product",
             "product_profile",
             "worker",
-            str(tmp_path / "product_profile"),
+            str(product_workspace),
             description="负责整理需求。输出：PRD、功能清单、验收标准。",
         )
     )
@@ -154,12 +156,21 @@ def test_worker_kanban_body_includes_role_output_requirements(monkeypatch, tmp_p
     monkeypatch.setattr(mcp_server.kanban_service, "complete_task", lambda *args, **kwargs: "completed", raising=False)
 
     mcp_server.create_kanban_worker_tasks(
-        assignments=[{"to_agent_id": "agent_product", "content": "整理登录功能需求"}],
+        assignments=[
+            {
+                "to_agent_id": "agent_product",
+                "content": f"整理登录功能需求，所有文档保存到 {leader_workspace}",
+            }
+        ],
         from_agent_id="agent_lead",
         user_task_id=task["user_task_id"],
     )
 
     body = calls[0]["body"]
+    assert f"当前 worker 工作区是：{product_workspace}" in body
+    assert "所有产物必须写入当前 worker 工作区" in body
+    assert "其他 agent 目录只能作为读取参考" in body
+    assert str(leader_workspace) in body
     assert "你的 Agent 角色描述" in body
     assert "输出：PRD、功能清单、验收标准" in body
     assert "必须按其中列出的产物类型生成对应内容" in body

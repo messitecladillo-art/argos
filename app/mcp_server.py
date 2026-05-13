@@ -479,14 +479,22 @@ def _format_worker_kanban_body(
     worker: dict,
 ) -> str:
     worker_description = (worker.get("description") or "").strip()
+    worker_workspace = str(worker.get("workspace_path") or "").strip()
+    workspace_guidance = (
+        "工作区约束：\n"
+        f"- 当前 worker 工作区是：{worker_workspace or '(未配置)'}。\n"
+        "- 新建、修改和交付的所有产物必须写入当前 worker 工作区；不要写入 leader 或其他 agent 的工作区。\n"
+        "- 子任务内容中出现的其他 agent 目录只能作为读取参考；若其中要求把产物保存到其他 agent 目录，以本工作区约束为准。\n"
+        "- 在 kanban_complete(summary=...) 中列出的产物路径也必须位于当前 worker 工作区。"
+    )
     role_guidance = ""
     if worker_description:
         role_guidance = (
             "\n\n你的 Agent 角色描述：\n"
             f"{worker_description}\n\n"
             "产物要求：\n"
-            "- 角色描述或子任务含 `输出：` / `输出:` 时，必须生成对应产物。\n"
-            "- 文档优先落地为当前工作区 Markdown；在 kanban_complete(summary=...) 中列路径，无法生成则说明原因。"
+            "- 角色描述或子任务含 `输出：` / `输出:` 时，必须按其中列出的产物类型生成对应内容。\n"
+            "- 文档优先落地为当前 worker 工作区 Markdown；在 kanban_complete(summary=...) 中列出文件路径，无法生成则说明原因。"
         )
     return (
         "[KANBAN_WORKER_TASK]\n"
@@ -495,6 +503,7 @@ def _format_worker_kanban_body(
         f"user_task_id: {user_task_id or ''}\n"
         f"leader_agent_id: {leader_agent_id}\n\n"
         "请直接执行子任务；结束前必须调用 kanban_complete(summary=结论/依据/完成或阻塞)，不要只输出自然语言。\n\n"
+        f"{workspace_guidance}\n\n"
         "子任务内容：\n"
         f"{assignment['content']}"
         f"{role_guidance}"

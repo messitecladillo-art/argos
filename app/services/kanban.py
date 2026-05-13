@@ -283,7 +283,12 @@ def _contains_board(payload: Any, board: str) -> bool:
 def _workspace_from_claim_output(output: str) -> str:
     for line in output.splitlines():
         if line.startswith("Workspace:"):
-            return line.split(":", 1)[1].strip()
+            value = line.split(":", 1)[1].strip()
+            if " @ " in value:
+                return value.rsplit(" @ ", 1)[1].strip()
+            if value.startswith("dir:"):
+                return value.split(":", 1)[1].strip()
+            return value
     return ""
 
 

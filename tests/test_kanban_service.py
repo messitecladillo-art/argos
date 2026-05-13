@@ -5,7 +5,7 @@ import subprocess
 
 import pytest
 
-from app.services.kanban import KanbanError, KanbanService, extract_task_id
+from app.services.kanban import KanbanError, KanbanService, _workspace_from_claim_output, extract_task_id
 
 
 def test_create_task_uses_board_json_and_idempotency(monkeypatch):
@@ -64,3 +64,15 @@ def test_reset_board_deletes_and_recreates_non_default_board(monkeypatch):
 def test_reset_board_rejects_default_board():
     with pytest.raises(KanbanError, match="default board cannot be reset"):
         KanbanService(board="default").reset_board()
+
+
+@pytest.mark.parametrize(
+    ("output", "expected"),
+    [
+        ("Workspace: /tmp/dev\n", "/tmp/dev"),
+        ("Workspace: dir:/tmp/dev\n", "/tmp/dev"),
+        ("Workspace: dir @ /tmp/dev\n", "/tmp/dev"),
+    ],
+)
+def test_workspace_from_claim_output_normalizes_workspace_formats(output, expected):
+    assert _workspace_from_claim_output(output) == expected
