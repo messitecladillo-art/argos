@@ -457,6 +457,25 @@ textarea:focus {
   box-shadow: none;
 }
 
+.confirm-modal__checklist-section {
+  background: rgba(248, 251, 255, 0.88);
+  border-color: var(--panel-edge);
+}
+
+.confirm-modal__checklist-section--danger {
+  background: linear-gradient(135deg, rgba(254, 242, 242, 0.92), rgba(255, 255, 255, 0.88));
+  border-color: rgba(220, 38, 38, 0.22);
+}
+
+.confirm-modal__checklist-section--safe {
+  background: linear-gradient(135deg, rgba(240, 253, 244, 0.92), rgba(255, 255, 255, 0.88));
+  border-color: rgba(22, 163, 74, 0.22);
+}
+
+.confirm-modal__checklist-note {
+  color: var(--muted);
+}
+
 .modal__form textarea,
 .transfer-preview,
 .transfer-agent-list,

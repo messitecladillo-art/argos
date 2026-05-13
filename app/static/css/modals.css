@@ -636,6 +636,63 @@
   line-height: 1.6;
 }
 
+.confirm-modal__checklist {
+  display: grid;
+  gap: 12px;
+}
+
+.confirm-modal__checklist-section {
+  padding: 14px 16px;
+  border: 1px solid rgba(246, 207, 117, 0.18);
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.confirm-modal__checklist-section h3 {
+  margin: 0 0 10px;
+  font-size: 0.9rem;
+  font-weight: 800;
+}
+
+.confirm-modal__checklist-section ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.confirm-modal__checklist-section li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.confirm-modal__checklist-section li::before {
+  content: "";
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: 0 0 auto;
+}
+
+.confirm-modal__checklist-section--danger h3,
+.confirm-modal__checklist-section--danger li {
+  color: var(--danger);
+}
+
+.confirm-modal__checklist-section--safe h3,
+.confirm-modal__checklist-section--safe li {
+  color: var(--success);
+}
+
+.confirm-modal__checklist-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
 .confirm-modal__confirm {
   appearance: none;
   min-height: 38px;
