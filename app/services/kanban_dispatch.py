@@ -6,6 +6,7 @@ import time
 from typing import Any
 
 from ..models.store import RuntimeStore, store as default_store
+from .agent_status import agent_dispatch_block_reason, find_agent_by_profile, is_agent_dispatchable
 from .kanban import KanbanError, KanbanService, kanban_service
 from .kanban_sync import sync_worker
 from .settings import settings_service
@@ -109,6 +110,7 @@ class KanbanDispatchWorker:
                 raise KanbanError("only pending tasks can be dispatched")
             if not link.get("assignee_profile"):
                 raise KanbanError("kanban task has no assignee")
+            self._ensure_link_dispatchable(link)
 
             if status == "pending_dispatch":
                 self.service.assign_task(task_id, link.get("assignee_profile") or "")
@@ -141,7 +143,35 @@ class KanbanDispatchWorker:
             and bool(link.get("assignee_profile"))
             and bool(link.get("kanban_task_id"))
             and not self._has_active_dispatch_lease(link, now)
+            and self._link_is_dispatchable(link)
         ]
+
+    def _link_agent(self, link: dict) -> dict | None:
+        metadata = link.get("metadata") or {}
+        agent_id = metadata.get("assignee_agent_id") or ""
+        if agent_id:
+            agent = self.store.find_agent(agent_id)
+            if agent:
+                return agent
+        return find_agent_by_profile(self.store.snapshot().get("agents", []) or [], link.get("assignee_profile") or "")
+
+    def _link_is_dispatchable(self, link: dict) -> bool:
+        agent = self._link_agent(link)
+        if is_agent_dispatchable(agent):
+            return True
+        logger.warning(
+            "[kanban-dispatch] skip task=%s assignee=%s reason=%s",
+            link.get("kanban_task_id"),
+            link.get("assignee_profile"),
+            agent_dispatch_block_reason(agent),
+        )
+        return False
+
+    def _ensure_link_dispatchable(self, link: dict) -> None:
+        agent = self._link_agent(link)
+        reason = agent_dispatch_block_reason(agent)
+        if reason:
+            raise KanbanError(f"assignee is not dispatchable: {reason}")
 
     def _has_active_dispatch_lease(self, link: dict, now: float) -> bool:
         metadata = link.get("metadata") or {}
@@ -248,6 +278,8 @@ class KanbanDispatchWorker:
             assignee = link.get("assignee_profile") or ""
             task_id = link.get("kanban_task_id") or ""
             if not assignee or not task_id:
+                continue
+            if not self._link_is_dispatchable(link):
                 continue
             try:
                 self.service.assign_task(task_id, assignee)

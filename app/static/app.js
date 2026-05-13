@@ -270,6 +270,12 @@ function isLeaderAgent(agent) {
   return agent?.is_leader || agent?.role === "leader";
 }
 
+function isAgentDispatchable(agent) {
+  return Boolean(agent)
+    && (agent.readiness_status || "ready") === "ready"
+    && (agent.runtime_status || "stopped") === "running";
+}
+
 function getNotificationSnapshot(agent) {
   const displayStatus = getAgentDisplayStatus(agent).className;
   const interactionState = agent.interaction_state || "idle";
@@ -510,7 +516,10 @@ function kanbanColumnForStatus(status) {
 }
 
 function hasDispatchableKanbanTask() {
-  return (kanbanState.links || []).some((link) => String(link.kanban_status || "").toLowerCase() === "pending_dispatch");
+  return (kanbanState.links || []).some((link) => {
+    const status = String(link.kanban_status || "").toLowerCase();
+    return status === "pending_dispatch" && isAgentDispatchable(agentForKanbanLink(link));
+  });
 }
 
 function agentForKanbanLink(link) {
@@ -530,7 +539,7 @@ function openKanbanLinkTerminal(link) {
     setKanbanStatus(`${agent.name || agent.agent_id} 尚未就绪，无法打开终端。`, "error");
     return;
   }
-  setSelectedAgent(agent.agent_id, agent.name, true);
+  setSelectedAgent(agent.agent_id, agent.name, true, { allowStopped: true });
   openTerminalPanel();
   showKanbanTaskLogInTerminal(link, agent);
 }
@@ -661,7 +670,9 @@ function kanbanTaskCanUnblock(link) {
 
 function kanbanTaskCanDispatch(link) {
   const value = String(link?.kanban_status || "").toLowerCase();
-  return ["pending_dispatch", "ready"].includes(value) && Boolean(link?.assignee_profile);
+  return ["pending_dispatch", "ready"].includes(value)
+    && Boolean(link?.assignee_profile)
+    && isAgentDispatchable(agentForKanbanLink(link));
 }
 
 function kanbanTaskCanArchive(link) {
@@ -671,9 +682,9 @@ function kanbanTaskCanArchive(link) {
 function renderKanbanAssigneeOptions(agents = window.__BOOTSTRAP__?.agents || []) {
   if (!kanbanAssigneeTrigger) return;
   const previous = selectedKanbanAssigneeId;
-  const readyAgents = (Array.isArray(agents) ? agents : []).filter((agent) => (agent.readiness_status || "ready") === "ready");
-  const leaders = readyAgents.filter((agent) => agent.role === "leader");
-  const workers = readyAgents.filter((agent) => agent.role === "worker");
+  const dispatchableAgents = (Array.isArray(agents) ? agents : []).filter(isAgentDispatchable);
+  const leaders = dispatchableAgents.filter((agent) => agent.role === "leader");
+  const workers = dispatchableAgents.filter((agent) => agent.role === "worker");
   const options = [...leaders, ...workers];
   const fallback = leaders[0]?.agent_id || options[0]?.agent_id || "";
   selectedKanbanAssigneeId = options.some((agent) => agent.agent_id === previous) ? previous : fallback;
@@ -2544,14 +2555,14 @@ function renderAgents(agents, stats) {
     current_task: agent.current_task,
   })));
   closeAgentContextMenu();
-  const readyAgents = agents.filter((agent) => (agent.readiness_status || "ready") === "ready");
+  const dispatchableAgents = agents.filter(isAgentDispatchable);
   const currentSelected = eventList?.dataset.selectedAgent || "";
-  const selected = readyAgents.some((agent) => agent.agent_id === currentSelected)
+  const selected = dispatchableAgents.some((agent) => agent.agent_id === currentSelected)
     ? currentSelected
-    : (readyAgents[0] && readyAgents[0].agent_id) || "";
+    : (dispatchableAgents[0] && dispatchableAgents[0].agent_id) || "";
   agentList.innerHTML = "";
   agents.forEach((agent) => {
-    if ((agent.readiness_status || "ready") === "ready") {
+    if (isAgentDispatchable(agent)) {
       ensureTerminalSession(agent.agent_id);
     }
     agentList.appendChild(buildAgentRow(agent, agent.agent_id === selected));
@@ -2566,8 +2577,8 @@ function renderAgents(agents, stats) {
       .map((s) => `<article class="mini-stat"><span>${escapeHtml(s.label)}</span><strong>${escapeHtml(s.value)}</strong></article>`)
       .join("");
   }
-  if (readyAgents.length > 0) {
-    const active = readyAgents.find((a) => a.agent_id === selected) || readyAgents[0];
+  if (dispatchableAgents.length > 0) {
+    const active = dispatchableAgents.find((a) => a.agent_id === selected) || dispatchableAgents[0];
     setSelectedAgent(active.agent_id);
   } else {
     if (eventList) eventList.dataset.selectedAgent = "";
@@ -3149,12 +3160,13 @@ function debounceTerminalFit(delay = 120) {
   resizeTimer = window.setTimeout(fitTerminal, delay);
 }
 
-function setSelectedAgent(agentId, agentName, force = false) {
+function setSelectedAgent(agentId, agentName, force = false, options = {}) {
   if (!agentList || !eventList) return;
   if (activeKanbanTerminalTaskId && !force) return;
   if (force) clearKanbanTerminalLog();
   const row = agentList.querySelector(`.agent-row[data-agent-id="${CSS.escape(agentId)}"]`);
-  if (row?.dataset.readinessStatus && row.dataset.readinessStatus !== "ready") return;
+  if (!row || row.dataset.readinessStatus !== "ready") return;
+  if (!options.allowStopped && row.dataset.agentRuntimeStatus !== "running") return;
   const name = agentName || row?.dataset.agentName || agentId || "尚未选择";
   const changed = eventList.dataset.selectedAgent !== agentId;
   agentList.querySelectorAll(".agent-row").forEach((item) => {
@@ -3474,7 +3486,7 @@ if (agentList) {
     }
     const row = event.target.closest(".agent-row");
     if (!row) return;
-    if (row.dataset.readinessStatus && row.dataset.readinessStatus !== "ready") return;
+    if (row.dataset.readinessStatus !== "ready" || row.dataset.agentRuntimeStatus !== "running") return;
     setSelectedAgent(row.dataset.agentId, row.dataset.agentName, true);
   });
 
@@ -3901,7 +3913,7 @@ void loadKanbanSettings();
 initTerminal();
 if (eventList?.dataset.selectedAgent) {
   const row = agentList?.querySelector(`.agent-row[data-agent-id="${CSS.escape(eventList.dataset.selectedAgent)}"]`);
-  if (!row?.dataset.readinessStatus || row.dataset.readinessStatus === "ready") {
+  if (row?.dataset.readinessStatus === "ready" && row?.dataset.agentRuntimeStatus === "running") {
     setSelectedAgent(eventList.dataset.selectedAgent, row?.dataset.agentName, true);
   }
 }

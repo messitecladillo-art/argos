@@ -17,12 +17,14 @@ def index():
             for agent in snapshot["agents"]
             if agent.get("role") == "leader"
             and (agent.get("readiness_status") or "ready") == "ready"
+            and (agent.get("runtime_status") or "stopped") == "running"
         ),
         next(
             (
                 agent
                 for agent in snapshot["agents"]
                 if (agent.get("readiness_status") or "ready") == "ready"
+                and (agent.get("runtime_status") or "stopped") == "running"
             ),
             None,
         ),

@@ -14,6 +14,7 @@ from mcp.server.fastmcp import FastMCP
 
 from .config import DEFAULT_MAX_TASK_ROUNDS
 from .models.store import store
+from .services.agent_status import agent_dispatch_block_reason, is_agent_dispatchable
 from .services.kanban import extract_task_id, kanban_service, task_status
 from .services.kanban_dispatch import dispatch_worker
 from .services.kanban_workspace import workspace_for_agent
@@ -52,7 +53,7 @@ def list_workers() -> list[dict]:
     for agent in store.snapshot()["agents"]:
         if agent.get("role") != "worker":
             continue
-        if (agent.get("readiness_status") or "ready") != "ready":
+        if not is_agent_dispatchable(agent):
             continue
         item = {
             key: agent.get(key)
@@ -64,6 +65,9 @@ def list_workers() -> list[dict]:
                 "description",
                 "status",
                 "current_task",
+                "runtime_status",
+                "interaction_state",
+                "orchestration_state",
                 "load",
                 "readiness_status",
                 "readiness_message",
@@ -139,6 +143,18 @@ def create_kanban_worker_tasks(
     )
     existing_dispatch = _existing_worker_dispatch(resolved_user_task_id, parent_task_id, target_round)
     if existing_dispatch:
+        unavailable = [
+            item
+            for item in existing_dispatch["assignments"]
+            if not is_agent_dispatchable(store.find_agent(item.get("to_agent_id") or ""))
+        ]
+        if unavailable:
+            details = ", ".join(
+                f"{item.get('to_agent_id') or item.get('to_name')}: "
+                f"{agent_dispatch_block_reason(store.find_agent(item.get('to_agent_id') or ''))}"
+                for item in unavailable
+            )
+            raise ValueError(f"existing worker dispatch contains unavailable agents: {details}")
         return {
             "ok": True,
             "idempotent": True,
@@ -163,8 +179,9 @@ def create_kanban_worker_tasks(
         worker = store.find_agent(worker_id)
         if worker is None:
             raise ValueError(f"target agent not found: {worker_id}")
-        if (worker.get("readiness_status") or "ready") != "ready":
-            raise ValueError(f"target agent is not ready: {worker_id}")
+        reason = agent_dispatch_block_reason(worker)
+        if reason:
+            raise ValueError(f"target agent is not dispatchable: {worker_id} ({reason})")
     if resolved_user_task_id and continuation:
         store.advance_user_task_round(resolved_user_task_id)
     delegation = store.create_delegation(
@@ -215,6 +232,7 @@ def create_kanban_worker_tasks(
                 "round": target_round,
                 "kind": "worker",
                 "continuation": continuation,
+                "assignee_agent_id": worker["agent_id"],
             },
         )
         store.attach_assignment_message(

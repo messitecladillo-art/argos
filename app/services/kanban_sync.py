@@ -360,6 +360,7 @@ class KanbanSyncWorker:
                     "round": current_round,
                     "kind": "review",
                     "task_title": task_title,
+                    "assignee_agent_id": leader.get("agent_id") or user_task["leader_agent_id"],
                 },
             )
             self.store.push_event(

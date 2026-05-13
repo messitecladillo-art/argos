@@ -116,7 +116,16 @@ class KanbanService:
         args = ["log", task_id]
         if tail is not None:
             args.extend(["--tail", str(tail)])
-        return self._run(args)
+        output = self._run(args)
+        if output:
+            return output
+        legacy = _legacy_worker_log_path(task_id)
+        try:
+            if legacy.exists():
+                return _tail_text(legacy, tail=tail)
+        except OSError:
+            return output
+        return output
 
     def context(self, task_id: str) -> str:
         return self._run(["context", task_id])
@@ -223,12 +232,7 @@ class KanbanService:
             raise KanbanError(f"invalid hermes kanban JSON output: {output[:200]}") from exc
 
     def _worker_log_path(self, task_id: str):
-        try:
-            from hermes_cli import kanban_db as kb
-
-            return kb.worker_logs_dir(board=self.board) / f"{task_id}.log"
-        except Exception:  # noqa: BLE001
-            return Path.home() / ".hermes" / "kanban" / "logs" / f"{task_id}.log"
+        return _worker_logs_dir(self.board) / f"{task_id}.log"
 
 
 def extract_task_id(payload: dict[str, Any]) -> str:
@@ -281,6 +285,24 @@ def _workspace_from_claim_output(output: str) -> str:
         if line.startswith("Workspace:"):
             return line.split(":", 1)[1].strip()
     return ""
+
+
+def _worker_logs_dir(board: str) -> Path:
+    slug = (board or "default").strip() or "default"
+    if slug == "default":
+        return Path.home() / ".hermes" / "kanban" / "logs"
+    return Path.home() / ".hermes" / "kanban" / "boards" / slug / "logs"
+
+
+def _legacy_worker_log_path(task_id: str) -> Path:
+    return Path.home() / ".hermes" / "kanban" / "logs" / f"{task_id}.log"
+
+
+def _tail_text(path: Path, *, tail: int | None = None) -> str:
+    text = path.read_text(encoding="utf-8", errors="replace")
+    if tail is None or tail <= 0 or len(text) <= tail:
+        return text
+    return text[-tail:]
 
 
 def _title_from_slug(slug: str) -> str:

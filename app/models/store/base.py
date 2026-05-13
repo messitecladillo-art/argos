@@ -120,8 +120,8 @@ class RuntimeStoreBase:
         online = sum(
             1
             for a in self.agents
-            if a["status"] != "offline"
-            and (a.get("readiness_status") or "ready") == "ready"
+            if (a.get("readiness_status") or "ready") == "ready"
+            and (a.get("runtime_status") or "stopped") == "running"
         )
         active_tasks = sum(
             1
