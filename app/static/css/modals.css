@@ -287,6 +287,7 @@
 .team-runtime-panel {
   display: flex;
   flex-wrap: wrap;
+  align-items: center;
   gap: 10px;
   padding: 14px;
   border: 1px solid rgba(246, 207, 117, 0.18);
@@ -304,6 +305,7 @@
 }
 
 .team-runtime-panel__init {
+  margin-left: auto;
   border-color: rgba(255, 123, 115, 0.38);
   color: #ff7b73;
 }
