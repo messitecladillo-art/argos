@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import select
 
+from ..config import DEFAULT_MAX_TASK_ROUNDS
 from .models import (
     AgentRecord,
     AssignmentRecord,
@@ -122,7 +123,7 @@ class SQLitePersistence:
             record.dispatch_closed = bool(task.get("dispatch_closed"))
             record.summary_requested_at = task.get("summary_requested_at")
             record.current_round = int(task.get("current_round") or 1)
-            record.max_rounds = int(task.get("max_rounds") or 5)
+            record.max_rounds = int(task.get("max_rounds") or DEFAULT_MAX_TASK_ROUNDS)
             record.review_task_ids_json = _json_dumps(task.get("review_task_ids") or [])
             record.blocked_at = task.get("blocked_at")
             record.block_reason = task.get("block_reason") or ""
@@ -367,7 +368,7 @@ class SQLitePersistence:
             "dispatch_closed": bool(record.dispatch_closed),
             "summary_requested_at": record.summary_requested_at,
             "current_round": record.current_round or 1,
-            "max_rounds": record.max_rounds or 5,
+            "max_rounds": record.max_rounds or DEFAULT_MAX_TASK_ROUNDS,
             "review_task_ids": _json_loads(record.review_task_ids_json, []),
             "blocked_at": record.blocked_at,
             "block_reason": record.block_reason or "",

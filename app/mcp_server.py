@@ -12,6 +12,7 @@ import threading
 
 from mcp.server.fastmcp import FastMCP
 
+from .config import DEFAULT_MAX_TASK_ROUNDS
 from .models.store import store
 from .services.kanban import extract_task_id, kanban_service, task_status
 from .services.kanban_dispatch import dispatch_worker
@@ -115,7 +116,7 @@ def create_kanban_worker_tasks(
     parent_task_id = (parent_task_id or "").strip()
     user_task = store.find_user_task(resolved_user_task_id) if resolved_user_task_id else None
     current_round = int((user_task or {}).get("current_round") or 1)
-    max_rounds = int((user_task or {}).get("max_rounds") or 5)
+    max_rounds = int((user_task or {}).get("max_rounds") or DEFAULT_MAX_TASK_ROUNDS)
     continuation = bool(user_task and (user_task.get("status") in {"ready_to_review", "reviewing"}))
     target_round = current_round + 1 if continuation else current_round
     if user_task and target_round > max_rounds:

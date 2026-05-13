@@ -24,6 +24,7 @@ KANBAN_POLL_INTERVAL = float(os.environ.get("KANBAN_POLL_INTERVAL", "2"))
 KANBAN_DEFAULT_WORKSPACE = os.environ.get("KANBAN_DEFAULT_WORKSPACE", "scratch")
 KANBAN_AUTO_DISPATCH = os.environ.get("KANBAN_AUTO_DISPATCH", "0") == "1"
 AUTO_START_AGENTS = os.environ.get("AUTO_START_AGENTS", "1") != "0"
+DEFAULT_MAX_TASK_ROUNDS = 10
 
 
 def now_iso() -> str:

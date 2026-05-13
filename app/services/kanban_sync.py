@@ -6,6 +6,7 @@ import time
 from typing import Any
 
 from ..config import KANBAN_POLL_INTERVAL
+from ..config import DEFAULT_MAX_TASK_ROUNDS
 from ..models.store import RuntimeStore, store as default_store
 from .acp.helpers import _clean_agent_reply
 from .kanban import KanbanError, KanbanService, extract_task_id, kanban_service, task_result, task_status
@@ -530,7 +531,7 @@ def _format_review_body(user_task: dict, assignments: list[dict], round_number: 
             )
         )
     worker_results = "\n\n".join(parts) or "(没有 worker 结果)"
-    max_rounds = int(user_task.get("max_rounds") or 5)
+    max_rounds = int(user_task.get("max_rounds") or DEFAULT_MAX_TASK_ROUNDS)
     return (
         "[KANBAN_LEADER_REVIEW_TASK]\n"
         f"user_task_id: {user_task['user_task_id']}\n\n"

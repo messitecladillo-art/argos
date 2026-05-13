@@ -58,7 +58,7 @@ class UserTaskRecord(TimestampMixin, Base):
     dispatch_closed: Mapped[bool] = mapped_column(Boolean, default=False)
     summary_requested_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
     current_round: Mapped[int] = mapped_column(Integer, default=1)
-    max_rounds: Mapped[int] = mapped_column(Integer, default=5)
+    max_rounds: Mapped[int] = mapped_column(Integer, default=10)
     review_task_ids_json: Mapped[str] = mapped_column(Text, default="[]")
     blocked_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
     block_reason: Mapped[str] = mapped_column(Text, default="")

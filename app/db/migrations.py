@@ -13,7 +13,7 @@ def ensure_runtime_schema(engine: Engine) -> None:
             "user_tasks",
             {
                 "current_round": "INTEGER DEFAULT 1",
-                "max_rounds": "INTEGER DEFAULT 5",
+                "max_rounds": "INTEGER DEFAULT 10",
                 "review_task_ids_json": "TEXT DEFAULT '[]'",
                 "blocked_at": "VARCHAR(40) NULL",
                 "block_reason": "TEXT DEFAULT ''",

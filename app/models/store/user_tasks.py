@@ -1,11 +1,10 @@
 """User-task lifecycle operations for RuntimeStore."""
 from __future__ import annotations
 
-from ...config import now_iso
+from ...config import DEFAULT_MAX_TASK_ROUNDS, now_iso
 from .base import _log_store
 
 
-DEFAULT_MAX_TASK_ROUNDS = 5
 ACTIVE_USER_TASK_STATUSES = {
     "running",
     "waiting_workers",
