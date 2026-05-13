@@ -13,10 +13,11 @@ logger = logging.getLogger("hermes.agent_state")
 
 
 CONCISE_REPLY_RULES = (
-    "默认回答风格：先给结论，保持简洁；非必要不展开背景。\n"
-    "普通答复控制在 8 行以内，优先使用 3-5 条要点；能一句话说清就只说一句。\n"
-    "除非用户明确要求详细说明、步骤或完整代码，否则不要长篇解释。\n"
+    "默认回答：先结论、少背景；普通答复 8 行内，优先 3-5 要点。\n"
+    "能一句话说清就只说一句；除非用户要求详细、步骤或完整代码，否则不长篇解释。\n"
 )
+
+KANBAN_CLOSE_RULE = "当前 Kanban 任务必须以 kanban_complete(summary=...) 或 kanban_block(...) 结束；不要只输出自然语言。\n"
 
 
 def find_leader_agent_id(runtime_store: RuntimeStore) -> str:
@@ -52,18 +53,13 @@ def _format_user_task(content: str, leader_id: str) -> str:
         "[USER_TASK]\n"
         "你是团队 Leader。这个任务由 Hermes Kanban 调度执行。\n"
         f"你的 agent_id 是：{leader_id}\n"
-        f"调用 mcp_agent_bus_create_kanban_worker_tasks 时，from_agent_id 必须精确填写 `{leader_id}`，不要填写 leader、名称或其他别名。\n"
         "执行规则：\n"
-        "0. 当前父 Kanban 任务必须以 kanban_complete(summary=...) 或 kanban_block(...) 结束；不要只输出自然语言就退出。\n"
-        "1. 先调用 mcp_agent_bus_list_workers() 获取当前可用 worker。\n"
-        "2. 需要 worker 协作时，只能调用 mcp_agent_bus_create_kanban_worker_tasks 创建平台可追踪的 worker Kanban 子任务。\n"
-        "3. from_agent_id 必须填写你自己的 agent_id。\n"
-        "4. 创建 worker 子任务后，必须立即调用 kanban_complete(summary=...) 关闭当前规划/复盘任务；这个 complete 只表示“本轮调度或复盘完成”，不是用户最终答复。\n"
-        "5. 收到 review/checkpoint 任务时，请基于 worker 结果判断用户目标是否完成：已完成则 kanban_complete(summary=最终答复)；未完成且未达到最大轮次则继续创建下一轮 worker；无法继续则 kanban_block(reason=...) 或 kanban_complete(summary=阻塞说明)。\n"
-        "6. 每次继续派发都必须带上 user_task_id 和当前 review task 的 parent_task_id；不要重复派发当前轮已完成的同一批任务，允许基于新发现创建下一轮任务。\n"
-        "7. 只有任务不需要 worker 时，才直接调用 kanban_complete 完成当前 Kanban 任务，然后再给用户最终答复。\n"
-        "8. 严禁使用内置 kanban_create / kanban_comment / kanban_assign 创建或模拟 worker 子任务；这些任务不会写入团队总线，也不会出现在 Web 团队看板里。\n"
-        "9. 如果你已经用 kanban_create 创建了依赖任务，必须改为调用 mcp_agent_bus_create_kanban_worker_tasks；不要把内置 Kanban 任务当作 worker 派发结果。\n"
+        f"0. {KANBAN_CLOSE_RULE}"
+        "1. 先调用 mcp_agent_bus_list_workers()；需要协作时只能用 mcp_agent_bus_create_kanban_worker_tasks 创建可追踪 worker Kanban 子任务。\n"
+        f"2. from_agent_id 必须精确填写 `{leader_id}`；不要填 leader、名称或别名。\n"
+        "3. 创建 worker 子任务后立即 kanban_complete(summary=本轮调度/复盘)，这不是最终答复；若无需 worker，才直接完成并回复用户。\n"
+        "4. review/checkpoint：完成则 kanban_complete(summary=最终答复)；未完成且未达上限则带 user_task_id 和当前 review task 的 parent_task_id 继续派发新任务；无法继续则 kanban_block(reason=...) 或 complete 阻塞说明。\n"
+        "5. 严禁用内置 kanban_create / kanban_comment / kanban_assign 创建或模拟 worker 子任务；若已误用 kanban_create，改用 mcp_agent_bus_create_kanban_worker_tasks。\n"
         f"{CONCISE_REPLY_RULES}"
         "用户原始任务：\n"
         f"{content}"
@@ -99,8 +95,8 @@ def _format_direct_worker_task(content: str, worker: dict) -> str:
         "这个任务由用户在 Web 看板中直接指派给你，请直接执行。\n"
         f"你的 agent_id 是：{worker.get('agent_id') or ''}\n"
         "执行规则：\n"
-        "0. 当前 Kanban 任务必须以 kanban_complete(summary=...) 或 kanban_block(...) 结束；不要只输出自然语言就退出。\n"
-        "1. 不要再把这个任务派回 Leader，除非任务明确要求团队协作。\n"
+        f"0. {KANBAN_CLOSE_RULE}"
+        "1. 不要派回 Leader，除非任务明确要求团队协作。\n"
         f"{CONCISE_REPLY_RULES}"
         "用户原始任务：\n"
         f"{content}"

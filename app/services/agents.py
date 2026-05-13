@@ -121,8 +121,12 @@ def delete_agent(store: RuntimeStore, agent_id: str) -> dict:
     if agent is None:
         raise ValueError("agent not found")
     orchestration_state = agent.get("orchestration_state") or "none"
-    if agent.get("status") != "idle" or orchestration_state != "none":
-        raise ValueError("only idle agents can be dismissed")
+    is_idle = agent.get("status") == "idle" and orchestration_state == "none"
+    is_unavailable = (agent.get("readiness_status") or "ready") != "ready" or (
+        agent.get("runtime_status") or "stopped"
+    ) != "running"
+    if not (is_idle or is_unavailable):
+        raise ValueError("only idle or unavailable agents can be dismissed")
     profile_name = agent["profile_name"]
     workspace_path = agent.get("workspace_path") or str(registry.workspace_path_for(profile_name))
     _safe_workspace_delete_path(workspace_path)

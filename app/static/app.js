@@ -3224,9 +3224,13 @@ function handleRuntimeEvent(event) {
   }
 }
 
-function isIdleAgentRow(row) {
-  return row?.dataset.agentStatus === "idle"
+function canDismissAgentRow(row) {
+  if (!row) return false;
+  const isIdle = row.dataset.agentStatus === "idle"
     && (row.dataset.agentOrchestrationState || "none") === "none";
+  const isUnavailable = (row.dataset.readinessStatus || "ready") !== "ready"
+    || (row.dataset.agentRuntimeStatus || "stopped") !== "running";
+  return isIdle || isUnavailable;
 }
 
 function ensureAgentContextMenu() {
@@ -3353,7 +3357,7 @@ function showAgentConfigMenu(row, trigger) {
   const modelBtn = menu.querySelector("[data-agent-model]");
   const separator = menu.querySelector("[data-config-separator]");
   const deleteBtn = menu.querySelector("[data-agent-delete]");
-  const canDelete = isIdleAgentRow(row);
+  const canDelete = canDismissAgentRow(row);
   const rect = trigger.getBoundingClientRect();
   menu.dataset.agentId = row.dataset.agentId || trigger.dataset.agentId || "";
   menu.dataset.agentName = row.dataset.agentName || "";
@@ -3370,9 +3374,9 @@ function showAgentConfigMenu(row, trigger) {
   if (modelBtn) modelBtn.hidden = false;
   if (separator) separator.hidden = false;
   if (deleteBtn) {
-    deleteBtn.hidden = false;
+    deleteBtn.hidden = !canDelete;
     deleteBtn.disabled = !canDelete;
-    deleteBtn.textContent = canDelete ? "解雇" : "仅 idle 可解雇";
+    deleteBtn.textContent = "解雇";
   }
   positionAgentContextMenu(menu, rect.left, rect.bottom + 8);
 }

@@ -15,29 +15,19 @@ ROLE_HINTS = {
 
 LEADER_TOOL_HINT = (
     "## 工具使用（必须写入 SOUL.md 的 Behavioral Guidelines 或专门一节）\n"
-    "- 你的环境里已经通过 MCP server `agent_bus` 注册了团队协作工具（hermes 会加前缀 `mcp_agent_bus_`）：\n"
-    "  - `mcp_agent_bus_list_workers()` —— 查询当前可用的 worker 列表，拿到它们的 agent_id / name / description\n"
-    "  - `mcp_agent_bus_create_kanban_worker_tasks(assignments, from_agent_id, parent_task_id, user_task_id, summary_instruction)` —— 创建 Hermes Kanban worker 子任务；assignments 每项包含 to_agent_id / content，可选 title / priority\n"
-    "  - `mcp_agent_bus_dispatch_parallel(...)` 是兼容别名，也只会创建 Kanban 任务，不会打开 ACP 会话\n"
-    "- ⚠️ 严禁使用 hermes-acp 内置的 `delegate_task`（它只在本进程内起子代理，**不是**团队路由）；也严禁使用内置 `send_message` / messaging 工具（那是对外 iMessage/SMS）。\n"
-    "- ⚠️ 严禁使用内置 `kanban_create` / `kanban_comment` / `kanban_assign` 创建或模拟 worker 子任务；这些任务不会写入团队总线，也不会出现在 Web 团队看板里。\n"
-    "- 只要是给 worker 的子任务，必须走 `mcp_agent_bus_create_kanban_worker_tasks`，不能直接创建普通 Kanban 依赖任务来替代。\n"
-    "- 所有用户任务都先到你这里。你本身不做具体执行工作；只负责理解、拆解、选择 worker、创建 Kanban 子任务，以及在 review/checkpoint Kanban 任务里决定完成、继续或阻塞。\n"
-    "- 当任务包含任何具体执行工作，或用户按名字/角色提到某个 agent，**必须**先调 `mcp_agent_bus_list_workers` 再创建合适 worker 的 Kanban 子任务。不可以自己编造 worker 的输出。\n"
-    "- 如果任务需要多个 worker协作，优先一次调用 `mcp_agent_bus_create_kanban_worker_tasks` 创建所有子任务，并提供清晰的 `summary_instruction`。\n"
-    "- 创建 worker 子任务后，必须立即调用 `kanban_complete(summary=...)` 关闭当前父 Kanban 任务；这个 complete 只表示“本轮调度或复盘完成”，不是用户最终答复。系统会等待本轮 worker Kanban 任务完成后，再创建 leader review Kanban 任务。\n"
-    "- 用户任务可能是长时任务。每轮 worker 全部完成后，系统会给你创建 review/checkpoint 任务；先判断原始目标是否完成，未完成则创建下一轮更具体的 worker 子任务。\n"
-    "- 不要重复派发同一轮同一批任务；允许创建下一轮新任务。继续派发时必须传 `user_task_id` 和当前 review task 的 `parent_task_id`。\n"
-    "- 必须遵守 max_rounds；达到上限后输出当前最佳结果或阻塞说明，不要继续派发。\n"
+    "- 团队工具来自 MCP server `agent_bus`，调用名带 `mcp_agent_bus_` 前缀。\n"
+    "- 先用 `mcp_agent_bus_list_workers()` 获取 worker 的 agent_id / name / description。\n"
+    "- 给 worker 的子任务只能用 `mcp_agent_bus_create_kanban_worker_tasks(assignments, from_agent_id, parent_task_id, user_task_id, summary_instruction)`；assignments 含 to_agent_id / content，可选 title / priority。\n"
+    "- 禁用 `delegate_task`、内置 `kanban_create` / `kanban_comment` / `kanban_assign`、`send_message` / messaging；它们不是团队 Kanban 路由。\n"
+    "- Leader 只负责理解、拆解、选择 worker、创建 Kanban 子任务、在 review/checkpoint 判断完成/继续/阻塞，不编造 worker 输出。\n"
+    "- 创建 worker 子任务后立即 `kanban_complete(summary=...)` 关闭当前父任务；review 继续派发时必须传 `user_task_id` 和当前 review task 的 `parent_task_id`，不重复同轮任务并遵守 max_rounds。\n"
 )
 
 
 CONCISE_STYLE_HINT = (
     "## 默认回答风格（必须写入 SOUL.md 的 Behavioral Guidelines）\n"
-    "- 先给结论，保持简洁；非必要不展开背景，不重复用户问题。\n"
-    "- 普通答复控制在 8 行以内，优先使用 3-5 条要点。\n"
-    "- 如果一句话能说清，就只用一句。\n"
-    "- 除非用户明确要求详细说明、展开、给出步骤或完整代码，否则不要长篇输出。\n"
+    "- 先结论、少背景、不重复问题；普通答复 8 行内，优先 3-5 要点。\n"
+    "- 能一句话说清就只说一句；除非用户要求详细/步骤/完整代码，否则不长篇输出。\n"
     "- Worker 返回 Leader 时只输出结论、关键依据、是否完成/阻塞。\n"
 )
 
