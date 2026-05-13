@@ -623,7 +623,17 @@ function writeKanbanLogToTerminal(session, link, agent, logText, message = "") {
   session.term.reset();
   session.term.clear();
   session.hasRenderedOutput = true;
-  session.term.write(content, () => restoreTerminalScrollStateAfterWrite(session, scrollState));
+  session.term.write(content, () => {
+    restoreTerminalScrollStateAfterWrite(session, scrollState);
+    requestAnimationFrame(() => {
+      fitTerminalSession(session, "kanban-write");
+      restoreTerminalScrollStateAfterWrite(session, scrollState);
+    });
+    window.setTimeout(() => {
+      fitTerminalSession(session, "kanban-write-after-drawer");
+      restoreTerminalScrollStateAfterWrite(session, scrollState);
+    }, overlayAnimationMs + 60);
+  });
 }
 
 async function refreshKanbanTaskLog(link, agent) {
@@ -1408,6 +1418,7 @@ function fitTerminalDrawer() {
   scheduleTerminalFit(0);
   scheduleTerminalFit(80);
   window.setTimeout(fitAllTerminalSessions, 180);
+  window.setTimeout(fitAllTerminalSessions, overlayAnimationMs + 80);
 }
 
 function openTerminalPanel() {
