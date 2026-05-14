@@ -228,7 +228,14 @@ function debugLog(event, payload) {
 }
 
 function normalizeTerminalUrl(url) {
-  return String(url || "").replace(/[),.;!?，。；！？、]+$/u, "");
+  let normalizedUrl = String(url || "").replace(/[,.!?，。；！？、]+$/u, "");
+  while (normalizedUrl.endsWith(")")) {
+    const openParens = (normalizedUrl.match(/\(/g) || []).length;
+    const closeParens = (normalizedUrl.match(/\)/g) || []).length;
+    if (closeParens <= openParens) break;
+    normalizedUrl = normalizedUrl.slice(0, -1);
+  }
+  return normalizedUrl;
 }
 
 function openTerminalUrl(url) {
