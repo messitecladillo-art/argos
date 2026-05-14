@@ -196,6 +196,7 @@ const teamRuntimeLabels = {
   restart: "重启",
 };
 const kanbanPanelsStorageKey = "hermesKanbanPanelsExpanded";
+const kanbanAutoUnblockDelayMs = 5000;
 const kanbanState = {
   links: Array.isArray(window.__BOOTSTRAP__?.kanban_task_links)
     ? window.__BOOTSTRAP__.kanban_task_links.filter((link) => String(link?.kanban_status || "").toLowerCase() !== "archived")
@@ -207,6 +208,9 @@ const kanbanState = {
   autoDispatchRunning: false,
   panelsExpanded: window.localStorage?.getItem(kanbanPanelsStorageKey) === "1",
   deletingTaskIds: new Set(),
+  blockedTaskEnteredAt: new Map(),
+  autoUnblockTaskIds: new Set(),
+  autoUnblockTimer: 0,
   pendingCreations: [],
 };
 let transferLastInspectedFile = null;
@@ -678,6 +682,69 @@ function kanbanTaskCanUnblock(link) {
   return kanbanColumnForStatus(link?.kanban_status) === "blocked";
 }
 
+async function unblockKanbanTask(taskId) {
+  return postKanbanTaskAction(taskId, "/unblock", { method: "POST" });
+}
+
+function clearKanbanAutoUnblockTimer() {
+  if (!kanbanState.autoUnblockTimer) return;
+  window.clearTimeout(kanbanState.autoUnblockTimer);
+  kanbanState.autoUnblockTimer = 0;
+}
+
+function syncKanbanAutoUnblock() {
+  clearKanbanAutoUnblockTimer();
+  const now = Date.now();
+  const blockedIds = new Set();
+  let nextDelay = Infinity;
+  (kanbanState.links || []).forEach((link) => {
+    const taskId = link?.kanban_task_id || "";
+    if (!taskId || !kanbanTaskCanUnblock(link) || kanbanState.deletingTaskIds.has(taskId)) return;
+    blockedIds.add(taskId);
+    if (!kanbanState.blockedTaskEnteredAt.has(taskId)) {
+      kanbanState.blockedTaskEnteredAt.set(taskId, now);
+    }
+    if (kanbanState.autoUnblockTaskIds.has(taskId)) return;
+    const elapsed = now - kanbanState.blockedTaskEnteredAt.get(taskId);
+    nextDelay = Math.min(nextDelay, Math.max(0, kanbanAutoUnblockDelayMs - elapsed));
+  });
+  Array.from(kanbanState.blockedTaskEnteredAt.keys()).forEach((taskId) => {
+    if (!blockedIds.has(taskId)) kanbanState.blockedTaskEnteredAt.delete(taskId);
+  });
+  if (!Number.isFinite(nextDelay)) return;
+  kanbanState.autoUnblockTimer = window.setTimeout(runKanbanAutoUnblock, nextDelay);
+}
+
+async function runKanbanAutoUnblock() {
+  clearKanbanAutoUnblockTimer();
+  const now = Date.now();
+  const targets = (kanbanState.links || []).filter((link) => {
+    const taskId = link?.kanban_task_id || "";
+    if (!taskId || !kanbanTaskCanUnblock(link)) return false;
+    if (kanbanState.deletingTaskIds.has(taskId) || kanbanState.autoUnblockTaskIds.has(taskId)) return false;
+    const enteredAt = kanbanState.blockedTaskEnteredAt.get(taskId) || now;
+    return now - enteredAt >= kanbanAutoUnblockDelayMs;
+  });
+  if (!targets.length) {
+    syncKanbanAutoUnblock();
+    return;
+  }
+  await Promise.allSettled(targets.map(async (link) => {
+    const taskId = link.kanban_task_id;
+    kanbanState.autoUnblockTaskIds.add(taskId);
+    try {
+      await unblockKanbanTask(taskId);
+      kanbanState.blockedTaskEnteredAt.delete(taskId);
+      setKanbanStatus(`已自动解除阻塞：${taskId}`, "success");
+    } catch (error) {
+      setKanbanStatus(error.message || "自动解除阻塞失败", "error");
+    } finally {
+      kanbanState.autoUnblockTaskIds.delete(taskId);
+    }
+  }));
+  syncKanbanAutoUnblock();
+}
+
 function kanbanTaskCanDispatch(link) {
   const value = String(link?.kanban_status || "").toLowerCase();
   return ["pending_dispatch", "ready"].includes(value)
@@ -849,7 +916,7 @@ async function handleKanbanContextMenuClick(event) {
   if (unblockBtn && !unblockBtn.disabled) {
     unblockBtn.disabled = true;
     try {
-      await postKanbanTaskAction(taskId, "/unblock", { method: "POST" });
+      await unblockKanbanTask(taskId);
       setKanbanStatus(`已解除阻塞：${taskId}`, "success");
       closeKanbanContextMenu();
     } catch (error) {
@@ -890,6 +957,7 @@ function renderKanbanTasks() {
   if (!kanbanTaskList) return;
   const links = [...(kanbanState.links || [])].sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
   kanbanTaskList.innerHTML = "";
+  syncKanbanAutoUnblock();
   const baseColumns = [
     { key: "ready", title: "待执行" },
     { key: "running", title: "执行中" },
@@ -2719,6 +2787,9 @@ async function initializeTeamAgents(button) {
     kanbanState.links = [];
     kanbanState.pendingCreations = [];
     kanbanState.deletingTaskIds.clear();
+    kanbanState.blockedTaskEnteredAt.clear();
+    kanbanState.autoUnblockTaskIds.clear();
+    clearKanbanAutoUnblockTimer();
     renderKanbanTasks();
   } catch (error) {
     setTeamRuntimeStatus(error.message || "初始化 Agents 失败", "error");
