@@ -96,6 +96,7 @@ const chatEventsByAgent = new Map();
 const defaultTerminalCols = 120;
 const defaultTerminalRows = 36;
 const terminalReconnectDelay = 900;
+const terminalUrlPattern = /https?:\/\/[^\s<>"'`]+/;
 const hermesDebug = window.localStorage?.getItem("hermesDebug") !== "0";
 let activeKanbanTerminalTaskId = "";
 let kanbanTerminalLogTimer = 0;
@@ -224,6 +225,31 @@ const SKILL_ALPHA_OPTIONS = ["ALL", ...Array.from({ length: 26 }, (_item, index)
 function debugLog(event, payload) {
   if (!hermesDebug) return;
   console.log(`[hermes-debug] ${event}`, payload);
+}
+
+function normalizeTerminalUrl(url) {
+  return String(url || "").replace(/[),.;!?，。；！？、]+$/u, "");
+}
+
+function openTerminalUrl(url) {
+  const normalizedUrl = normalizeTerminalUrl(url);
+  if (!normalizedUrl) return;
+  window.open(normalizedUrl, "_blank", "noopener,noreferrer");
+}
+
+function registerTerminalUrlLinks(term) {
+  if (!term) return;
+  if (window.WebLinksAddon?.WebLinksAddon) {
+    term.loadAddon(new WebLinksAddon.WebLinksAddon((_event, url) => openTerminalUrl(url), {
+      urlRegex: terminalUrlPattern,
+    }));
+    return;
+  }
+  if (typeof term.registerLinkMatcher === "function") {
+    term.registerLinkMatcher(terminalUrlPattern, (_event, url) => openTerminalUrl(url), {
+      tooltipCallback: (_event, url) => `打开 ${normalizeTerminalUrl(url)}`,
+    });
+  }
 }
 
 function getNotificationAudioContext() {
@@ -2956,6 +2982,7 @@ function createTerminalInstance(agentId) {
   pane.className = "terminal-pane";
   pane.dataset.agentId = agentId;
   term.loadAddon(fitAddon);
+  registerTerminalUrlLinks(term);
   terminalViewport.appendChild(pane);
   term.open(pane);
   term.onData((data) => {
