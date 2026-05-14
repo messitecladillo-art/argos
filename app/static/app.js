@@ -890,18 +890,21 @@ function renderKanbanTasks() {
   if (!kanbanTaskList) return;
   const links = [...(kanbanState.links || [])].sort((a, b) => String(b.updated_at || b.created_at || "").localeCompare(String(a.updated_at || a.created_at || "")));
   kanbanTaskList.innerHTML = "";
-  const columns = [
+  const baseColumns = [
     { key: "ready", title: "待执行" },
     { key: "running", title: "执行中" },
     { key: "blocked", title: "阻塞" },
-    { key: "unknown", title: "未知" },
     { key: "done", title: "已完成" },
   ];
-  const grouped = new Map(columns.map((column) => [column.key, []]));
+  const grouped = new Map([...baseColumns, { key: "unknown", title: "未知" }].map((column) => [column.key, []]));
   links.forEach((link) => {
     const key = kanbanColumnForStatus(link.kanban_status);
     grouped.get(key).push(link);
   });
+  const columns = [...baseColumns];
+  if ((grouped.get("unknown") || []).length) {
+    columns.splice(3, 0, { key: "unknown", title: "未知" });
+  }
   columns.forEach((column) => {
     const items = grouped.get(column.key) || [];
     const section = document.createElement("section");

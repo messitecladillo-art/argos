@@ -857,7 +857,7 @@ label span,
 
 .kanban-task-list {
   display: grid;
-  grid-template-columns: repeat(5, minmax(170px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: 14px;
   min-height: 0;
   overflow: auto;
@@ -1094,7 +1094,7 @@ label span,
 
 @media (max-width: 1180px) {
   .kanban-task-list {
-    grid-template-columns: repeat(3, minmax(180px, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
   }
 }
 
