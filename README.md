@@ -93,6 +93,10 @@ pytest
 - [MCP 管理](doc/mcp-management.md)
 - [Skill 管理](doc/skills-management.md)
 
+## Author
+
+- 林克（Linke AI）
+
 ## License
 
 MIT
