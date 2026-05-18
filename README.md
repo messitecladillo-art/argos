@@ -95,7 +95,7 @@ pytest
 
 ## Author
 
-- 林克（Linke AI）
+- 林克（Liu Wenbin）
 
 ## License
 
