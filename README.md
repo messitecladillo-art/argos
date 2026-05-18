@@ -1,6 +1,6 @@
 # Hermes Agents Team
 
-基于 [Hermes Agent](https://hermes-agent.nousresearch.com/) profile 机制构建的多 Agent 协作 Web 系统。每个 Agent 是一个独立的 Hermes profile，拥有独立的人设、技能、记忆与工具，通过 Flask 中转完成任务拆解、分派与汇总。
+基于 [Hermes Agent](https://hermes-agent.nousresearch.com/) profile 机制构建的多 Agent 协作 Web 系统。每个 Agent 是一个独立的 Hermes profile，拥有独立的人设、技能、记忆与工具，通过 Web 中枢、MCP、ACP 与 Hermes Kanban 完成任务拆解、分派、执行、审查与汇总。
 
 > 1. 本项目是社区实验项目，不是 Nous Research 或 Hermes Agent 官方项目。
 > 2. 当前仅建议在本机或可信内网环境运行，不要在未加鉴权、访问控制和 HTTPS 保护的情况下直接暴露到公网。
@@ -8,17 +8,21 @@
 > 4. 系统实际能力取决于本机 Hermes Agent 所配置和调用的模型。
 
 - **后端**：Flask + Starlette/Uvicorn (ASGI)
-- **通信协议**：MCP（Agent → 中枢）+ ACP（中枢 → Agent）
+- **通信协议**：MCP（Agent → 中枢）+ ACP（中枢 → Agent）+ Hermes Kanban
 - **存储**：SQLite
-- **前端**：原生 HTML/JS，实时展示多 Agent 对话过程
+- **前端**：原生 HTML/JS，实时展示多 Agent 对话、终端输出与任务流转
 
 更多设计细节见 [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) 和 [doc/design.md](doc/design.md)。
 
 ## 功能
 
-- Leader / Specialist 两层 Agent 角色，自动任务拆解与汇总
-- Web UI 实时观察多 Agent 对话、工具调用、子任务流转
-- MCP Server 安装管理（headers/env 凭据自动脱敏存储）
+- Leader / Specialist 两层 Agent 角色，自动任务拆解、执行、审查与汇总
+- Web UI 实时观察多 Agent 对话、终端输出、工具调用与子任务流转
+- Hermes Kanban 看板任务、自动派发、状态同步与任务归档
+- Agent 初始化、批量启动 / 停止 / 重启
+- 模型配置管理，可为不同 Agent 应用不同模型配置
+- 团队导入 / 导出，支持迁移 Agent profile、skills 与可选 workspace
+- MCP Server 安装管理，支持 `http` / `streamable_http` / `stdio`
 - Skill 安装管理，支持从 frontmatter 解析元信息
 - SOUL.md 人设编辑
 
@@ -42,6 +46,7 @@ run.py           本地开发启动入口
 - 操作系统：Linux / macOS（依赖 `pexpect`，**不支持原生 Windows**；Windows 用户请使用 WSL2）
 - Python 3.10+
 - 已安装并配置好的 [Hermes Agent](https://hermes-agent.nousresearch.com/docs/getting-started)
+- Hermes CLI 需要支持 `profile`、`acp`、`kanban` 等子命令
 
 ### 2. 安装依赖
 
@@ -62,6 +67,9 @@ pip install -r requirements.txt
 | `PORT` | `5050` | HTTP 服务端口 |
 | `FLASK_DEBUG` | `0` | 调试日志开关（不启用自动 reload） |
 | `AUTO_START_AGENTS` | `1` | 项目启动时自动启动所有已就绪 Agent；设为 `0` 可关闭 |
+| `KANBAN_BOARD` | `hermes-agents-team` | Hermes Kanban board 名称 |
+| `KANBAN_POLL_INTERVAL` | `2` | Kanban 状态同步轮询间隔（秒） |
+| `KANBAN_DEFAULT_WORKSPACE` | `scratch` | Kanban 任务默认 workspace |
 | `KANBAN_AUTO_DISPATCH` | `0` | 首次无持久化设置时，自动 Dispatch 开关的默认值 |
 
 ### 4. 启动
@@ -92,3 +100,5 @@ MIT
 ## Security
 
 安全注意事项见 [SECURITY.md](SECURITY.md)。
+
+MCP headers/env 等敏感字段会在界面展示和导出时做脱敏处理；运行所需的真实凭据仍保存在本机 Hermes profile 配置中，请不要提交或公开这些本地配置文件。
