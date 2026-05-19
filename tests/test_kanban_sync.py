@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from app.models.store import RuntimeStore
-from app.services.kanban_sync import KanbanSyncWorker
+from app.services.kanban_sync import KanbanSyncWorker, _format_review_body
 
 
 def _agent(agent_id: str, profile_name: str, role: str, workspace_path: str | None = None) -> dict:
@@ -123,6 +123,77 @@ def test_review_done_completes_user_task_without_next_round():
     worker.sync_once()
 
     assert runtime_store.snapshot()["user_tasks"][0]["status"] == "completed"
+
+
+def test_review_body_warns_against_builtin_kanban_create():
+    body = _format_review_body(
+        {"user_task_id": "ut_1", "content": "Build", "max_rounds": 10},
+        [],
+        1,
+    )
+
+    assert "mcp_agent_bus_create_kanban_worker_tasks" in body
+    assert "严禁使用内置 kanban_create" in body
+    assert "UI 不追踪" in body
+
+
+def test_orphan_review_child_is_adopted_as_next_round_worker():
+    runtime_store = RuntimeStore()
+    runtime_store.register_agent(_agent("agent_lead", "lead", "leader"))
+    runtime_store.register_agent(_agent("agent_dev", "dev", "worker"))
+    user_task = runtime_store.create_user_task(leader_agent_id="agent_lead", content="Build")
+    runtime_store.mark_user_task_completed(user_task["user_task_id"])
+    runtime_store.upsert_kanban_task_link(
+        local_type="user_task",
+        local_id=f"{user_task['user_task_id']}:round:1",
+        kanban_task_id="kb_review",
+        kanban_role="review",
+        kanban_status="done",
+        assignee_profile="lead",
+        parent_local_id=user_task["user_task_id"],
+        metadata={
+            "user_task_id": user_task["user_task_id"],
+            "round": 1,
+            "completed_projected": True,
+        },
+    )
+    service = FakeKanban(
+        {
+            "kb_review": {
+                "task_id": "kb_review",
+                "status": "done",
+                "children": ["kb_child"],
+            },
+            "kb_child": {
+                "task_id": "kb_child",
+                "title": "Fix bug",
+                "body": "Fix BUG-001",
+                "status": "ready",
+                "assignee": "agent_dev",
+                "parents": ["kb_review"],
+            },
+        }
+    )
+    worker = KanbanSyncWorker(runtime_store=runtime_store, service=service, interval=1)
+
+    worker.sync_once()
+    worker.sync_once()
+
+    snapshot = runtime_store.snapshot()
+    assert snapshot["user_tasks"][0]["status"] == "waiting_workers"
+    assert snapshot["user_tasks"][0]["current_round"] == 2
+    assert len(snapshot["delegations"]) == 1
+    delegation = snapshot["delegations"][0]
+    assert delegation["round"] == 2
+    assert delegation["assignments"][0]["worker_agent_id"] == "agent_dev"
+    assert delegation["assignments"][0]["content"] == "Fix BUG-001"
+    link = runtime_store.find_kanban_task_link(kanban_task_id="kb_child")
+    assert link["local_type"] == "assignment"
+    assert link["kanban_role"] == "worker"
+    assert link["assignee_profile"] == "dev"
+    assert link["metadata"]["adopted_external_child"] is True
+    assert link["metadata"]["created_by_builtin_kanban_create"] is True
+    assert len(snapshot["delegations"]) == 1
 
 
 def test_review_done_keeps_user_task_waiting_when_next_round_exists():

@@ -59,6 +59,7 @@ class KanbanSyncWorker:
             self._stop.wait(self.interval)
 
     def sync_once(self) -> None:
+        self._adopt_orphan_kanban_children()
         links = list(self.store.snapshot().get("kanban_task_links") or [])
         for link in links:
             self._sync_link(link)
@@ -306,6 +307,129 @@ class KanbanSyncWorker:
             },
         )
 
+    def _adopt_orphan_kanban_children(self) -> None:
+        snapshot = self.store.snapshot()
+        known_links = {
+            link.get("kanban_task_id"): link
+            for link in snapshot.get("kanban_task_links", [])
+            if link.get("kanban_task_id")
+        }
+        roots = [
+            link
+            for link in known_links.values()
+            if link.get("kanban_role") in {"review", "summary"}
+        ]
+        visited: set[str] = set()
+        for root in roots:
+            self._adopt_children_for_link(root, known_links, visited)
+
+    def _adopt_children_for_link(self, parent_link: dict, known_links: dict[str, dict], visited: set[str]) -> None:
+        parent_task_id = parent_link.get("kanban_task_id") or ""
+        if not parent_task_id or parent_task_id in visited:
+            return
+        visited.add(parent_task_id)
+        try:
+            parent_task = self.service.show_task(parent_task_id)
+        except KanbanError as exc:
+            logger.warning("[kanban-sync] orphan child scan failed task=%s error=%s", parent_task_id, exc)
+            return
+        for child_id in _task_children(parent_task):
+            if child_id in visited:
+                continue
+            child_link = known_links.get(child_id) or self.store.find_kanban_task_link(kanban_task_id=child_id)
+            if child_link:
+                known_links[child_id] = child_link
+                self._adopt_children_for_link(child_link, known_links, visited)
+                continue
+            child_task = self._show_child_task(child_id)
+            if not child_task:
+                continue
+            adopted = self._adopt_orphan_child(parent_link, parent_task_id, child_id, child_task)
+            if adopted:
+                known_links[child_id] = adopted
+                self._adopt_children_for_link(adopted, known_links, visited)
+
+    def _show_child_task(self, child_id: str) -> dict | None:
+        try:
+            return self.service.show_task(child_id)
+        except KanbanError as exc:
+            logger.warning("[kanban-sync] orphan child show failed task=%s error=%s", child_id, exc)
+            return None
+
+    def _adopt_orphan_child(self, parent_link: dict, parent_task_id: str, child_id: str, child_task: dict) -> dict | None:
+        parent_metadata = parent_link.get("metadata") or {}
+        user_task_id = parent_metadata.get("user_task_id") or parent_link.get("parent_local_id")
+        if not user_task_id:
+            return None
+        user_task = self.store.find_user_task(user_task_id)
+        if not user_task:
+            return None
+        assignee = _task_assignee(child_task)
+        worker = _agent_for_assignee(self.store, assignee)
+        if not worker:
+            logger.warning(
+                "[kanban-sync] skip orphan child task=%s assignee=%s reason=unknown_agent",
+                child_id,
+                assignee or "none",
+            )
+            return None
+        parent_round = int(parent_metadata.get("round") or user_task.get("current_round") or 1)
+        target_round = parent_round + 1 if parent_link.get("kanban_role") in {"review", "summary"} else parent_round
+        try:
+            self.store.reopen_user_task_for_external_workers(user_task_id, target_round)
+        except ValueError as exc:
+            logger.warning("[kanban-sync] skip orphan child task=%s error=%s", child_id, exc)
+            return None
+        title = _task_title(child_task)
+        body = _task_body(child_task)
+        delegation = self.store.create_delegation(
+            leader_agent_id=user_task["leader_agent_id"],
+            assignments=[
+                {
+                    "to_agent_id": worker["agent_id"],
+                    "content": body or title or f"处理 Kanban 子任务 {child_id}",
+                }
+            ],
+            summary_instruction="请复盘外部 Kanban 子任务结果。",
+            user_task_id=user_task_id,
+            round_number=target_round,
+        )
+        assignment = delegation["assignments"][0]
+        link = self.store.upsert_kanban_task_link(
+            local_type="assignment",
+            local_id=assignment["assignment_id"],
+            kanban_task_id=child_id,
+            kanban_role="worker",
+            kanban_status=task_status(child_task) or "ready",
+            assignee_profile=worker["profile_name"],
+            parent_local_id=user_task_id,
+            last_result=task_result(child_task),
+            last_summary=_task_summary(child_task),
+            metadata={
+                "delegation_id": delegation["delegation_id"],
+                "user_task_id": user_task_id,
+                "round": target_round,
+                "kind": "worker",
+                "task_title": title,
+                "parent_task_id": parent_task_id,
+                "assignee_agent_id": worker["agent_id"],
+                "adopted_external_child": True,
+                "created_by_builtin_kanban_create": True,
+            },
+        )
+        self.store.push_event(
+            "kanban.orphan_child.adopted",
+            worker["agent_id"],
+            assignment["assignment_id"],
+            {
+                "text": f"已接管外部 Kanban 子任务 {child_id}",
+                "kanban_task_id": child_id,
+                "parent_task_id": parent_task_id,
+                "user_task_id": user_task_id,
+            },
+        )
+        return link
+
     def _create_ready_review_tasks(self) -> None:
         snapshot = self.store.snapshot()
         for user_task in snapshot["user_tasks"]:
@@ -445,6 +569,42 @@ def _task_title(task: dict[str, Any]) -> str:
     return ""
 
 
+def _task_body(task: dict[str, Any]) -> str:
+    for key in ("body", "description", "content"):
+        value = task.get(key)
+        if value:
+            return str(value)
+    nested = task.get("task")
+    if isinstance(nested, dict):
+        return _task_body(nested)
+    return ""
+
+
+def _task_assignee(task: dict[str, Any]) -> str:
+    for key in ("assignee", "assignee_profile", "owner"):
+        value = task.get(key)
+        if value:
+            return str(value)
+    nested = task.get("task")
+    if isinstance(nested, dict):
+        return _task_assignee(nested)
+    return ""
+
+
+def _task_children(task: dict[str, Any]) -> list[str]:
+    values = task.get("children") or task.get("child_task_ids") or []
+    if isinstance(values, str):
+        result = [values]
+    elif isinstance(values, list):
+        result = [str(item) for item in values if item]
+    else:
+        result = []
+    nested = task.get("task")
+    if not result and isinstance(nested, dict):
+        return _task_children(nested)
+    return result
+
+
 def _task_has_started(task: dict[str, Any]) -> bool:
     if task.get("started_at") or task.get("completed_at"):
         return True
@@ -496,6 +656,16 @@ def _agent_for_link(runtime_store: RuntimeStore, link: dict) -> str:
     return ""
 
 
+def _agent_for_assignee(runtime_store: RuntimeStore, assignee: str) -> dict | None:
+    normalized = (assignee or "").strip()
+    if not normalized:
+        return None
+    for agent in runtime_store.snapshot()["agents"]:
+        if agent.get("profile_name") == normalized or agent.get("agent_id") == normalized:
+            return agent
+    return None
+
+
 def _assignments_for_user_task(snapshot: dict, user_task_id: str) -> list[dict]:
     result = []
     for delegation in snapshot["delegations"]:
@@ -540,7 +710,7 @@ def _format_review_body(user_task: dict, assignments: list[dict], round_number: 
         f"max_rounds: {max_rounds}\n\n"
         "长时任务 checkpoint：基于用户目标和本轮 worker 结果三选一。\n"
         "1. 已完成：kanban_complete(summary=最终答复)。\n"
-        "2. 未完成且 round < max_rounds：用 mcp_agent_bus_create_kanban_worker_tasks 派发下一轮新任务，必须传 user_task_id 和当前 review Kanban task id 作为 parent_task_id；不要重复当前轮任务；创建后 kanban_complete(summary=本轮复盘和下一轮计划)。\n"
+        "2. 未完成且 round < max_rounds：只能用 mcp_agent_bus_create_kanban_worker_tasks 派发下一轮可追踪 worker 子任务，必须传 user_task_id 和当前 review Kanban task id 作为 parent_task_id；严禁使用内置 kanban_create / kanban_comment / kanban_assign 创建或模拟 worker 子任务，否则任务不会进入项目 kanban_task_links，UI 不追踪也不会稳定派发；不要重复当前轮任务；创建后 kanban_complete(summary=本轮复盘和下一轮计划)。\n"
         "3. 无法继续或已达 max_rounds：kanban_complete(summary=当前最佳结果和未完成/阻塞原因)，不要继续派发。\n\n"
         "用户原始任务：\n"
         f"{user_task.get('content') or ''}\n\n"

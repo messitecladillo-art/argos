@@ -239,6 +239,34 @@ class UserTasksMixin:
         self.push_agents_changed()
         return snapshot
 
+    def reopen_user_task_for_external_workers(self, user_task_id: str, target_round: int) -> dict:
+        with self._lock:
+            task = self._find_user_task_locked(user_task_id)
+            current_round = int(task.get("current_round") or 1)
+            max_rounds = int(task.get("max_rounds") or DEFAULT_MAX_TASK_ROUNDS)
+            resolved_round = max(current_round, int(target_round or current_round))
+            if resolved_round > max_rounds:
+                raise ValueError("max rounds reached for this user task")
+            task["current_round"] = resolved_round
+            task["status"] = "waiting_workers"
+            task["dispatch_closed"] = True
+            task["summary_requested_at"] = None
+            task["completed_at"] = None
+            leader = next((a for a in self.agents if a["agent_id"] == task["leader_agent_id"]), None)
+            if leader is not None:
+                leader["orchestration_state"] = "waiting_workers"
+                leader["current_task"] = "等待 worker 返回"
+                leader["queue_depth"] = max(leader.get("queue_depth") or 0, 1)
+                leader["last_active_at"] = now_iso()
+            snapshot = dict(task)
+            leader_snapshot = dict(leader) if leader is not None else None
+        self._persist("upsert_user_task", snapshot)
+        if leader_snapshot is not None:
+            self._persist("upsert_agent", leader_snapshot)
+        _log_store("user_task_reopened_external_workers", user_task_id=user_task_id, current_round=snapshot["current_round"])
+        self.push_agents_changed()
+        return snapshot
+
     def mark_user_task_blocked(self, user_task_id: str, reason: str = "") -> None:
         with self._lock:
             task = self._find_user_task_locked(user_task_id)
