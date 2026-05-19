@@ -46,7 +46,7 @@ run.py           本地开发启动入口
 - 操作系统：Linux / macOS（依赖 `pexpect`，**不支持原生 Windows**；Windows 用户请使用 WSL2）
 - Python 3.10+
 - 已安装并配置好的 [Hermes Agent](https://hermes-agent.nousresearch.com/docs/getting-started)
-- Hermes CLI 需要支持 `profile`、`acp`、`kanban` 等子命令
+- Hermes Agent v0.12.0及以上版本，Hermes CLI 需要支持 `profile`、`acp`、`kanban` 等子命令
 
 ### 2. 安装依赖
 
@@ -72,7 +72,14 @@ pip install -r requirements.txt
 | `KANBAN_DEFAULT_WORKSPACE` | `scratch` | Kanban 任务默认 workspace |
 | `KANBAN_AUTO_DISPATCH` | `0` | 首次无持久化设置时，自动 Dispatch 开关的默认值 |
 
-### 4. 启动
+### 4. 配置调整
+需要关闭hermes agent的config.yaml中的dispatch_in_gateway
+```
+kanban:
+  dispatch_in_gateway: false
+```
+
+### 5. 启动
 
 ```bash
 python run.py
@@ -80,7 +87,7 @@ python run.py
 
 访问 [http://127.0.0.1:5050](http://127.0.0.1:5050)。
 
-### 5. 运行测试
+### 6. 运行测试
 
 ```bash
 pytest
