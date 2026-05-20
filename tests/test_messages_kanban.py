@@ -17,7 +17,7 @@ def _agent(agent_id: str, profile_name: str, role: str, workspace_path: str | No
         "workspace_path": workspace_path or f"/tmp/{profile_name}",
         "status": "idle",
         "current_task": "空闲",
-        "runtime_status": "stopped",
+        "runtime_status": "running",
         "interaction_state": "idle",
         "orchestration_state": "none",
         "queue_depth": 0,

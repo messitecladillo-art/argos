@@ -18,6 +18,7 @@ from .services.agent_status import agent_dispatch_block_reason, is_agent_dispatc
 from .services.kanban import extract_task_id, kanban_service, task_status
 from .services.kanban_dispatch import dispatch_worker
 from .services.kanban_workspace import workspace_for_agent
+from .services.human_input import create_human_input_task
 
 mcp = FastMCP("hermes-agents", streamable_http_path="/")
 logger = logging.getLogger("hermes.agent_state")
@@ -98,6 +99,27 @@ def dispatch_parallel(
         assignments=assignments,
         from_agent_id=from_agent_id,
         summary_instruction=summary_instruction,
+    )
+
+
+@mcp.tool()
+def request_human_input(
+    question: str,
+    from_agent_id: str,
+    context: str = "",
+    options: list[str] | None = None,
+    parent_task_id: str = "",
+    user_task_id: str = "",
+) -> dict:
+    """Agent 在任务中需要用户决策/补充信息时，创建人工处理 Kanban 任务。"""
+    return create_human_input_task(
+        store,
+        question=question,
+        context=context,
+        options=options,
+        from_agent_id=from_agent_id,
+        parent_task_id=parent_task_id,
+        user_task_id=user_task_id,
     )
 
 
@@ -503,6 +525,9 @@ def _format_worker_kanban_body(
         f"user_task_id: {user_task_id or ''}\n"
         f"leader_agent_id: {leader_agent_id}\n\n"
         "请直接执行子任务；结束前必须调用 kanban_complete(summary=结论/依据/完成或阻塞)，不要只输出自然语言。\n\n"
+        "如果执行中必须由用户确认、选择或补充信息才能继续，调用 "
+        "mcp_agent_bus_request_human_input(question, from_agent_id, context, options, parent_task_id, user_task_id)，"
+        "不要原地等待或自行猜测。\n\n"
         f"{workspace_guidance}\n\n"
         "子任务内容：\n"
         f"{assignment['content']}"

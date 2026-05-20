@@ -198,6 +198,7 @@ const teamRuntimeLabels = {
 };
 const kanbanPanelsStorageKey = "hermesKanbanPanelsExpanded";
 const kanbanAutoUnblockDelayMs = 5000;
+const KANBAN_TERMINAL_STATUSES = new Set(["done", "archived", "blocked", "failed", "crashed", "timed_out", "gave_up"]);
 const kanbanState = {
   links: Array.isArray(window.__BOOTSTRAP__?.kanban_task_links)
     ? window.__BOOTSTRAP__.kanban_task_links.filter((link) => String(link?.kanban_status || "").toLowerCase() !== "archived")
@@ -523,11 +524,15 @@ function kanbanRoleLabel(role) {
   if (role === "parent") return "父任务";
   if (role === "worker") return "Worker";
   if (role === "summary") return "汇总";
+  if (role === "review") return "Review";
+  if (role === "human_input") return "人工处理";
+  if (role === "human_continuation") return "继续执行";
   return role || "任务";
 }
 
 function kanbanStatusLabel(status) {
   const value = String(status || "").toLowerCase();
+  if (value === "waiting_human") return "待人工处理";
   if (value === "pending_dispatch") return "待派发";
   if (value === "ready") return "待执行";
   if (value === "todo") return "待处理";
@@ -543,8 +548,17 @@ function kanbanStatusLabel(status) {
   return "未知";
 }
 
+function kanbanDisplayStatus(link) {
+  if (link?.kanban_role === "human_input") {
+    const value = String(link?.kanban_status || "").toLowerCase();
+    if (!KANBAN_TERMINAL_STATUSES.has(value)) return "waiting_human";
+  }
+  return link?.kanban_status || "";
+}
+
 function kanbanColumnForStatus(status) {
   const value = String(status || "").toLowerCase();
+  if (value === "waiting_human") return "blocked";
   if (value === "running") return "running";
   if (value === "done" || value === "archived") return "done";
   if (["blocked", "failed", "crashed", "timed_out", "gave_up"].includes(value)) return "blocked";
@@ -579,6 +593,14 @@ function openKanbanLinkTerminal(link) {
   setSelectedAgent(agent.agent_id, agent.name, true, { allowStopped: true });
   openTerminalPanel();
   showKanbanTaskLogInTerminal(link, agent);
+}
+
+function openKanbanTask(link) {
+  if (kanbanTaskCanAnswer(link)) {
+    answerHumanInputTask(link);
+    return;
+  }
+  openKanbanLinkTerminal(link);
 }
 
 function clearKanbanTerminalLog() {
@@ -789,6 +811,11 @@ function kanbanTaskCanArchive(link) {
   return Boolean(link?.kanban_task_id);
 }
 
+function kanbanTaskCanAnswer(link) {
+  return link?.kanban_role === "human_input"
+    && !KANBAN_TERMINAL_STATUSES.has(String(link?.kanban_status || "").toLowerCase());
+}
+
 function renderKanbanAssigneeOptions(agents = window.__BOOTSTRAP__?.agents || []) {
   if (!kanbanAssigneeTrigger) return;
   const previous = selectedKanbanAssigneeId;
@@ -861,6 +888,9 @@ function ensureKanbanContextMenu() {
     <button class="agent-context-menu__item" type="button" data-kanban-unblock>
       解除阻塞
     </button>
+    <button class="agent-context-menu__item" type="button" data-kanban-answer>
+      回答
+    </button>
     <button class="agent-context-menu__item agent-context-menu__item--danger" type="button" data-kanban-archive>
       删除
     </button>
@@ -882,6 +912,7 @@ function showKanbanTaskContextMenu(event, link) {
   const menu = ensureKanbanContextMenu();
   const dispatchBtn = menu.querySelector("[data-kanban-dispatch]");
   const unblockBtn = menu.querySelector("[data-kanban-unblock]");
+  const answerBtn = menu.querySelector("[data-kanban-answer]");
   const archiveBtn = menu.querySelector("[data-kanban-archive]");
   menu.dataset.taskId = link?.kanban_task_id || "";
   menu.dataset.localId = link?.local_id || "";
@@ -895,6 +926,11 @@ function showKanbanTaskContextMenu(event, link) {
     unblockBtn.hidden = !canUnblock;
     unblockBtn.disabled = !canUnblock;
     unblockBtn.textContent = "解除阻塞";
+  }
+  if (answerBtn) {
+    const canAnswer = kanbanTaskCanAnswer(link);
+    answerBtn.hidden = !canAnswer;
+    answerBtn.disabled = !canAnswer;
   }
   if (archiveBtn) {
     const canArchive = kanbanTaskCanArchive(link);
@@ -958,6 +994,12 @@ async function handleKanbanContextMenuClick(event) {
     }
     return;
   }
+  const answerBtn = event.target.closest("[data-kanban-answer]");
+  if (answerBtn && !answerBtn.disabled) {
+    closeKanbanContextMenu();
+    await answerHumanInputTask(link);
+    return;
+  }
   const archiveBtn = event.target.closest("[data-kanban-archive]");
   if (archiveBtn && !archiveBtn.disabled) {
     const confirmed = await confirmAction({
@@ -999,7 +1041,7 @@ function renderKanbanTasks() {
   ];
   const grouped = new Map([...baseColumns, { key: "unknown", title: "未知" }].map((column) => [column.key, []]));
   links.forEach((link) => {
-    const key = kanbanColumnForStatus(link.kanban_status);
+    const key = kanbanColumnForStatus(kanbanDisplayStatus(link));
     grouped.get(key).push(link);
   });
   const columns = [...baseColumns];
@@ -1045,15 +1087,16 @@ function renderKanbanTasks() {
       if (kanbanState.deletingTaskIds.has(link.kanban_task_id)) card.classList.add("is-deleting");
       card.setAttribute("role", "button");
       card.tabIndex = 0;
-      card.title = "打开对应 Agent 终端";
-      card.addEventListener("click", () => openKanbanLinkTerminal(link));
+      card.title = kanbanTaskCanAnswer(link) ? "回答人工处理" : "打开对应 Agent 终端";
+      card.addEventListener("click", () => openKanbanTask(link));
       card.addEventListener("contextmenu", (event) => showKanbanTaskContextMenu(event, link));
       card.addEventListener("keydown", (event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
-        openKanbanLinkTerminal(link);
+        openKanbanTask(link);
       });
       const resultPreview = link.last_result ? String(link.last_result).slice(0, 96) : "";
+      const humanQuestion = link.kanban_role === "human_input" ? String(link.metadata?.question || "").slice(0, 120) : "";
       const agent = agentForKanbanLink(link);
       const assigneeName = agent?.name || link.assignee_profile || "unassigned";
       const taskTitle = link.metadata?.task_title || kanbanRoleLabel(link.kanban_role);
@@ -1061,9 +1104,10 @@ function renderKanbanTasks() {
       card.innerHTML = `
         <div class="kanban-task-card__top">
           <strong title="${escapeHtml(taskTitle)}">${escapeHtml(taskTitle)}</strong>
-          <span class="kanban-task-badge">${escapeHtml(kanbanStatusLabel(link.kanban_status))}</span>
+          <span class="kanban-task-badge">${escapeHtml(kanbanStatusLabel(kanbanDisplayStatus(link)))}</span>
         </div>
         <p>执行人：${escapeHtml(assigneeName)}</p>
+        ${humanQuestion ? `<div class="kanban-task-card__result">${escapeHtml(humanQuestion)}</div>` : ""}
         ${resultPreview ? `<div class="kanban-task-card__result">${escapeHtml(resultPreview)}</div>` : ""}
         <small>创建时间：${escapeHtml(createdAt)}</small>
       `;
@@ -1071,6 +1115,45 @@ function renderKanbanTasks() {
     });
     kanbanTaskList.appendChild(section);
   });
+}
+
+async function answerHumanInputTask(link) {
+  const taskId = link?.kanban_task_id || "";
+  if (!taskId) return;
+  const wrapper = document.createElement("div");
+  wrapper.className = "confirm-modal__checklist";
+  const question = document.createElement("p");
+  question.textContent = link.metadata?.question || "请填写人工处理结果。";
+  const textarea = document.createElement("textarea");
+  textarea.rows = 4;
+  textarea.placeholder = "输入给 Agent 的答复";
+  textarea.style.width = "100%";
+  textarea.style.boxSizing = "border-box";
+  wrapper.appendChild(question);
+  wrapper.appendChild(textarea);
+  const confirmed = await confirmAction({
+    title: "回答人工处理",
+    message: wrapper,
+    confirmText: "提交答案",
+    confirmVariant: "default",
+  });
+  const answer = textarea.value.trim();
+  if (!confirmed || !answer) return;
+  setKanbanStatus(`正在提交人工答复：${taskId}…`);
+  try {
+    const response = await fetch(`/api/kanban/tasks/${encodeURIComponent(taskId)}/answer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ answer }),
+    });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok || !data.ok) throw new Error(data.error || "提交答案失败");
+    kanbanState.links = Array.isArray(data.links) ? data.links : kanbanState.links;
+    renderKanbanTasks();
+    setKanbanStatus("人工答复已提交，已创建继续执行任务。", "success");
+  } catch (error) {
+    setKanbanStatus(error.message || "提交答案失败", "error");
+  }
 }
 
 async function clearColumnKanbanTasks(event) {

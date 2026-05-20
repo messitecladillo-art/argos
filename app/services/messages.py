@@ -18,6 +18,11 @@ CONCISE_REPLY_RULES = (
 )
 
 KANBAN_CLOSE_RULE = "当前 Kanban 任务必须以 kanban_complete(summary=...) 或 kanban_block(...) 结束；不要只输出自然语言。\n"
+HUMAN_INPUT_RULE = (
+    "遇到必须由用户确认、选择或补充信息才能继续时，调用 "
+    "mcp_agent_bus_request_human_input(question, from_agent_id, context, options, parent_task_id, user_task_id)，"
+    "不要原地等待或自行猜测。\n"
+)
 
 
 def find_leader_agent_id(runtime_store: RuntimeStore) -> str:
@@ -57,9 +62,10 @@ def _format_user_task(content: str, leader_id: str) -> str:
         f"0. {KANBAN_CLOSE_RULE}"
         "1. 先调用 mcp_agent_bus_list_workers()；需要协作时只能用 mcp_agent_bus_create_kanban_worker_tasks 创建可追踪 worker Kanban 子任务。\n"
         f"2. from_agent_id 必须精确填写 `{leader_id}`；不要填 leader、名称或别名。\n"
-        "3. 创建 worker 子任务后立即 kanban_complete(summary=本轮调度/复盘)，这不是最终答复；若无需 worker，才直接完成并回复用户。\n"
+        "3. 创建 worker 子任务后，必须立即调用 kanban_complete(summary=本轮调度/复盘)，这只表示本轮调度或复盘完成，不是最终答复；若无需 worker，才直接完成并回复用户。\n"
         "4. review/checkpoint：完成则 kanban_complete(summary=最终答复)；未完成且未达上限则带 user_task_id 和当前 review task 的 parent_task_id 继续派发新任务；无法继续则 kanban_block(reason=...) 或 complete 阻塞说明。\n"
-        "5. 严禁用内置 kanban_create / kanban_comment / kanban_assign 创建或模拟 worker 子任务；若已误用 kanban_create，改用 mcp_agent_bus_create_kanban_worker_tasks。\n"
+        "5. 严禁使用内置 kanban_create / kanban_comment / kanban_assign 创建或模拟 worker 子任务；若已误用 kanban_create，改用 mcp_agent_bus_create_kanban_worker_tasks。\n"
+        f"6. {HUMAN_INPUT_RULE}"
         f"{CONCISE_REPLY_RULES}"
         "用户原始任务：\n"
         f"{content}"
@@ -97,6 +103,7 @@ def _format_direct_worker_task(content: str, worker: dict) -> str:
         "执行规则：\n"
         f"0. {KANBAN_CLOSE_RULE}"
         "1. 不要派回 Leader，除非任务明确要求团队协作。\n"
+        f"2. {HUMAN_INPUT_RULE}"
         f"{CONCISE_REPLY_RULES}"
         "用户原始任务：\n"
         f"{content}"

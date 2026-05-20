@@ -712,6 +712,7 @@ def _format_review_body(user_task: dict, assignments: list[dict], round_number: 
         "1. 已完成：kanban_complete(summary=最终答复)。\n"
         "2. 未完成且 round < max_rounds：只能用 mcp_agent_bus_create_kanban_worker_tasks 派发下一轮可追踪 worker 子任务，必须传 user_task_id 和当前 review Kanban task id 作为 parent_task_id；严禁使用内置 kanban_create / kanban_comment / kanban_assign 创建或模拟 worker 子任务，否则任务不会进入项目 kanban_task_links，UI 不追踪也不会稳定派发；不要重复当前轮任务；创建后 kanban_complete(summary=本轮复盘和下一轮计划)。\n"
         "3. 无法继续或已达 max_rounds：kanban_complete(summary=当前最佳结果和未完成/阻塞原因)，不要继续派发。\n\n"
+        "如果必须由用户确认、选择或补充信息才能继续，调用 mcp_agent_bus_request_human_input(question, from_agent_id, context, options, parent_task_id, user_task_id)，不要原地等待或自行猜测。\n\n"
         "用户原始任务：\n"
         f"{user_task.get('content') or ''}\n\n"
         "本轮 Worker 结果：\n"

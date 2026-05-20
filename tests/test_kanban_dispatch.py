@@ -6,6 +6,38 @@ from app.models.store import RuntimeStore
 from app.services.kanban_dispatch import KanbanDispatchWorker
 
 
+def _agent(agent_id: str, profile_name: str, role: str = "leader") -> dict:
+    return {
+        "agent_id": agent_id,
+        "profile_name": profile_name,
+        "name": profile_name.title(),
+        "role": role,
+        "description": "",
+        "is_leader": role == "leader",
+        "workspace_path": f"/tmp/{profile_name}",
+        "status": "idle",
+        "current_task": "空闲",
+        "runtime_status": "running",
+        "interaction_state": "idle",
+        "orchestration_state": "none",
+        "queue_depth": 0,
+        "pending_interaction": None,
+        "load": 0,
+        "last_input": "",
+        "last_output": "",
+        "last_output_at": "",
+        "readiness_status": "ready",
+        "readiness_message": "",
+        "created_at": "2026-04-26T00:00:00Z",
+        "last_active_at": "2026-04-26T00:00:00Z",
+    }
+
+
+def _register_dispatch_agents(runtime_store: RuntimeStore) -> None:
+    runtime_store.register_agent(_agent("agent_leader", "leader", "leader"))
+    runtime_store.register_agent(_agent("agent_developer", "developer", "worker"))
+
+
 class FakeKanban:
     def __init__(self):
         self.assigned = []
@@ -67,6 +99,7 @@ def test_dispatch_skips_local_running_tasks_without_respawning():
 
 def test_dispatch_runs_after_releasing_pending_task():
     runtime_store = RuntimeStore()
+    _register_dispatch_agents(runtime_store)
     runtime_store.upsert_kanban_task_link(
         local_type="user_task",
         local_id="ut_1",
@@ -130,6 +163,7 @@ def test_dispatch_preflight_syncs_running_done_task_and_skips():
 
 def test_dispatch_lease_prevents_immediate_duplicate_when_remote_stays_ready():
     runtime_store = RuntimeStore()
+    _register_dispatch_agents(runtime_store)
     runtime_store.upsert_kanban_task_link(
         local_type="user_task",
         local_id="ut_1",
@@ -155,6 +189,7 @@ def test_dispatch_lease_prevents_immediate_duplicate_when_remote_stays_ready():
 
 def test_dispatch_marks_only_spawned_tasks_running():
     runtime_store = RuntimeStore()
+    _register_dispatch_agents(runtime_store)
     runtime_store.upsert_kanban_task_link(
         local_type="user_task",
         local_id="ut_1",
@@ -190,6 +225,7 @@ def test_dispatch_marks_only_spawned_tasks_running():
     assert "dispatch_started_at" not in child["metadata"]
 def test_dispatch_task_now_marks_only_target_running(monkeypatch):
     runtime_store = RuntimeStore()
+    _register_dispatch_agents(runtime_store)
     runtime_store.upsert_kanban_task_link(
         local_type="user_task",
         local_id="ut_1",
@@ -222,6 +258,7 @@ def test_dispatch_task_now_marks_only_target_running(monkeypatch):
 
 def test_dispatch_task_now_releases_pending_dispatch_target_only():
     runtime_store = RuntimeStore()
+    _register_dispatch_agents(runtime_store)
     runtime_store.upsert_kanban_task_link(
         local_type="user_task",
         local_id="ut_1",

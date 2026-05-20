@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+
 from app import mcp_server
 from app.models.store import RuntimeStore
 from app.services import mcp_installer
@@ -256,3 +258,42 @@ def test_non_leader_cannot_create_kanban_tasks(monkeypatch):
         assert "leader" in str(exc)
     else:
         raise AssertionError("expected ValueError")
+
+
+def test_agent_can_request_human_input_as_kanban_task(monkeypatch):
+    runtime_store = RuntimeStore()
+    runtime_store.register_agent(_agent("agent_lead", "lead", "leader"))
+    monkeypatch.setattr(mcp_server, "store", runtime_store)
+
+    calls = []
+
+    def fake_create_task(title, **kwargs):
+        calls.append({"title": title, **kwargs})
+        return {"task_id": "kb_human_1", "status": "ready"}
+
+    monkeypatch.setattr(mcp_server.kanban_service, "create_task", fake_create_task, raising=False)
+
+    result = mcp_server.request_human_input(
+        question="部署到生产前是否继续？",
+        context="测试已通过，但需要用户确认上线窗口。",
+        options=["继续", "暂停"],
+        from_agent_id="agent_lead",
+        parent_task_id="kb_parent",
+        user_task_id="ut_1234",
+    )
+
+    assert result["ok"] is True
+    assert result["status"] == "waiting_human"
+    assert result["human_task_id"] == "kb_human_1"
+    assert calls[0]["title"] == "人工处理：部署到生产前是否继续？"
+    assert calls[0]["assignee"] is None
+    assert calls[0]["parent"] == "kb_parent"
+    expected_digest = hashlib.sha1("agent_lead\nkb_parent\nut_1234\n部署到生产前是否继续？".encode("utf-8")).hexdigest()[:12]
+    assert calls[0]["idempotency_key"] == f"human-input:kb_parent:{expected_digest}"
+    assert "部署到生产前是否继续？" in calls[0]["body"]
+    link = runtime_store.find_kanban_task_link(kanban_task_id="kb_human_1")
+    assert link["kanban_role"] == "human_input"
+    assert link["kanban_status"] == "waiting_human"
+    assert link["metadata"]["question"] == "部署到生产前是否继续？"
+    assert link["metadata"]["requester_agent_id"] == "agent_lead"
+    assert link["metadata"]["options"] == ["继续", "暂停"]

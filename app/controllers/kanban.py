@@ -8,6 +8,7 @@ from flask import Blueprint, jsonify, request
 from ..models.store import store
 from ..services.kanban import KanbanError, kanban_service
 from ..services.kanban_dispatch import dispatch_worker
+from ..services import human_input as human_input_service
 from ..services.kanban_sync import sync_worker
 from ..services.settings import settings_service
 
@@ -132,6 +133,22 @@ def unblock_task(task_id: str):
         sync_worker.sync_once()
         dispatch_worker.trigger_async()
         return jsonify({"ok": True, "output": output, "links": _visible_kanban_links()})
+    except KanbanError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 500
+
+
+@bp.post("/tasks/<task_id>/answer")
+def answer_human_input(task_id: str):
+    payload = request.get_json(silent=True) or {}
+    try:
+        result = human_input_service.answer_human_input_task(
+            store,
+            human_task_id=task_id,
+            answer=payload.get("answer") or "",
+        )
+        return jsonify({**result, "links": _visible_kanban_links()})
+    except ValueError as exc:
+        return jsonify({"ok": False, "error": str(exc)}), 400
     except KanbanError as exc:
         return jsonify({"ok": False, "error": str(exc)}), 500
 
