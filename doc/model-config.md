@@ -1,47 +1,28 @@
-# 大模型配置功能设计方案
+# 大模型配置实现说明
 
-> 目标：在本地 Web 系统中维护可复用的大模型配置，并允许每个 Agent 选择其中一条配置。保存后写入对应 Hermes profile 的 `config.yaml`，Agent 重启后使用新模型。
+本文档说明当前项目中的大模型配置管理实现。系统维护可复用的模型配置，并允许每个 Agent 将其中一条配置写入自己的 Hermes profile `config.yaml`。
 
----
+## 1. 当前能力
 
-## 1. 已确认决策
-
-- 一期只做必要字段：`name`、`model`、`base_url`、`api_key`。
-- `provider` 不暴露给用户，统一写入 `custom`。
-- `reasoning_effort` 暂不做，沿用 Hermes profile 原配置。
-- `api_key` 允许明文保存在本地数据库中。
-- 模型配置作为全局资源维护，Agent 通过选择配置来应用。
-- 运行中的 Agent 修改模型后需要重启生效；保存后提示重启。
-
----
-
-## 2. 范围与边界
-
-### 2.1 要做
-
-- 新增全局“大模型配置”管理能力。
+- 维护全局模型配置列表。
 - 支持新增、编辑、删除、查看模型配置。
-- 新建 Agent 时可选择模型配置。
-- 已有 Agent 可在配置菜单中切换模型配置。
-- 应用模型配置时，写入对应 Hermes profile 的 `model` 节点。
-- Agent 列表展示当前使用的模型名。
-- 做模型连通性测试。
+- 支持测试模型配置连通性。
+- 新建 Agent 后可应用模型配置。
+- 已有 Agent 可切换模型配置。
+- Agent 当前模型以其 profile `config.yaml` 为准。
 
-### 2.2 暂不做
+当前只支持必要字段：
 
-- 不做多 provider 复杂抽象。
-- 不做 OpenRouter / Bedrock / Anthropic 等专用字段。
-- 不做 API key 加密存储。
-- 不做模型费用、上下文长度、能力标签管理。
-- 不做按 Leader / Worker 角色自动推荐模型。
+- `name`
+- `model`
+- `base_url`
+- `api_key`
 
----
+`provider` 固定写入 `custom`。`reasoning_effort` 不由本功能管理，沿用 Hermes profile 原有配置。
 
-## 3. 数据模型
+## 2. 数据模型
 
-### 3.1 DB 表：模型配置
-
-新增表 `model_configs`：
+数据库表：`model_configs`
 
 ```python
 class ModelConfigRecord(TimestampMixin, Base):
@@ -57,35 +38,17 @@ class ModelConfigRecord(TimestampMixin, Base):
 字段说明：
 
 | 字段 | 说明 | 示例 |
-|---|---|---|
+| --- | --- | --- |
 | `name` | 用户可读配置名 | `公司网关` |
 | `model` | 实际模型名 | `gpt-5.4` |
 | `base_url` | OpenAI 兼容接口地址 | `https://example.com/v1` |
 | `api_key` | 明文 API Key 或环境变量占位符 | `sk-xxx` / `${OPENAI_API_KEY}` |
 
-### 3.2 Agent 当前模型来源
+模型配置是可复用模板，不是 Agent 运行时真相源。Agent 当前模型从 profile `config.yaml` 读取。
 
-Agent 当前模型以 Hermes profile 的 `config.yaml` 为准：
+## 3. 写入 profile
 
-```yaml
-model:
-  default: gpt-5.4
-  provider: custom
-  base_url: https://example.com/v1
-  api_key: sk-xxx
-```
-
-DB 中的 `model_configs` 是可复用模板，不作为运行时真相源。
-
----
-
-## 4. 写入 Hermes profile
-
-应用模型配置时读取：
-
-`~/.hermes/profiles/<profile_name>/config.yaml`
-
-只更新 `model` 节点：
+应用模型配置时，`app/services/profiles.py::apply_model_config(...)` 只更新 profile `config.yaml` 的 `model` 节点：
 
 ```yaml
 model:
@@ -95,58 +58,30 @@ model:
   api_key: <model_config.api_key>
 ```
 
-其他配置保持不变，例如 `agent`、`terminal`、`mcp_servers`、`toolsets`。
+其他配置保持不变，例如 `mcp_servers`、`toolsets` 等。
 
----
+## 4. 关键文件
 
-## 5. API 设计
+| 文件 | 作用 |
+| --- | --- |
+| `app/controllers/model_configs.py` | 模型配置 REST API |
+| `app/services/model_configs.py` | CRUD、应用到 Agent、读取当前模型、连通性测试 |
+| `app/services/profiles.py` | 读写 profile `config.yaml` 和模型摘要 |
+| `tests/test_model_config_api.py` | 模型配置 API 测试 |
 
-### 5.1 模型配置 CRUD
+## 5. API
 
-#### `GET /api/model-configs`
+| 方法 | 路径 | 说明 |
+| --- | --- | --- |
+| GET | `/api/model-configs` | 返回全部模型配置 |
+| POST | `/api/model-configs` | 新增模型配置，返回 `{ok, item}`，状态码 `201` |
+| PUT | `/api/model-configs/<id>` | 更新模型配置 |
+| DELETE | `/api/model-configs/<id>` | 删除模型配置 |
+| POST | `/api/model-configs/<id>/test` | 测试模型配置 |
+| GET | `/api/agents/<agent_id>/model` | 读取 Agent 当前模型摘要 |
+| PUT | `/api/agents/<agent_id>/model` | 应用模型配置到 Agent |
 
-返回全部模型配置。
-
-```json
-{
-  "items": [
-    {
-      "id": 1,
-      "name": "公司网关",
-      "model": "gpt-5.4",
-      "base_url": "https://example.com/v1",
-      "api_key": "sk-xxx"
-    }
-  ]
-}
-```
-
-#### `POST /api/model-configs`
-
-新增模型配置。
-
-```json
-{
-  "name": "公司网关",
-  "model": "gpt-5.4",
-  "base_url": "https://example.com/v1",
-  "api_key": "sk-xxx"
-}
-```
-
-#### `PUT /api/model-configs/<id>`
-
-更新模型配置。
-
-#### `DELETE /api/model-configs/<id>`
-
-删除模型配置。
-
-如果已有 Agent 的当前 profile 与该配置内容一致，删除不影响 Agent，因为 Agent 已经写入了自己的 `config.yaml`。
-
-### 5.2 Agent 应用模型配置
-
-#### `PUT /api/agents/<agent_id>/model`
+应用模型配置请求：
 
 ```json
 {
@@ -154,109 +89,57 @@ model:
 }
 ```
 
-处理逻辑：
+成功返回包含：
 
-1. 查找 Agent。
-2. 查找模型配置。
-3. 校验 Agent 是否可修改模型。
-4. 写入 Hermes profile `config.yaml`。
-5. 推送 Agent 变更事件。
-6. 返回当前模型摘要。
+- `agent`
+- `model`
+- `restart_required`
 
----
-
-## 6. 前端设计
-
-### 6.1 模型配置入口
-
-在页面增加“模型配置”入口，打开抽屉或弹窗。
-
-列表字段：
-
-- 配置名
-- 模型名
-- Base URL
-- API Key
-- 操作：编辑 / 删除
-
-### 6.2 新建 Agent
-
-新建 Agent 表单增加“模型配置”下拉框：
-
-- 默认选项：继承当前 Hermes active profile 配置
-- 其他选项：来自 `GET /api/model-configs`
-
-提交时如果选择了模型配置：
-
-1. 先创建 Agent。
-2. 再调用 `PUT /api/agents/<agent_id>/model` 应用模型配置。
-
-### 6.3 已有 Agent 切换模型
-
-Agent 配置菜单增加“模型配置”。
-
-交互：
-
-- 展示当前 profile 中读取到的 `model.default` 和 `base_url`。
-- 下拉选择一条模型配置。
-- 保存后提示：`模型配置已保存，重启 Agent 后生效。`
-
-### 6.4 Agent 列表展示
-
-Agent 行增加模型摘要：
-
-```text
-worker · frontend · gpt-5.4
-```
-
----
-
-## 7. 校验规则
+## 6. 校验规则
 
 - `name` 必填，去除首尾空格，不允许重复。
 - `model` 必填。
 - `base_url` 必填，必须以 `http://` 或 `https://` 开头。
-- `api_key` 必填，一期允许任意非空字符串。
+- `api_key` 必填。
 - `api_key` 可以是明文，也可以是 `${ENV_NAME}`。
 
----
+常见错误：
+
+| HTTP | 场景 |
+| --- | --- |
+| 400 | 字段缺失、URL 非法、名称重复 |
+| 404 | 模型配置或 Agent 不存在 |
+| 500 | profile 配置读写失败 |
+
+## 7. 连通性测试
+
+`POST /api/model-configs/<id>/test` 当前请求：
+
+```text
+GET <base_url>/models
+Authorization: Bearer <api_key>
+Accept: application/json
+```
+
+`2xx` 视为成功，其余 HTTP 状态或请求异常视为失败。
 
 ## 8. 生效时机
 
-HermesSession 当前启动方式是：
+Hermes 启动时读取 profile `config.yaml`：
 
 ```text
 hermes -p <profile_name>
 ```
 
-模型配置由 Hermes 启动时读取 profile `config.yaml`，所以修改后需要重启 Agent 才能稳定生效。
+因此修改模型配置后，正在运行的 Agent 需要重启才会稳定生效。接口会在 Agent 正在运行时返回 `restart_required: true`。
 
-一期策略：
+新建 Agent 表单如果选择了模型配置，前端当前流程是：
 
-- Agent 未运行：允许直接保存。
-- Agent 正在运行：允许保存，但 UI 明确提示“需重启生效”。
-- 后续可增强为保存后提供“一键重启 Agent”。
-
----
+1. 先调用 `POST /api/agents` 创建 Agent。
+2. 再调用 `PUT /api/agents/<agent_id>/model` 应用模型配置。
 
 ## 9. 与导入导出的关系
 
-一期建议：
+导入导出以 Agent profile 为主。模型配置模板本身不是 Agent 运行时真相源；profile `config.yaml` 中的模型配置会随 profile 配置按导入导出策略处理。
 
-- Agent 导入导出不默认携带全局 `model_configs`。
-- Agent profile 的 `config.yaml` 会按现有导入导出策略处理。
-- 如果 `config.yaml` 中是明文 API Key，导出时应继续按导入导出文档的敏感字段策略处理。
-
----
-
-## 10. 实施步骤建议
-
-1. 新增 DB 表与 repository 方法。
-2. 新增 `services/model_configs.py`。
-3. 新增 `profiles.update_model_config()` 与 `profiles.read_model_summary()`。
-4. 新增 `controllers/model_configs.py`。
-5. 在 Agent 创建与详情返回中带上模型摘要。
-6. 前端增加模型配置管理 UI。
-7. 前端增加 Agent 选择/切换模型 UI。
-8. 补充基础测试。
-
+如果 `config.yaml` 中包含明文 API Key，导出时按导入导出文档中的敏感字段策略处理。

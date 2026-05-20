@@ -1,4 +1,4 @@
-# Agent 导入导出方案
+# Agent 导入导出
 
 将电脑 A 上配置好的 Leader / Worker agents 打包导出，在电脑 B 上导入后显示内容与功能与 A 保持一致。
 
@@ -6,13 +6,13 @@
 
 ## 1. 需求范围
 
-- **导出**：选择一个或多个 agent（含 Leader），打包成单一可分发文件（`.hermes-team.zip`）。
+- **导出**：选择一个或多个 agent（含 Leader），打包成单一可分发 zip 文件。
 - **导入**：在目标机上解包并还原，使该 agent 立即可用 —— UI 列表能看到、点进去 SOUL / 技能 / MCP 配置都在、可以启动对话。
 - **目标一致性**：身份（name / role / description / is_leader）、SOUL.md、已装 Skills、已配 MCP Servers、人设 memories、基础 hermes profile 配置。
 - **非目标（v1 不做）**：
   - 运行时状态、消息历史、任务/委派/事件记录（属于 A 机的运行痕迹，不跟随迁移）。
   - Hermes CLI 本身的安装与模型 API Key（依赖 B 机自己的 `HERMES_HOME` 环境）。
-  - Workspace 工作目录内容（`~/agent_team/<name>/` 下的业务产物，体积大且机器相关）。
+  - Workspace 工作目录内容默认不导出；用户显式勾选 `包含 workspace` 时才会导出。
 
 ---
 
@@ -29,7 +29,7 @@
 
 ### 2.1 DB 字段筛选
 
-`AgentRecord` 中需重置为初始态、不导出的字段：
+`AgentRecord` 中会重置为初始态、不导出的字段：
 
 ```
 status, runtime_status, interaction_state, orchestration_state,
@@ -41,24 +41,24 @@ created_at/updated_at/deleted_at/db_*  (DB 自动生成)
 
 需要导出的字段：`agent_id`、`profile_name`、`name`、`role`、`description`、`is_leader`、`workspace_path`（可选，导入时按 B 机 `AGENT_TEAM_WORKSPACE_ROOT` 重建）、`current_task` 默认置 "空闲"。
 
-`AgentSkillInstallRecord` 全字段保留；`installed_at` 在 B 机重写。
+`AgentSkillInstallRecord` 除 `id` / DB 时间戳外保留；`installed_at` 在 B 机重写。
 
-`AgentMcpServerRecord` 全字段保留；`last_test_status` / `last_test_at` / `last_error` 在 B 机重置。
+`AgentMcpServerRecord` 除 `id` / DB 时间戳外保留；`last_test_status` / `last_test_at` / `last_error` 在导出时重置。
 
 ### 2.2 敏感字段处理
 
 - `config.yaml` 里 `api_key: ${OPENAI_API_KEY}` 是环境变量占位符，可直接带走。若检测到明文 key（如 `sk-...`）则在导出时替换为占位符并在 `SECRETS.md` 标红。
-- `agent_mcp_servers` 表中的 headers/env 凭据当前已脱敏存储（参见 `mcp_installer._mask_secrets`），导出时原样带走；运行时密钥由 B 机自己补齐。
+- MCP headers/env 凭据不存入 `agent_mcp_servers` 表；导出时从 profile `config.yaml` 中读取 MCP spec，并在 `SECRETS.md` 中提示目标机需要补齐的 secret key。
 - 导出包内提供 `SECRETS.md` 提示用户哪些凭据需要在 B 机重新配置。
 
 ---
 
 ## 3. 打包格式
 
-单一 `.zip`，结构：
+单一 `.zip`，当前文件名形如 `hermes-agent-team-<timestamp>.zip`，结构：
 
 ```
-team-export-<timestamp>.hermes-team.zip
+hermes-agent-team-<timestamp>.zip
 ├── manifest.json            # schema_version、导出时间、源主机信息、agent 清单、checksum
 ├── agents/
 │   └── <profile_name>/
@@ -102,16 +102,16 @@ team-export-<timestamp>.hermes-team.zip
 }
 ```
 
-导入前校验每文件 sha256 与 schema_version。
+导入前校验每文件 sha256、schema_version、profile_name、JSON payload 和 zip 路径安全。
 
 ### 3.2 Skills 的两种打包策略
 
 | 模式 | 体积 | B 机要求 | 适用 |
 |---|---|---|---|
-| **按源拉取（默认）** | 小 | 网络 + 源仓库可达 | 常规迁移 |
+| **不内联** | 小 | 网络 + 源仓库可达 | 常规迁移 |
 | **内联文件** | 大 | 离线即可 | 离线分发、源仓库可能失效 |
 
-导出时给用户勾选；推荐**默认"按源拉取 + 同时内联文件作为 fallback"**：先尝试 git 拉，失败回落到包内文件。
+导出时由用户勾选是否内联 skills 文件。当前 UI 默认勾选内联；导入时如果包内存在内联目录，则直接复制该目录；否则按 DB 记录中的 `source_url` / `source_ref` / `subdir` 从 Git 重新安装。
 
 ---
 
@@ -194,13 +194,12 @@ def import_archive(zip_path: Path) -> dict
    1. 保留包内 `profile_name`，按 `registry.agent_id_for(profile_name)` 重新生成 `agent_id`。
    2. `hermes profile create <name> --clone --no-alias`（幂等）。
    3. 覆盖写入 `SOUL.md` / `team-meta.json` / `memories/`。
-   4. `config.yaml` 合并：保留 B 机已有 `model` / `provider` / `api_key`，只写入 agent 专属节（如 `agent.personalities` 自定义部分）。
+   4. `config.yaml` 合并：以导入包配置为基础，保留目标机新建 profile 时已有的 `model` / `provider` / `api_key` / `providers`；如果双方都有 `mcp_servers`，则合并该字典。
    5. 写入 DB：`AgentRecord`（运行时字段重置为初始态：`status=idle`、`runtime_status=stopped`、`current_task="空闲"`、`load=0` 等）。
    6. 恢复 Skills：
       - 若 inline 且包内有目录：直接拷贝到 `profile/skills/<slug>/`，并插 `AgentSkillInstallRecord` 行。
       - 否则按 `source_url` + `source_ref` 调 `skill_installer.install_from_git` 装回。
-      - git 拉失败且有 inline 备份 → fallback 到 inline。
-   7. 恢复 MCP Servers：构造 `_RecordPayload`，调 `mcp_installer.add_mcp`（或内部 `_upsert_record`）写入 profile YAML + `AgentMcpServerRecord`。敏感凭据留空并记入返回结果的 "需补齐" 列表。
+   7. 恢复 MCP Servers：把导出记录中的 `spec` 写回 profile `config.yaml`，并恢复 `AgentMcpServerRecord` 元数据。
    8. 注册到运行时 `RuntimeStore`，触发 SSE 通知前端刷新列表。
 4. 返回每个 agent 的 `success / failed` 状态、重新生成的 `agent_id`、缺失凭据清单。
 
@@ -285,10 +284,10 @@ def import_archive(zip_path: Path) -> dict
   - 按源拉取 skills（不内联）
   - 整机替换导入：导入前清空 B 机所有 agents、workspace 与运行历史
   - 后端单测覆盖核心路径
-  - 命令行可用（`python -m app.cli transfer export/import`），UI 后置
+  - Web UI 导出 / 预检 / 导入
 - **M2（完整版，1 周）**
   - 多 agent 批量
-  - 内联 skills + git fallback
+  - 内联 skills
   - 非整机替换导入策略（rename / skip / overwrite，可选）
   - 前端导入导出弹窗
   - SECRETS.md 与缺失凭据提示
@@ -306,7 +305,7 @@ def import_archive(zip_path: Path) -> dict
 |---|---|
 | 明文 API key 误入导出包 | 导出前 secret 扫描 + `SECRETS.md` 提醒；扫描规则可配置 |
 | B 机 hermes CLI 版本不同导致 config.yaml schema 不兼容 | 导入时合并而非覆盖；记录源 hermes 版本到 manifest |
-| Skill 源仓库私有/失效 | 默认同时内联文件作为 fallback |
+| Skill 源仓库私有/失效 | 导出时勾选内联 skills 文件，导入时优先使用包内目录 |
 | profile_name 含非法字符 | 走 `PROFILE_NAME_RE` 校验，rename 时也需通过 |
 | 大体积 zip 占内存 | 流式读写，导出/导入均不一次性加载到内存 |
 | 导入中断导致脏状态 | 清空旧 agents 后再导入；单 agent 事务化；中断后 cleanup 临时目录 + 残留 profile |
