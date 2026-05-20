@@ -100,6 +100,14 @@ pytest
 - [MCP 管理](doc/mcp-management.md)
 - [Skill 管理](doc/skills-management.md)
 
+## 维护说明
+
+本项目作为开源项目发布，希望能为有需要的人提供参考和帮助。
+
+由于个人时间和精力有限，本项目将以尽力而为的方式维护。我可能无法及时回复 Issue、审核 Pull Request，或提供持续的技术支持。
+
+欢迎你根据自己的需要 Fork 本项目，并在此基础上自由修改和扩展。
+
 ## Author
 
 - 林克（Liu Wenbin）
