@@ -7,10 +7,11 @@
 > 3. 所有 Agent profile、MCP、Skill、数据库与运行时配置均仅保存在本机环境中，项目不会将这些数据上传到云端，可放心在本地配置和使用。
 > 4. 系统实际能力取决于本机 Hermes Agent 所配置和调用的模型。
 
-- **后端**：Flask + Starlette/Uvicorn (ASGI)
+- **后端**：Flask + Starlette/Uvicorn (ASGI)，生产级安全中间件
 - **通信协议**：MCP（Agent → 中枢）+ ACP（中枢 → Agent）+ Hermes Kanban
-- **存储**：SQLite
+- **存储**：SQLite（Alembic 版本化迁移）
 - **前端**：原生 HTML/JS，实时展示多 Agent 对话、终端输出与任务流转
+- **部署**：Docker 多阶段构建，非 root 运行，内置健康检查
 
 更多设计细节见 [doc/ARCHITECTURE.md](doc/ARCHITECTURE.md) 和 [doc/design.md](doc/design.md)。
 
@@ -24,18 +25,34 @@
 - 团队导入 / 导出，支持迁移 Agent profile、skills 与可选 workspace
 - MCP Server 安装管理，支持 `http` / `streamable_http` / `stdio`
 - Skill 安装管理，支持从 frontmatter 解析元信息
-- SOUL.md 人设编辑
+- SOUL.md 人设编辑与重新生成
+- 生产级安全中间件：API Token 鉴权、CORS、滑动窗口速率限制
+- 自进化学习系统：执行追踪、记忆库、主动学习引擎、A/B 评估
+- 健康检查端点 `/api/hermes/status`（DB 连接 / Hermes CLI / 环境变量）
+- 管理 CLI：`hermes-mgmt check|backup|info|migrate`
+- Docker 支持：多阶段构建、非 root 用户、内置健康检查
+- 密钥管理：.env 加载 + Docker secrets + API Key 脱敏
 
 ## 目录结构
 
 ```
-app/             Flask 应用（controllers / services / models / db / static / templates）
-  asgi.py        ASGI 入口，挂载 Flask + MCP Server
-  mcp_server.py  暴露给 Agent 的 MCP 工具
+app/             Flask 应用
+  asgi.py        ASGI 入口，挂载 Flask + MCP Server + WebSocket
+  cli.py         管理命令行工具（check / backup / info / migrate）
   config.py      环境变量与路径配置
+  controllers/   HTTP 路由控制器
+  db/            ORM 模型 + Alembic 迁移
+  learning/      自进化学习引擎（追踪 / 记忆 / 反馈 / 主动学习 / A/B 评估）
+  middleware/    安全中间件（鉴权 / CORS / 速率限制 / 错误处理）
+  models/        运行时状态存储 + 持久化桥接
+  services/      业务逻辑（Agent 管理 / 模型配置 / 密钥管理 / 技能安装）
 data/            SQLite 数据库（运行时生成，已 gitignore）
 doc/             架构 / 设计 / 管理文档
-tests/           pytest 测试
+tests/           pytest 测试（168 项）
+Dockerfile       多阶段生产镜像
+docker-compose.yml 容器编排配置
+manage.py        管理 CLI 入口
+pyproject.toml   项目配置（构建 / pytest / mypy / ruff）
 run.py           本地开发启动入口
 ```
 
@@ -44,7 +61,7 @@ run.py           本地开发启动入口
 ### 1. 环境要求
 
 - 操作系统：Linux / macOS（依赖 `pexpect`，**不支持原生 Windows**；Windows 用户请使用 WSL2）
-- Python 3.10+
+- Python 3.11+
 - 已安装并配置好的 [Hermes Agent](https://hermes-agent.nousresearch.com/docs/getting-started)
 - Hermes Agent v0.12.0 及以上版本，Hermes CLI 需要支持 `profile`、`acp`、`kanban` 等子命令
 
@@ -71,6 +88,16 @@ pip install -r requirements.txt
 | `KANBAN_POLL_INTERVAL` | `2` | Kanban 状态同步轮询间隔（秒） |
 | `KANBAN_DEFAULT_WORKSPACE` | `scratch` | Kanban 任务默认 workspace |
 | `KANBAN_AUTO_DISPATCH` | `0` | 首次无持久化设置时，自动 Dispatch 开关的默认值 |
+| `SECRET_KEY` | (空) | 应用密钥，生产环境必填。未设置时生产模式会输出警告 |
+| `API_TOKEN` | (空) | API 鉴权 Token。设置后除 `/`、`/static/*`、`/mcp/*`、健康检查外均需鉴权 |
+| `CORS_ORIGINS` | (空) | 允许的跨域来源，逗号分隔。生产模式下未设置则拒绝所有跨域请求 |
+| `RATE_LIMIT_MAX` | `100` | 每个 IP 在时间窗口内的最大请求数；设为 `0` 禁用限流 |
+| `RATE_LIMIT_WINDOW` | `60` | 速率限制时间窗口（秒） |
+| `LOG_LEVEL` | `INFO` | 日志级别 (`DEBUG`/`INFO`/`WARNING`/`ERROR`) |
+| `LOG_FORMAT` | `text` | 日志格式，设为 `json` 启用结构化日志 |
+| `LOG_DIR` | (空) | 日志文件目录。不设置则输出到控制台 |
+| `LEARN_ENABLED` | `1` | 是否启用在职学习引擎；设为 `0` 可关闭 |
+| `LEARN_EMBED_PROVIDER` | (空) | 嵌入向量 provider，支持 `ollama`。不设置则用随机向量回退 |
 
 ### 4. 配置调整
 
@@ -89,7 +116,29 @@ python run.py
 
 访问 [http://127.0.0.1:5050](http://127.0.0.1:5050)。
 
-### 6. 运行测试
+### 6. Docker 部署
+
+```bash
+# 构建镜像
+docker build -t hermes-agent-team .
+
+# 使用 docker-compose
+cp .env.example .env     # 编辑 .env 填入实际配置
+docker-compose up -d
+```
+
+Docker 健康检查自动访问 `/api/hermes/status`，`docker-compose ps` 可查看状态。
+
+### 7. 管理 CLI
+
+```bash
+python manage.py check      # 检查 Hermes CLI 和数据库状态
+python manage.py backup     # 备份 SQLite 数据库
+python manage.py info        # 显示当前配置信息
+python manage.py migrate     # 数据库升级到最新版本
+```
+
+### 8. 运行测试
 
 ```bash
 pytest
