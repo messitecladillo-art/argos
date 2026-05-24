@@ -7,7 +7,7 @@ from contextlib import suppress
 
 from starlette.applications import Starlette
 from starlette.middleware import Middleware
-from starlette.middleware.wsgi import WSGIMiddleware
+from a2wsgi import WSGIMiddleware
 from starlette.routing import Mount, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
