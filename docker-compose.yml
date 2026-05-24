@@ -1,0 +1,24 @@
+version: "3.9"
+
+services:
+  hermes-agent-team:
+    build: .
+    image: hermes-agent-team:latest
+    container_name: hermes-agent-team
+    restart: unless-stopped
+    ports:
+      - "${PORT:-5050}:5050"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      - PORT=5050
+      - FLASK_DEBUG=0
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:5050/api/hermes/status"]
+      interval: 30s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    # For China mainland deployment, add dns or network_mode as needed.

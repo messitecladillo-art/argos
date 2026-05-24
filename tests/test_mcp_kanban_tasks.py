@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 
 from app import mcp_server
 from app.models.store import RuntimeStore
@@ -87,6 +88,13 @@ def test_leader_creates_worker_kanban_tasks(monkeypatch, tmp_path):
     assert completed[0]["metadata"]["round"] == 1
     assert runtime_store.find_kanban_task_link(kanban_task_id="kb_parent")["kanban_status"] == "done"
     assert workspace_path.is_dir()
+    trace = runtime_store.get_trace_by_user_task(task["user_task_id"])
+    assert trace is not None
+    decomposition = json.loads(trace["decomposition_json"])
+    assert decomposition["roles_used"] == ["worker"]
+    allocations = json.loads(trace["allocations_json"])
+    assert len(allocations) == 1
+    assert allocations[0]["role"] == "worker"
 
 
 def test_kanban_worker_task_creation_is_idempotent_for_user_task(monkeypatch, tmp_path):

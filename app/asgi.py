@@ -2,32 +2,59 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from contextlib import suppress
 
 from starlette.applications import Starlette
+from starlette.middleware import Middleware
 from starlette.middleware.wsgi import WSGIMiddleware
 from starlette.routing import Mount, WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from . import create_app
 from .mcp_server import mcp_asgi_app
+from .middleware import AuthMiddleware, cors_middleware
+from .middleware.ratelimit import RateLimitMiddleware
 from .models.store import store
 from .services.acp import TERMINAL_QUEUE_CLOSE_SENTINEL, pool as session_pool
 
 logger = logging.getLogger("hermes.agent_state")
 
 
+def _ws_authenticate(websocket: WebSocket) -> bool:
+    """Return True if the WebSocket request passes auth, False if it should be rejected."""
+    token = os.environ.get("API_TOKEN")
+    if not token:
+        return True
+    provided = (
+        websocket.headers.get("X-API-Key")
+        or websocket.query_params.get("token")
+        or ""
+    )
+    auth_header = websocket.headers.get("Authorization", "")
+    if auth_header.startswith("Bearer "):
+        provided = provided or auth_header[7:]
+    if not provided or provided != token:
+        return False
+    return True
+
+
 async def terminal_ws(websocket: WebSocket) -> None:
     agent_id = websocket.path_params["agent_id"]
+
+    if not _ws_authenticate(websocket):
+        await websocket.close(code=4401)
+        return
+
     await websocket.accept()
-    logger.warning("[terminal-ws] accept agent=%s client=%s", agent_id, getattr(websocket, "client", None))
+    logger.info("[terminal-ws] accept agent=%s", agent_id)
 
     agent = store.find_agent(agent_id)
     if agent is None:
         await websocket.send_json(
             {"type": "status", "status": "error", "message": "agent not found"}
         )
-        logger.warning("[terminal-ws] missing agent=%s", agent_id)
+        logger.info("[terminal-ws] missing agent=%s", agent_id)
         await websocket.close(code=4404)
         return
 
@@ -37,7 +64,7 @@ async def terminal_ws(websocket: WebSocket) -> None:
         await websocket.send_json(
             {"type": "status", "status": "not_running", "message": str(exc)}
         )
-        logger.warning("[terminal-ws] attach failed agent=%s error=%s", agent_id, exc)
+        logger.info("[terminal-ws] attach failed agent=%s error=%s", agent_id, exc)
         await websocket.close(code=4409)
         return
 
@@ -45,11 +72,11 @@ async def terminal_ws(websocket: WebSocket) -> None:
         while True:
             message = await asyncio.to_thread(subscriber.get)
             if message == TERMINAL_QUEUE_CLOSE_SENTINEL:
-                logger.warning("[terminal-ws] close sentinel agent=%s", agent_id)
+                logger.info("[terminal-ws] close sentinel agent=%s", agent_id)
                 return
             await websocket.send_json(message)
             if message.get("type") != "output":
-                logger.warning("[terminal-ws] send agent=%s type=%s", agent_id, message.get("type"))
+                logger.info("[terminal-ws] send agent=%s type=%s", agent_id, message.get("type"))
             if message.get("type") == "status":
                 return
 
@@ -63,13 +90,9 @@ async def terminal_ws(websocket: WebSocket) -> None:
                 "snapshot_ansi": state["snapshot_ansi"],
             }
         )
-        logger.warning(
-            "[terminal-ws] ready agent=%s rows=%s cols=%s snapshot_text_len=%s snapshot_ansi_len=%s",
-            agent_id,
-            state["rows"],
-            state["cols"],
-            len(state["snapshot_text"]),
-            len(state["snapshot_ansi"]),
+        logger.info(
+            "[terminal-ws] ready agent=%s rows=%s cols=%s",
+            agent_id, state["rows"], state["cols"],
         )
 
         output_task = asyncio.create_task(pump_terminal_output())
@@ -90,19 +113,16 @@ async def terminal_ws(websocket: WebSocket) -> None:
             payload = receive_task.result()
             message_type = payload.get("type")
             if message_type == "input":
-                logger.warning(
+                logger.info(
                     "[terminal-ws] input agent=%s bytes=%s",
-                    agent_id,
-                    len(str(payload.get("data") or "")),
+                    agent_id, len(str(payload.get("data") or "")),
                 )
                 session_pool.send_terminal_data(agent_id, str(payload.get("data") or ""))
                 continue
             if message_type == "resize":
-                logger.warning(
+                logger.info(
                     "[terminal-ws] resize agent=%s rows=%s cols=%s",
-                    agent_id,
-                    payload.get("rows"),
-                    payload.get("cols"),
+                    agent_id, payload.get("rows"), payload.get("cols"),
                 )
                 session_pool.resize_terminal(
                     agent_id,
@@ -113,7 +133,7 @@ async def terminal_ws(websocket: WebSocket) -> None:
             if message_type == "ping":
                 await websocket.send_json({"type": "pong"})
     except WebSocketDisconnect:
-        logger.warning("[terminal-ws] disconnect agent=%s", agent_id)
+        logger.info("[terminal-ws] disconnect agent=%s", agent_id)
     finally:
         session_pool.detach_terminal(agent_id, subscriber)
         if "output_task" in locals():
@@ -124,10 +144,16 @@ async def terminal_ws(websocket: WebSocket) -> None:
 
 def create_asgi_app() -> Starlette:
     flask_app = create_app()
-    return Starlette(
+    starlette = Starlette(
         routes=[
             WebSocketRoute("/api/agents/{agent_id:str}/terminal/ws", terminal_ws),
             Mount("/mcp", app=mcp_asgi_app),
             Mount("/", app=WSGIMiddleware(flask_app)),
-        ]
+        ],
+        middleware=[
+            Middleware(RateLimitMiddleware),
+            Middleware(AuthMiddleware),
+        ],
     )
+    starlette = cors_middleware(starlette)
+    return starlette

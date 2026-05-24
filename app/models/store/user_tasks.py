@@ -162,6 +162,14 @@ class UserTasksMixin:
             self._persist("upsert_delegation", delegation_snapshot)
         _log_store("user_task_reviewing", user_task_id=user_task_id, review_task_id=review_task_id)
         self.push_agents_changed()
+
+        # Trace hook: record phase transition to review
+        try:
+            from ...learning import trace_collector
+            trace_collector.task_phase_change(user_task_id, "review")
+        except Exception:
+            pass
+
         return snapshot
 
     def mark_user_task_summarizing(self, user_task_id: str, review_task_id: str = "") -> dict:
@@ -210,6 +218,28 @@ class UserTasksMixin:
         )
         _log_store("user_task_completed", user_task_id=user_task_id, leader_agent_id=leader_id)
         self.push_agents_changed()
+
+        # Trace hook: record task completion for learning system
+        try:
+            from ...learning import trace_collector
+            rounds = int(task_snapshot.get("current_round", 1))
+            content = task_snapshot.get("content", "")
+            duration = 0.0
+            from ...config import now_iso as _ni
+            created = task_snapshot.get("created_at", "")
+            if created:
+                try:
+                    from datetime import datetime, timezone
+                    ts = created.replace("Z", "+00:00")
+                    start = datetime.fromisoformat(ts).replace(tzinfo=timezone.utc)
+                    now_dt = datetime.fromisoformat(_ni().replace("Z", "+00:00")).replace(tzinfo=timezone.utc)
+                    duration = (now_dt - start).total_seconds()
+                except Exception:
+                    pass
+            trace_collector.task_completed(user_task_id, status="completed",
+                rounds=rounds, duration_s=duration, summary=content[:200])
+        except Exception:
+            pass
 
     def advance_user_task_round(self, user_task_id: str) -> dict:
         with self._lock:

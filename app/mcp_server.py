@@ -13,6 +13,7 @@ import threading
 from mcp.server.fastmcp import FastMCP
 
 from .config import DEFAULT_MAX_TASK_ROUNDS
+from .learning import trace_collector
 from .models.store import store
 from .services.agent_status import agent_dispatch_block_reason, is_agent_dispatchable
 from .services.kanban import extract_task_id, kanban_service, task_status
@@ -283,6 +284,41 @@ def create_kanban_worker_tasks(
         continuation=continuation,
     )
     dispatch_worker.trigger_async()
+
+    # Record execution trace for self-evolving system
+    if resolved_user_task_id:
+        try:
+            trace_collector.init_app(store)
+            # Find or create trace for this user task
+            existing = store.get_trace_by_user_task(resolved_user_task_id)
+            tid = existing["trace_id"] if existing else None
+            if tid is None:
+                tid = trace_collector.task_started(resolved_user_task_id, sender_agent_id, "")
+            if tid:
+                strategy = "sequential" if len(dispatched) <= 1 else "parallel"
+                trace_collector.record_decomposition(
+                    tid,
+                    strategy=strategy,
+                    num_subtasks=len(dispatched),
+                    roles_used=[
+                        (store.find_agent(d["to_agent_id"]) or {}).get("role", "worker")
+                        for d in dispatched
+                    ],
+                    reasoning=f"leader dispatched {len(dispatched)} worker(s) for round {target_round}",
+                )
+                for idx, d in enumerate(dispatched):
+                    worker = store.find_agent(d["to_agent_id"]) or {}
+                    raw_content = assignments[idx].get("content", "") if idx < len(assignments) else ""
+                    trace_collector.record_allocation(
+                        tid,
+                        agent_id=d["to_agent_id"],
+                        role=worker.get("role", "worker"),
+                        assignment_id=d["assignment_id"],
+                        context_summary=raw_content[:120],
+                    )
+        except Exception:
+            pass
+
     return {
         "ok": True,
         "idempotent": False,

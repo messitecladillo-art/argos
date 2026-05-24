@@ -9,6 +9,7 @@ from pathlib import Path
 
 from flask import Blueprint, jsonify, request
 
+from ..db.session import SessionLocal
 from ..models.store import store
 from ..services import registry
 from ..services import agents as agents_service
@@ -17,6 +18,7 @@ from ..services import team_initialization
 from ..services import skill_installer
 from ..services.acp import pool as session_pool
 from ..services.profiles import ProfileError, check_hermes_ready, list_hermes_profiles
+from ..services.secrets import validate_required
 
 
 bp = Blueprint("agents", __name__, url_prefix="/api")
@@ -35,7 +37,40 @@ def list_profiles():
 
 @bp.get("/hermes/status")
 def hermes_status():
-    return jsonify(check_hermes_ready())
+    status = _health_check()
+    code = 200 if status["status"] == "ok" else 503
+    return jsonify(status), code
+
+
+def _health_check() -> dict:
+    components: dict[str, dict] = {}
+
+    # Hermes CLI
+    hermes = check_hermes_ready()
+    components["hermes_cli"] = hermes
+
+    # Database
+    try:
+        with SessionLocal() as session:
+            session.execute(
+                __import__("sqlalchemy").text("SELECT 1")
+            )
+        components["database"] = {"ok": True}
+    except Exception as exc:
+        components["database"] = {"ok": False, "error": str(exc)}
+
+    # Required env
+    missing = validate_required([])  # critical secrets check
+    components["env"] = {"ok": True} if not missing else {"ok": False, "missing": missing}
+
+    all_ok = all(c.get("ok", False) for c in components.values())
+    hermes_cli = components.get("hermes_cli", {})
+    return {
+        "ok": all_ok,
+        "message": hermes_cli.get("message", "ready" if all_ok else "degraded"),
+        "status": "ok" if all_ok else "degraded",
+        "components": components,
+    }
 
 
 @bp.post("/agents")

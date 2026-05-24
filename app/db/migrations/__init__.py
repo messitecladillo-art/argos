@@ -28,6 +28,13 @@ def ensure_runtime_schema(engine: Engine) -> None:
                 "reviewed_at": "VARCHAR(40) NULL",
             },
         )
+        _ensure_columns(
+            connection,
+            "execution_traces",
+            {
+                "consolidated": "BOOLEAN DEFAULT 0",
+            },
+        )
 
 
 def _ensure_columns(connection, table_name: str, columns: dict[str, str]) -> None:
@@ -35,7 +42,12 @@ def _ensure_columns(connection, table_name: str, columns: dict[str, str]) -> Non
         row[1]
         for row in connection.execute(text(f"PRAGMA table_info({table_name})"))
     }
+    if not existing:
+        return
     for column_name, definition in columns.items():
         if column_name in existing:
             continue
         connection.execute(text(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}"))
+
+
+__all__ = ["ensure_runtime_schema"]

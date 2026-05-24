@@ -201,6 +201,15 @@ class DelegationsMixin:
                 {"text": "用户任务的 worker 已全部返回"},
             )
         self.push_agents_changed()
+
+        # Trace hook: record allocation result for learning system
+        try:
+            from ...learning import trace_collector
+            trace_collector.record_allocation_result(
+                assignment_id, result, assignment["status"])
+        except Exception:
+            pass
+
         return completed_user_task or completed_summary
 
     def mark_delegation_reviewing(self, delegation_id: str, review_task_id: str = "") -> None:

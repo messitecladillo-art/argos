@@ -1,0 +1,48 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+build/
+.venv/
+*.whl
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Tests & coverage
+.pytest_cache/
+.pytest-tmp/
+.coverage
+htmlcov/
+
+# Data (mounted as volume at runtime)
+data/
+
+# Environment (passed at runtime)
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Docs & misc
+doc/
+*.md
+LICENSE
+SECURITY.md

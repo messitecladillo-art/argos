@@ -1,53 +1,118 @@
 from __future__ import annotations
 
-from sqlalchemy import create_engine, text
+from pathlib import Path
 
-from app.db.migrations import ensure_runtime_schema
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import create_engine, inspect, text
 
 
-def test_ensure_runtime_schema_adds_long_running_task_columns(tmp_path):
-    db_path = tmp_path / "legacy.db"
-    engine = create_engine(f"sqlite:///{db_path}", future=True)
-    with engine.begin() as connection:
-        connection.execute(
-            text(
-                """
-                CREATE TABLE user_tasks (
-                    id INTEGER PRIMARY KEY,
-                    user_task_id VARCHAR(80),
-                    leader_agent_id VARCHAR(120),
-                    content TEXT,
-                    delegation_ids_json TEXT,
-                    status VARCHAR(60),
-                    dispatch_closed BOOLEAN,
-                    summary_requested_at VARCHAR(40),
-                    completed_at VARCHAR(40)
-                )
-                """
-            )
-        )
-        connection.execute(
-            text(
-                """
-                CREATE TABLE delegations (
-                    id INTEGER PRIMARY KEY,
-                    delegation_id VARCHAR(80),
-                    user_task_id VARCHAR(80),
-                    leader_agent_id VARCHAR(120),
-                    summary_instruction TEXT,
-                    status VARCHAR(60),
-                    completed_at VARCHAR(40),
-                    summarized_at VARCHAR(40)
-                )
-                """
-            )
-        )
+def _alembic_cfg(db_path: str) -> Config:
+    cfg = Config(str(Path("app/db/migrations/alembic.ini").resolve()))
+    cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
+    return cfg
 
-    ensure_runtime_schema(engine)
 
-    with engine.connect() as connection:
-        user_task_columns = {row[1] for row in connection.execute(text("PRAGMA table_info(user_tasks)"))}
-        delegation_columns = {row[1] for row in connection.execute(text("PRAGMA table_info(delegations)"))}
+def _engine(db_path: str):
+    return create_engine(
+        f"sqlite:///{db_path}",
+        connect_args={"check_same_thread": False},
+        future=True,
+    )
 
-    assert {"current_round", "max_rounds", "review_task_ids_json", "blocked_at", "block_reason"} <= user_task_columns
-    assert {"round", "review_task_id", "reviewed_at"} <= delegation_columns
+
+def test_alembic_upgrade_creates_all_tables(tmp_path):
+    db_path = str(tmp_path / "test.db")
+    command.upgrade(_alembic_cfg(db_path), "head")
+
+    inspector = inspect(_engine(db_path))
+    tables = sorted(inspector.get_table_names())
+    expected = [
+        "ab_experiments", "agent_mcp_servers", "agent_skill_installs",
+        "agents", "assignments", "delegations", "events",
+        "execution_traces", "feedback_signals", "kanban_task_links",
+        "learning_suggestions", "memory_items", "messages",
+        "model_configs", "settings", "user_tasks",
+    ]
+    for table in expected:
+        assert table in tables, f"Missing table: {table}"
+
+
+def test_alembic_downgrade_removes_all_tables(tmp_path):
+    db_path = str(tmp_path / "test.db")
+    cfg = _alembic_cfg(db_path)
+    command.upgrade(cfg, "head")
+    command.downgrade(cfg, "base")
+
+    inspector = inspect(_engine(db_path))
+    tables = [t for t in inspector.get_table_names() if t != "alembic_version"]
+    assert len(tables) == 0, f"Tables remain after downgrade: {tables}"
+
+
+def test_upgrade_is_idempotent(tmp_path):
+    db_path = str(tmp_path / "test.db")
+    cfg = _alembic_cfg(db_path)
+    command.upgrade(cfg, "head")
+    command.upgrade(cfg, "head")
+
+    inspector = inspect(_engine(db_path))
+    tables = [t for t in inspector.get_table_names() if t != "alembic_version"]
+    assert len(tables) == 16
+
+
+def test_user_tasks_has_required_columns(tmp_path):
+    db_path = str(tmp_path / "test.db")
+    command.upgrade(_alembic_cfg(db_path), "head")
+
+    engine = _engine(db_path)
+    with engine.connect() as conn:
+        columns = {row[1] for row in conn.execute(text("PRAGMA table_info(user_tasks)"))}
+    required = {"current_round", "max_rounds", "review_task_ids_json", "blocked_at", "block_reason"}
+    assert required <= columns, f"Missing columns: {required - columns}"
+
+
+def test_pre_alembic_db_is_stamped(tmp_path):
+    """A database with tables but no alembic_version gets stamped before upgrade."""
+    db_path = str(tmp_path / "pre_alembic.db")
+    engine = _engine(db_path)
+    # Simulate pre-Alembic schema by creating tables directly
+    from app.db.session import Base
+    Base.metadata.create_all(bind=engine)
+
+    # Verify tables exist but no alembic_version
+    inspector = inspect(engine)
+    tables_before = inspector.get_table_names()
+    assert len(tables_before) > 0
+    assert "alembic_version" not in tables_before
+    engine.dispose()
+
+    # Use Alembic to stamp the existing DB directly
+    cfg = _alembic_cfg(db_path)
+    from alembic import command
+    command.stamp(cfg, "2ce2d98a3fc5")
+
+    # Verify alembic_version now exists with the stamped revision
+    engine2 = _engine(db_path)
+    with engine2.connect() as conn:
+        rows = conn.execute(
+            __import__("sqlalchemy").text("SELECT version_num FROM alembic_version")
+        ).fetchall()
+    assert len(rows) == 1
+    assert rows[0][0] == "2ce2d98a3fc5"
+
+    # Running upgrade on a stamped DB should be idempotent
+    command.upgrade(cfg, "head")
+    inspector2 = inspect(engine2)
+    tables_after = inspector2.get_table_names()
+    for table in tables_before:
+        assert table in tables_after, f"Missing table after upgrade: {table}"
+
+
+def test_execution_traces_has_consolidated_column(tmp_path):
+    db_path = str(tmp_path / "test.db")
+    command.upgrade(_alembic_cfg(db_path), "head")
+
+    engine = _engine(db_path)
+    with engine.connect() as conn:
+        columns = {row[1] for row in conn.execute(text("PRAGMA table_info(execution_traces)"))}
+    assert "consolidated" in columns

@@ -7,24 +7,59 @@ from typing import Any
 
 from sqlalchemy import select
 
+from pathlib import Path
+
+from alembic import command
+from alembic.config import Config
+
 from ..config import DEFAULT_MAX_TASK_ROUNDS
 from .models import (
+    ABExperimentRecord,
     AgentRecord,
     AssignmentRecord,
     DelegationRecord,
     EventRecord,
+    ExecutionTraceRecord,
+    FeedbackSignalRecord,
     KanbanTaskLinkRecord,
+    LearningSuggestionRecord,
+    MemoryItemRecord,
     MessageRecord,
     SettingRecord,
     UserTaskRecord,
 )
-from .migrations import ensure_runtime_schema
-from .session import Base, SessionLocal, engine
+from .session import SessionLocal, engine
 
 
 def init_database() -> None:
+    _alembic_cfg = Config(str(Path(__file__).resolve().parent / "migrations" / "alembic.ini"))
+    _handle_pre_alembic_db()
+    command.upgrade(_alembic_cfg, "head")
+
+
+def _handle_pre_alembic_db() -> None:
+    """Migrate pre-Alembic databases in-place.
+
+    Older installs used ``Base.metadata.create_all()`` for schema management.
+    If the current model definitions include tables that were added after the
+    last ``create_all()`` run, we create those missing tables first so the DB
+    matches the head revision before stamping.
+    """
+    from sqlalchemy import inspect
+
+    inspector = inspect(engine)
+    existing_tables = inspector.get_table_names()
+    if not existing_tables or "alembic_version" in existing_tables:
+        return
+
+    # Tables exist but no alembic_version — pre-Alembic database.
+    # Re-run create_all to add any tables that were introduced since the
+    # last time this was called, then stamp at head so future upgrades work.
+    from .session import Base
+
     Base.metadata.create_all(bind=engine)
-    ensure_runtime_schema(engine)
+    _alembic_cfg = Config(str(Path(__file__).resolve().parent / "migrations" / "alembic.ini"))
+    command.stamp(_alembic_cfg, "2ce2d98a3fc5")
 
 
 def _json_dumps(value: Any) -> str:
@@ -263,6 +298,150 @@ class SQLitePersistence:
             record.updated_at = link.get("updated_at")
             record.deleted_at = link.get("deleted_at")
 
+    # ── learning: execution traces ────────────────────────────
+
+    def insert_trace(self, trace: dict) -> None:
+        with SessionLocal.begin() as session:
+            session.add(
+                ExecutionTraceRecord(
+                    trace_id=trace["trace_id"],
+                    user_task_id=trace["user_task_id"],
+                    leader_agent_id=trace["leader_agent_id"],
+                    phase=trace.get("phase", "decompose"),
+                    decomposition_json=trace.get("decomposition_json", "{}"),
+                    context_plan_json=trace.get("context_plan_json", "{}"),
+                    allocations_json=trace.get("allocations_json", "[]"),
+                    decisions_json=trace.get("decisions_json", "[]"),
+                    outcome_json=trace.get("outcome_json", "{}"),
+                    quality_json=trace.get("quality_json", "{}"),
+                    created_at=trace.get("created_at"),
+                    completed_at=trace.get("completed_at"),
+                )
+            )
+
+    def update_trace(self, trace_id: str, updates: dict) -> None:
+        with SessionLocal.begin() as session:
+            record = session.scalar(
+                select(ExecutionTraceRecord).where(ExecutionTraceRecord.trace_id == trace_id)
+            )
+            if record is None:
+                return
+            for key, value in updates.items():
+                if hasattr(record, key):
+                    setattr(record, key, value)
+
+    # ── learning: memory items ───────────────────────────────
+
+    def insert_memory(self, memory: dict) -> None:
+        with SessionLocal.begin() as session:
+            session.add(
+                MemoryItemRecord(
+                    memory_id=memory["memory_id"],
+                    layer=memory["layer"],
+                    type=memory["type"],
+                    content=memory["content"],
+                    embedding_json=memory.get("embedding_json", "[]"),
+                    source_trace_ids_json=memory.get("source_trace_ids_json", "[]"),
+                    consolidation_count=memory.get("consolidation_count", 1),
+                    weight=memory.get("weight", 0.5),
+                    use_count=memory.get("use_count", 0),
+                    success_count=memory.get("success_count", 0),
+                    scope=memory.get("scope", "project"),
+                    project_path=memory.get("project_path"),
+                    metadata_json=memory.get("metadata_json", "{}"),
+                    created_at=memory.get("created_at"),
+                    last_used_at=memory.get("last_used_at"),
+                    expires_at=memory.get("expires_at"),
+                    deleted_at=memory.get("deleted_at"),
+                )
+            )
+
+    def update_memory(self, memory_id: str, updates: dict) -> None:
+        with SessionLocal.begin() as session:
+            record = session.scalar(
+                select(MemoryItemRecord).where(MemoryItemRecord.memory_id == memory_id)
+            )
+            if record is None:
+                return
+            for key, value in updates.items():
+                if hasattr(record, key):
+                    setattr(record, key, value)
+
+    # ── learning: feedback signals ────────────────────────────
+
+    def insert_feedback_signal(self, signal: dict) -> None:
+        with SessionLocal.begin() as session:
+            session.add(
+                FeedbackSignalRecord(
+                    signal_id=signal["signal_id"],
+                    trace_id=signal["trace_id"],
+                    assignment_id=signal.get("assignment_id"),
+                    signal_type=signal["signal_type"],
+                    strength=signal["strength"],
+                    detail_json=signal.get("detail_json", "{}"),
+                    extracted_at=signal.get("extracted_at"),
+                )
+            )
+
+    def insert_suggestion(self, suggestion: dict) -> None:
+        with SessionLocal.begin() as session:
+            session.add(
+                LearningSuggestionRecord(
+                    suggestion_id=suggestion["suggestion_id"],
+                    type=suggestion["type"],
+                    content=suggestion["content"],
+                    confidence=suggestion.get("confidence", 0.5),
+                    impact_score=suggestion.get("impact_score", 0.0),
+                    evidence_json=suggestion.get("evidence_json", "{}"),
+                    applied=suggestion.get("applied", False),
+                    applied_at=suggestion.get("applied_at"),
+                    seen_count=suggestion.get("seen_count", 1),
+                    generated_at=suggestion.get("generated_at", ""),
+                )
+            )
+
+    def update_suggestion(self, suggestion_id: str, updates: dict) -> None:
+        with SessionLocal.begin() as session:
+            record = session.scalar(
+                select(LearningSuggestionRecord).where(
+                    LearningSuggestionRecord.suggestion_id == suggestion_id)
+            )
+            if record is None:
+                return
+            for key, value in updates.items():
+                if hasattr(record, key):
+                    setattr(record, key, value)
+
+    def insert_experiment(self, experiment: dict) -> None:
+        with SessionLocal.begin() as session:
+            session.add(
+                ABExperimentRecord(
+                    experiment_id=experiment["experiment_id"],
+                    name=experiment["name"],
+                    control_label=experiment["control_label"],
+                    treatment_label=experiment["treatment_label"],
+                    filter_expr=experiment.get("filter_expr"),
+                    control_json=experiment.get("control_json", "{}"),
+                    treatment_json=experiment.get("treatment_json", "{}"),
+                    concluded=experiment.get("concluded", False),
+                    winner=experiment.get("winner"),
+                )
+            )
+
+    def update_experiment(self, experiment_id: str, updates: dict) -> None:
+        with SessionLocal.begin() as session:
+            record = session.scalar(
+                select(ABExperimentRecord).where(
+                    ABExperimentRecord.experiment_id == experiment_id)
+            )
+            if record is None:
+                return
+            for key, value in updates.items():
+                if hasattr(record, key):
+                    setattr(record, key, value)
+
+    # ── persisted state loader ────────────────────────────────
+
     def load_runtime_state(self) -> dict:
         with SessionLocal() as session:
             agents = [
@@ -300,11 +479,36 @@ class SQLitePersistence:
                     select(KanbanTaskLinkRecord).order_by(KanbanTaskLinkRecord.id)
                 )
             ]
+            traces = [
+                self._trace_to_dict(record)
+                for record in session.scalars(select(ExecutionTraceRecord).order_by(ExecutionTraceRecord.id))
+            ]
+            memories = [
+                self._memory_to_dict(record)
+                for record in session.scalars(select(MemoryItemRecord).order_by(MemoryItemRecord.id))
+            ]
+            feedback_signals = [
+                self._feedback_signal_to_dict(record)
+                for record in session.scalars(select(FeedbackSignalRecord).order_by(FeedbackSignalRecord.id))
+            ]
+            suggestions = [
+                self._suggestion_to_dict(record)
+                for record in session.scalars(select(LearningSuggestionRecord).order_by(LearningSuggestionRecord.id))
+            ]
+            experiments = [
+                self._experiment_to_dict(record)
+                for record in session.scalars(select(ABExperimentRecord).order_by(ABExperimentRecord.id))
+            ]
         return {
             "agents": agents,
             "user_tasks": user_tasks,
             "delegations": delegations,
             "kanban_task_links": kanban_task_links,
+            "traces": traces,
+            "memories": memories,
+            "feedback_signals": feedback_signals,
+            "suggestions": suggestions,
+            "experiments": experiments,
             "messages": deque(messages, maxlen=200),
             "events": deque(events, maxlen=400),
             "event_ids": _next_counter([event["id"] for event in events], "evt_"),
@@ -459,4 +663,81 @@ class SQLitePersistence:
             "metadata": _json_loads(record.metadata_json, {}),
             "created_at": record.created_at or "",
             "updated_at": record.updated_at,
+        }
+
+    def _trace_to_dict(self, record: ExecutionTraceRecord) -> dict:
+        return {
+            "trace_id": record.trace_id,
+            "user_task_id": record.user_task_id,
+            "leader_agent_id": record.leader_agent_id,
+            "phase": record.phase or "decompose",
+            "decomposition_json": record.decomposition_json or "{}",
+            "context_plan_json": record.context_plan_json or "{}",
+            "allocations_json": record.allocations_json or "[]",
+            "decisions_json": record.decisions_json or "[]",
+            "outcome_json": record.outcome_json or "{}",
+            "quality_json": record.quality_json or "{}",
+            "created_at": record.created_at or "",
+            "completed_at": record.completed_at,
+            "consolidated": bool(record.consolidated),
+        }
+
+    def _memory_to_dict(self, record: MemoryItemRecord) -> dict:
+        return {
+            "memory_id": record.memory_id,
+            "layer": record.layer,
+            "type": record.type,
+            "content": record.content,
+            "embedding_json": record.embedding_json or "[]",
+            "source_trace_ids_json": record.source_trace_ids_json or "[]",
+            "consolidation_count": record.consolidation_count or 1,
+            "weight": record.weight or 0.5,
+            "use_count": record.use_count or 0,
+            "success_count": record.success_count or 0,
+            "scope": record.scope or "project",
+            "project_path": record.project_path,
+            "metadata_json": record.metadata_json or "{}",
+            "created_at": record.created_at or "",
+            "last_used_at": record.last_used_at,
+            "expires_at": record.expires_at,
+            "deleted_at": record.deleted_at,
+        }
+
+    def _feedback_signal_to_dict(self, record: FeedbackSignalRecord) -> dict:
+        return {
+            "signal_id": record.signal_id,
+            "trace_id": record.trace_id,
+            "assignment_id": record.assignment_id,
+            "signal_type": record.signal_type,
+            "strength": record.strength or 0.0,
+            "detail_json": record.detail_json or "{}",
+            "extracted_at": record.extracted_at,
+        }
+
+    def _suggestion_to_dict(self, record: LearningSuggestionRecord) -> dict:
+        return {
+            "suggestion_id": record.suggestion_id,
+            "type": record.type,
+            "content": record.content,
+            "confidence": record.confidence or 0.5,
+            "impact_score": record.impact_score or 0.0,
+            "evidence_json": record.evidence_json or "{}",
+            "applied": bool(record.applied),
+            "applied_at": record.applied_at,
+            "seen_count": record.seen_count or 1,
+            "generated_at": record.generated_at or "",
+        }
+
+    def _experiment_to_dict(self, record: ABExperimentRecord) -> dict:
+        return {
+            "experiment_id": record.experiment_id,
+            "name": record.name,
+            "control_label": record.control_label,
+            "treatment_label": record.treatment_label,
+            "filter_expr": record.filter_expr,
+            "control_json": record.control_json or "{}",
+            "treatment_json": record.treatment_json or "{}",
+            "concluded": bool(record.concluded),
+            "winner": record.winner,
+            "created_at": record.created_at or "",
         }

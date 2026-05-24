@@ -3,6 +3,7 @@ from __future__ import annotations
 import io
 import queue
 import subprocess
+import sys
 import threading
 import time
 from pathlib import Path
@@ -297,7 +298,7 @@ def test_stdio_test_handshake(monkeypatch, tmp_path):
         "print(json.dumps({'jsonrpc':'2.0','id':req['id'],'result':{'capabilities':{}}}), flush=True)\n",
         encoding="utf-8",
     )
-    client.post("/api/agents/agent_dev/mcps", json={"name": "local", "transport": "stdio", "command": "python3", "args": [str(script)]})
+    client.post("/api/agents/agent_dev/mcps", json={"name": "local", "transport": "stdio", "command": sys.executable, "args": [str(script)]})
 
     response = client.post("/api/agents/agent_dev/mcps/local/test")
 
@@ -315,7 +316,7 @@ def test_stdio_test_reports_stderr_on_exit(monkeypatch, tmp_path):
         "sys.exit(2)\n",
         encoding="utf-8",
     )
-    client.post("/api/agents/agent_dev/mcps", json={"name": "local", "transport": "stdio", "command": "python3", "args": [str(script)]})
+    client.post("/api/agents/agent_dev/mcps", json={"name": "local", "transport": "stdio", "command": sys.executable, "args": [str(script)]})
 
     response = client.post("/api/agents/agent_dev/mcps/local/test")
 

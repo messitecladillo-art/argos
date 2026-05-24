@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
@@ -194,3 +194,89 @@ class AgentMcpServerRecord(TimestampMixin, Base):
     last_test_status: Mapped[str] = mapped_column(String(16), default="")
     last_test_at: Mapped[str] = mapped_column(String(40), default="")
     last_error: Mapped[str] = mapped_column(Text, default="")
+
+
+# ── Self-Evolving Learning System ──────────────────────────────
+
+
+class ExecutionTraceRecord(TimestampMixin, Base):
+    __tablename__ = "execution_traces"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    trace_id: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    user_task_id: Mapped[str] = mapped_column(String(80), index=True)
+    leader_agent_id: Mapped[str] = mapped_column(String(120), index=True)
+    phase: Mapped[str] = mapped_column(String(40), default="decompose")
+    decomposition_json: Mapped[str] = mapped_column(Text, default="{}")
+    context_plan_json: Mapped[str] = mapped_column(Text, default="{}")
+    allocations_json: Mapped[str] = mapped_column(Text, default="[]")
+    decisions_json: Mapped[str] = mapped_column(Text, default="[]")
+    outcome_json: Mapped[str] = mapped_column(Text, default="{}")
+    quality_json: Mapped[str] = mapped_column(Text, default="{}")
+    completed_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    consolidated: Mapped[bool] = mapped_column(default=False)
+
+
+class MemoryItemRecord(TimestampMixin, Base):
+    __tablename__ = "memory_items"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    memory_id: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    layer: Mapped[str] = mapped_column(String(40), index=True)
+    type: Mapped[str] = mapped_column(String(40), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    embedding_json: Mapped[str] = mapped_column(Text, default="[]")
+    source_trace_ids_json: Mapped[str] = mapped_column(Text, default="[]")
+    consolidation_count: Mapped[int] = mapped_column(Integer, default=1)
+    weight: Mapped[float] = mapped_column(default=0.5, index=True)
+    use_count: Mapped[int] = mapped_column(Integer, default=0)
+    success_count: Mapped[int] = mapped_column(Integer, default=0)
+    scope: Mapped[str] = mapped_column(String(40), default="project", index=True)
+    project_path: Mapped[str | None] = mapped_column(String(500), nullable=True, index=True)
+    metadata_json: Mapped[str] = mapped_column(Text, default="{}")
+    last_used_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    expires_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+
+class FeedbackSignalRecord(TimestampMixin, Base):
+    __tablename__ = "feedback_signals"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    signal_id: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    trace_id: Mapped[str] = mapped_column(String(80), index=True)
+    assignment_id: Mapped[str | None] = mapped_column(String(80), nullable=True, index=True)
+    signal_type: Mapped[str] = mapped_column(String(40), index=True)
+    strength: Mapped[float] = mapped_column()
+    detail_json: Mapped[str] = mapped_column(Text, default="{}")
+    extracted_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+
+
+class LearningSuggestionRecord(TimestampMixin, Base):
+    __tablename__ = "learning_suggestions"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    suggestion_id: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    type: Mapped[str] = mapped_column(String(60), index=True)
+    content: Mapped[str] = mapped_column(Text)
+    confidence: Mapped[float] = mapped_column(default=0.5)
+    impact_score: Mapped[float] = mapped_column(default=0.0)
+    evidence_json: Mapped[str] = mapped_column(Text, default="{}")
+    applied: Mapped[bool] = mapped_column(default=False)
+    applied_at: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    seen_count: Mapped[int] = mapped_column(Integer, default=1)
+    generated_at: Mapped[str] = mapped_column(String(40), default="")
+
+
+class ABExperimentRecord(TimestampMixin, Base):
+    __tablename__ = "ab_experiments"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    experiment_id: Mapped[str] = mapped_column(String(80), unique=True, index=True)
+    name: Mapped[str] = mapped_column(String(200))
+    control_label: Mapped[str] = mapped_column(String(100))
+    treatment_label: Mapped[str] = mapped_column(String(100))
+    filter_expr: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    control_json: Mapped[str] = mapped_column(Text, default="{}")
+    treatment_json: Mapped[str] = mapped_column(Text, default="{}")
+    concluded: Mapped[bool] = mapped_column(default=False)
+    winner: Mapped[str | None] = mapped_column(String(100), nullable=True)

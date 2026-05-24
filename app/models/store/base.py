@@ -60,6 +60,11 @@ class RuntimeStoreBase:
         self.kanban_task_links: list[dict] = []
         self.messages: deque = deque(maxlen=200)
         self.events: deque = deque(maxlen=400)
+        self.traces: list[dict] = []
+        self.memories: list[dict] = []
+        self.feedback_signals: list[dict] = []
+        self.suggestions: list[dict] = []
+        self.experiments: list[dict] = []
 
     def _persist(self, method_name: str, *args: Any) -> None:
         if self.persistence is None:
@@ -78,6 +83,11 @@ class RuntimeStoreBase:
             self.user_tasks = state["user_tasks"]
             self.delegations = state["delegations"]
             self.kanban_task_links = state.get("kanban_task_links", [])
+            self.traces = state.get("traces", [])
+            self.memories = state.get("memories", [])
+            self.feedback_signals = state.get("feedback_signals", [])
+            self.suggestions = state.get("suggestions", [])
+            self.experiments = state.get("experiments", [])
             self.messages = state["messages"]
             self.events = state["events"]
             self._event_ids = state["event_ids"]
@@ -114,6 +124,13 @@ class RuntimeStoreBase:
                 "messages": list(self.messages),
                 "events": list(self.events),
                 "stats": self._build_stats(),
+                "learning": {
+                    "trace_count": len(getattr(self, "traces", [])),
+                    "memory_count": len(getattr(self, "memories", [])),
+                    "signal_count": len(getattr(self, "feedback_signals", [])),
+                    "suggestion_count": len(getattr(self, "suggestions", [])),
+                    "experiment_count": len(getattr(self, "experiments", [])),
+                },
             }
 
     def _build_stats(self) -> list[dict]:

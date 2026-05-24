@@ -1,9 +1,54 @@
+# Claude
 .claude/
-*.pyc
-*.cpython-310.pyc
+
+# Python
 __pycache__/
+*.py[cod]
+*.cpython-*.pyc
+*.egg-info/
+.eggs/
+dist/
+build/
+*.whl
+
+# Virtual environment
 .venv/
-.DS_Store
-.pytest_cache/
-*.pdf
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Environment
 .env
+.env.*
+!.env.example
+
+# Data (runtime artifacts)
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+!data/.gitkeep
+
+# LanceDB (vector store)
+data/lancedb/
+
+# Testing
+.pytest_cache/
+.pytest-tmp/
+.coverage
+htmlcov/
+.tox/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# VCS artifacts
+*.orig
+*.rej

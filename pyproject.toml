@@ -1,0 +1,153 @@
+[build-system]
+requires = ["setuptools>=75", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "hermes-agent-team"
+version = "0.2.0"
+description = "Self-evolving multi-agent collaboration system — leader/specialist task orchestration with MCP, ACP, and Kanban"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "liuwenbin" }]
+keywords = [
+    "multi-agent",
+    "orchestration",
+    "mcp",
+    "acp",
+    "kanban",
+    "sqlite",
+    "self-evolving",
+    "llm",
+]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+requires-python = ">=3.11"
+dependencies = [
+    "Flask>=3.0,<4.0",
+    "mcp>=1.20",
+    "a2wsgi>=1.10",
+    "starlette>=0.37,<1.0",
+    "uvicorn>=0.30,<1.0",
+    "wsproto>=1.2,<2.0",
+    "PyYAML>=6.0",
+    "pexpect>=4.9",
+    "pyte>=0.8",
+    "SQLAlchemy>=2.0,<3.0",
+    "httpx>=0.27,<1.0",
+    "alembic>=1.13",
+    "python-dotenv>=1.0",
+    "lancedb>=0.17",
+    "pydantic>=2.0",
+    "pydantic-settings>=2.0",
+    # transitive dependencies worth pinning for safety
+    "pyarrow>=17.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+windows = [
+    "pywin32>=310",
+]
+# Full production deployment (include all optional deps)
+all = [
+    "hermes-agent-team[dev]",
+]
+
+[project.urls]
+Homepage = "https://github.com/liuwenbin/hermes-agent-team"
+Repository = "https://github.com/liuwenbin/hermes-agent-team"
+Issues = "https://github.com/liuwenbin/hermes-agent-team/issues"
+
+# ── Entry points ──────────────────────────────────────────────────
+# The app is launched via uvicorn pointing at the ASGI factory:
+#   uvicorn app.asgi:create_asgi_app --factory --host 127.0.0.1 --port 5050
+# See run.py for the convenience launcher.
+
+[project.scripts]
+hermes-mgmt = "app.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["app*", "tests*"]
+
+[tool.setuptools.package-data]
+app = ["templates/**", "static/**", "db/migrations/alembic.ini", "db/migrations/env.py", "db/migrations/script.py.mako", "db/migrations/versions/*.py"]
+
+# ── pytest ────────────────────────────────────────────────────────
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-ra -q --strict-markers"
+markers = [
+    "slow: slow tests (deselect with '-m \"not slow\"')",
+    "integration: tests requiring external services or Hermes Agent runtime",
+    "windows: tests specific to Windows platform",
+]
+filterwarnings = [
+    "ignore::DeprecationWarning:alembic.*",
+    "ignore::DeprecationWarning:lancedb.*",
+    "ignore::DeprecationWarning:starlette.*",
+]
+
+# ── Alembic ───────────────────────────────────────────────────────
+# Alembic reads its configuration from app/db/migrations/alembic.ini
+# which imports the database URL from app.config at runtime.
+
+# ── Coverage ──────────────────────────────────────────────────────
+[tool.coverage.run]
+source = ["app"]
+omit = [
+    "app/db/migrations/versions/*",
+    "*/tests/*",
+]
+relative_files = true
+
+[tool.coverage.report]
+exclude_also = [
+    "def __repr__",
+    "if self.debug:",
+    "if settings.DEBUG",
+    "raise AssertionError",
+    "raise NotImplementedError",
+    "if 0:",
+    "if __name__ == .__main__.:",
+    "class .*\\bProtocol\\):",
+    "@(abc\\.)?abstractmethod",
+]
+
+# ── Type checking ─────────────────────────────────────────────────
+[tool.mypy]
+python_version = "3.11"
+warn_unused_configs = true
+warn_redundant_casts = true
+ignore_missing_imports = true
+exclude = ["^app/db/migrations/versions/"]
+
+# ── Ruff / Linting ────────────────────────────────────────────────
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E",   # pycodestyle errors
+    "F",   # pyflakes
+    "W",   # pycodestyle warnings
+    "I",   # isort
+    "B",   # flake8-bugbear
+    "C4",  # flake8-comprehensions
+    "UP",  # pyupgrade
+]
+ignore = [
+    "E501",  # line too long (handled by formatter)
+    "B008",  # do not perform function calls in argument defaults
+]

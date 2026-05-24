@@ -11,6 +11,7 @@ from ..db.models import ModelConfigRecord
 from ..db.session import SessionLocal
 from ..models.store import store
 from . import profiles
+from .secrets import mask
 
 
 class ModelConfigError(ValueError):
@@ -19,19 +20,25 @@ class ModelConfigError(ValueError):
         self.status_code = status_code
 
 
-def _serialize(record: ModelConfigRecord) -> dict:
+def _serialize(record: ModelConfigRecord, *, reveal_secrets: bool = False) -> dict:
+    api_key = record.api_key if reveal_secrets else mask(record.api_key)
     return {
         "id": record.id,
         "name": record.name,
         "model": record.model,
         "base_url": record.base_url,
-        "api_key": record.api_key,
+        "api_key": api_key,
         "created_at": record.created_at,
         "updated_at": record.updated_at,
     }
 
 
-def _validate_payload(payload: dict[str, Any]) -> dict:
+def _get_record(config_id: int) -> ModelConfigRecord | None:
+    with SessionLocal() as session:
+        return session.get(ModelConfigRecord, config_id)
+
+
+def _validate_payload(payload: dict[str, Any], *, existing_api_key: str | None = None) -> dict:
     name = str(payload.get("name") or "").strip()
     model = str(payload.get("model") or "").strip()
     base_url = str(payload.get("base_url") or "").strip()
@@ -44,6 +51,11 @@ def _validate_payload(payload: dict[str, Any]) -> dict:
         raise ModelConfigError("base_url is required")
     if not (base_url.startswith("http://") or base_url.startswith("https://")):
         raise ModelConfigError("base_url must start with http:// or https://")
+    if "..." in api_key or "***" in api_key:
+        if existing_api_key:
+            api_key = existing_api_key
+        else:
+            raise ModelConfigError("api_key appears masked; please provide the real key")
     if not api_key:
         raise ModelConfigError("api_key is required")
     return {"name": name, "model": model, "base_url": base_url, "api_key": api_key}
@@ -75,11 +87,11 @@ def create_model_config(payload: dict[str, Any]) -> dict:
 
 
 def update_model_config(config_id: int, payload: dict[str, Any]) -> dict:
-    values = _validate_payload(payload)
     with SessionLocal.begin() as session:
         record = session.get(ModelConfigRecord, config_id)
         if record is None:
             raise ModelConfigError("model config not found", status_code=404)
+        values = _validate_payload(payload, existing_api_key=record.api_key)
         for key, value in values.items():
             setattr(record, key, value)
         record.updated_at = now_iso()
@@ -102,9 +114,10 @@ def apply_to_agent(agent_id: str, config_id: int) -> dict:
     agent = store.find_agent(agent_id)
     if agent is None:
         raise ModelConfigError("agent not found", status_code=404)
-    config = get_model_config(config_id)
-    if config is None:
+    record = _get_record(config_id)
+    if record is None:
         raise ModelConfigError("model config not found", status_code=404)
+    config = _serialize(record, reveal_secrets=True)
     summary = profiles.apply_model_config(agent["profile_name"], config)
     store.push_event(
         "agent.model.updated",
@@ -127,9 +140,10 @@ def current_agent_model(agent_id: str) -> dict:
 
 
 def test_model_config(config_id: int, *, timeout: float = 10.0) -> dict:
-    config = get_model_config(config_id)
-    if config is None:
+    record = _get_record(config_id)
+    if record is None:
         raise ModelConfigError("model config not found", status_code=404)
+    config = _serialize(record, reveal_secrets=True)
     headers = {
         "Authorization": f"Bearer {config['api_key']}",
         "Accept": "application/json",

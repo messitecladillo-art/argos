@@ -163,6 +163,15 @@ def send_user_task(store: RuntimeStore, *, content: str, to_agent_id: str = "") 
         len(content),
     )
     dispatch_worker.trigger_async()
+
+    # Start execution trace for self-evolving system
+    try:
+        from ..learning import trace_collector
+        trace_collector.init_app(store)
+        trace_collector.task_started(user_task["user_task_id"], leader_id, content)
+    except Exception:
+        pass
+
     return {
         "message_id": None,
         "content": content,
