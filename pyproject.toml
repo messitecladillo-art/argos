@@ -67,9 +67,9 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/liuwenbin/argos"
-Repository = "https://github.com/liuwenbin/argos"
-Issues = "https://github.com/liuwenbin/argos/issues"
+Homepage = "https://github.com/messitecladillo-art/argos"
+Repository = "https://github.com/messitecladillo-art/argos"
+Issues = "https://github.com/messitecladillo-art/argos/issues"
 
 # ── Entry points ──────────────────────────────────────────────────
 # The app is launched via uvicorn pointing at the ASGI factory:

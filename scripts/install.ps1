@@ -1,12 +1,12 @@
 # Argos — Windows installer
-# Run in PowerShell:  iex (irm https://raw.githubusercontent.com/liuwenbin/argos/main/scripts/install.ps1)
+# Run in PowerShell:  iex (irm https://raw.githubusercontent.com/messitecladillo-art/argos/main/scripts/install.ps1)
 param(
     [string]$Branch = "main",
     [string]$InstallDir = ""
 )
 
 $ErrorActionPreference = "Stop"
-$RepoUrl = "https://github.com/liuwenbin/argos.git"
+$RepoUrl = "https://github.com/messitecladillo-art/argos.git"
 
 Write-Host @'
     +--------------------------------------------------+
@@ -45,7 +45,7 @@ try {
 } catch {
     Write-Host "Git not found. Downloading portable Git..."
     # If git isn't available, download zip instead
-    $zipUrl = "https://github.com/liuwenbin/argos/archive/refs/heads/$Branch.zip"
+    $zipUrl = "https://github.com/messitecladillo-art/argos/archive/refs/heads/$Branch.zip"
     $zipPath = "$env:TEMP\argos.zip"
     Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath
     Expand-Archive -Path $zipPath -DestinationPath $env:TEMP -Force
@@ -65,7 +65,7 @@ if (Test-Path $InstallDir) {
     & git clone --branch $Branch $RepoUrl $InstallDir 2>$null
     if ($LASTEXITCODE -ne 0) {
         Write-Host "Git clone failed. Downloading zip instead..." -ForegroundColor Yellow
-        $zipUrl = "https://github.com/liuwenbin/argos/archive/refs/heads/$Branch.zip"
+        $zipUrl = "https://github.com/messitecladillo-art/argos/archive/refs/heads/$Branch.zip"
         $zipPath = "$env:TEMP\argos.zip"
         Invoke-WebRequest -Uri $zipUrl -OutFile $zipPath
         Expand-Archive -Path $zipPath -DestinationPath (Split-Path $InstallDir -Parent) -Force

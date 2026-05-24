@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Argos — Linux/macOS installer
-# Run: curl -fsSL https://raw.githubusercontent.com/liuwenbin/argos/main/scripts/install.sh | bash
+# Run: curl -fsSL https://raw.githubusercontent.com/messitecladillo-art/argos/main/scripts/install.sh | bash
 set -euo pipefail
 
 BRANCH="${1:-main}"
-REPO_URL="https://github.com/liuwenbin/argos.git"
+REPO_URL="https://github.com/messitecladillo-art/argos.git"
 INSTALL_DIR="${ARGOS_HOME:-$HOME/.argos}"
 
 echo -e "\033[1;36m"
@@ -42,7 +42,7 @@ else
     echo -e "\033[90mCloning Argos...\033[0m"
     git clone --branch "$BRANCH" "$REPO_URL" "$INSTALL_DIR" 2>/dev/null || {
         echo -e "\033[33mGit clone failed. Downloading zip...\033[0m"
-        curl -fsSL "https://github.com/liuwenbin/argos/archive/refs/heads/$BRANCH.zip" -o /tmp/argos.zip
+        curl -fsSL "https://github.com/messitecladillo-art/argos/archive/refs/heads/$BRANCH.zip" -o /tmp/argos.zip
         unzip -qo /tmp/argos.zip -d /tmp
         mv "/tmp/argos-$BRANCH" "$INSTALL_DIR"
         rm /tmp/argos.zip
