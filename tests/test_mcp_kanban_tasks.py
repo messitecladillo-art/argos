@@ -3,9 +3,9 @@ from __future__ import annotations
 import hashlib
 import json
 
-from app import mcp_server
-from app.models.store import RuntimeStore
-from app.services import mcp_installer
+from argos import mcp_server
+from argos.models.store import RuntimeStore
+from argos.services import mcp_installer
 
 
 def _agent(

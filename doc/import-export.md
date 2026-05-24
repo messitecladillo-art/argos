@@ -22,7 +22,7 @@
 
 | 位置 | 内容 | 是否导出 |
 |---|---|---|
-| SQLite `data/hermes_agent_team.db` | `agents` / `agent_skill_installs` / `agent_mcp_servers` 行 | ✅ 仅该 agent 相关行 |
+| SQLite `data/argos.db` | `agents` / `agent_skill_installs` / `agent_mcp_servers` 行 | ✅ 仅该 agent 相关行 |
 | `~/.hermes/profiles/<profile_name>/` | `SOUL.md`、`team-meta.json`、`config.yaml`、`skills/`、`memories/` | ✅ 白名单子集 |
 | `~/.hermes/profiles/<profile_name>/` | `state.db*`、`sessions/`、`logs/`、`sandboxes/`、`cron/`、`plans/`、`bin/`、`home/` | ❌ 运行时/机器相关 |
 | `~/agent_team/<profile_name>/` | Workspace | ❌ 默认不导（可选开关） |
@@ -55,10 +55,10 @@ created_at/updated_at/deleted_at/db_*  (DB 自动生成)
 
 ## 3. 打包格式
 
-单一 `.zip`，当前文件名形如 `hermes-agent-team-<timestamp>.zip`，结构：
+单一 `.zip`，当前文件名形如 `argos-<timestamp>.zip`，结构：
 
 ```
-hermes-agent-team-<timestamp>.zip
+argos-<timestamp>.zip
 ├── manifest.json            # schema_version、导出时间、源主机信息、agent 清单、checksum
 ├── agents/
 │   └── <profile_name>/
@@ -145,7 +145,7 @@ MCP Server 名与 Skill slug 在同一 profile 下如有冲突走相同的三选
 
 ### 5.1 模块划分
 
-新增 `app/services/transfer.py`，对外暴露：
+新增 `argos/services/transfer.py`，对外暴露：
 
 ```python
 def export_agents(profile_names: list[str], *, inline_skill_files: bool, include_workspace: bool) -> Path
@@ -158,7 +158,7 @@ def import_archive(zip_path: Path) -> dict
 - `profiles.check_hermes_ready` —— 前置检查
 - `skill_installer.install_from_git` / 内部辅助 —— 恢复 skills
 - `mcp_installer.add_mcp` —— 恢复 MCP servers
-- `app.db.repositories` —— DB 读写
+- `argos.db.repositories` —— DB 读写
 
 ### 5.2 Export 流程
 
@@ -214,7 +214,7 @@ def import_archive(zip_path: Path) -> dict
 
 ## 6. HTTP 接口
 
-挂载到 `app/controllers/transfer.py`：
+挂载到 `argos/controllers/transfer.py`：
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
@@ -232,7 +232,7 @@ def import_archive(zip_path: Path) -> dict
 
 ## 7. 前端改动
 
-`app/static/` 与 `app/templates/` 中：
+`argos/static/` 与 `argos/templates/` 中：
 
 - Agents 列表页使用现有**齿轮按钮**作为入口。
 - 点击齿轮按钮后打开“团队导入/导出”弹窗。
@@ -270,10 +270,10 @@ def import_archive(zip_path: Path) -> dict
 
 ## 9. 与现有架构对接点
 
-- `app/services/registry.py` —— 导入完成后需要触发 RuntimeStore 重新加载该 agent。
-- `app/controllers/events.py` —— 通过 SSE 推送 `agent.imported` 事件让前端刷新列表。
-- `app/services/profiles.py:_profile_config_path` —— 复用以定位 `config.yaml`。
-- `app/db/repositories.py` —— 新增 `bulk_upsert_agent` / `bulk_upsert_skills` / `bulk_upsert_mcps` 辅助方法。
+- `argos/services/registry.py` —— 导入完成后需要触发 RuntimeStore 重新加载该 agent。
+- `argos/controllers/events.py` —— 通过 SSE 推送 `agent.imported` 事件让前端刷新列表。
+- `argos/services/profiles.py:_profile_config_path` —— 复用以定位 `config.yaml`。
+- `argos/db/repositories.py` —— 新增 `bulk_upsert_agent` / `bulk_upsert_skills` / `bulk_upsert_mcps` 辅助方法。
 
 ---
 

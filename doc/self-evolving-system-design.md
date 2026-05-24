@@ -59,7 +59,7 @@ Without execution traces, nothing can be analyzed. Without analysis, nothing can
 ## Module Structure
 
 ```
-app/
+argos/
 ├── learning/                    # NEW: self-evolving system
 │   ├── __init__.py              # Public API surface
 │   ├── traces.py                # ExecutionTrace collector
@@ -352,12 +352,12 @@ CREATE INDEX idx_feedback_type ON feedback_signals(signal_type);
 ### 1. Trace Collection — hooks into existing services
 
 ```python
-# app/services/chat.py — after dispatch completes
-from app.learning.traces import trace_collector
+# argos/services/chat.py — after dispatch completes
+from argos.learning.traces import trace_collector
 trace_collector.record_allocation_result(assignment_id, result, status)
 
-# app/services/kanban_sync.py — when task status changes  
-from app.learning.traces import trace_collector
+# argos/services/kanban_sync.py — when task status changes  
+from argos.learning.traces import trace_collector
 trace_collector.record_task_phase_change(user_task_id, new_phase)
 ```
 
@@ -368,7 +368,7 @@ The `trace_collector` singleton observes state transitions. If `learning.enabled
 ```python
 # In the Leader's MCP tool: mcp_agent_bus_create_kanban_worker_tasks
 # Before decomposition, retrieve relevant strategic memories
-from app.learning.memory import memory_store
+from argos.learning.memory import memory_store
 relevant = memory_store.retrieve(task_content, layer="strategic", top_k=3)
 context_hint = memory_store.inject_into_context(task_content, "leader_decompose")
 ```
@@ -377,7 +377,7 @@ context_hint = memory_store.inject_into_context(task_content, "leader_decompose"
 
 ```python
 # Runs every 5 minutes, processes completed-but-unanalyzed traces
-from app.learning.feedback import feedback_engine
+from argos.learning.feedback import feedback_engine
 feedback_engine.extract_signals_for_completed_traces()
 ```
 
@@ -428,7 +428,7 @@ Seed weights start at 0.7 (confident but adjustable). After 50+ real traces, rea
 ### Week 1-2: Core Data Layer
 - [ ] Add ORM models: ExecutionTrace, MemoryItem, FeedbackSignal
 - [ ] DB migration
-- [ ] `app/learning/` package scaffold
+- [ ] `argos/learning/` package scaffold
 - [ ] TraceCollector with event hooks
 
 ### Week 3-5: Memory System

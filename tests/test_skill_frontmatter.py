@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from app.services import skill_frontmatter
+from argos.services import skill_frontmatter
 
 
 def test_parse_without_frontmatter_returns_raw_body():

@@ -13,11 +13,11 @@ from flask import Flask
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.controllers import agent_mcps as mcp_controller
-from app.db.models import AgentMcpServerRecord
-from app.db.session import Base
-from app.models.store import RuntimeStore
-from app.services import mcp_installer
+from argos.controllers import agent_mcps as mcp_controller
+from argos.db.models import AgentMcpServerRecord
+from argos.db.session import Base
+from argos.models.store import RuntimeStore
+from argos.services import mcp_installer
 
 
 def _client(monkeypatch, tmp_path):

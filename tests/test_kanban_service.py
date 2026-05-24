@@ -5,7 +5,7 @@ import subprocess
 
 import pytest
 
-from app.services.kanban import KanbanError, KanbanService, _workspace_from_claim_output, extract_task_id
+from argos.services.kanban import KanbanError, KanbanService, _workspace_from_claim_output, extract_task_id
 
 
 def test_create_task_uses_board_json_and_idempotency(monkeypatch):

@@ -4,8 +4,8 @@ from unittest.mock import MagicMock
 
 from flask import Flask
 
-from app.controllers import agents as agents_controller
-from app.models.store import RuntimeStore
+from argos.controllers import agents as agents_controller
+from argos.models.store import RuntimeStore
 
 
 def _client(monkeypatch):
@@ -28,7 +28,7 @@ def test_hermes_status_ready(monkeypatch):
         lambda: {"ok": True, "profiles": ["default"], "message": "Hermes 已就绪"},
     )
 
-    response = client.get("/api/hermes/status")
+    response = client.get("/api/argos/status")
 
     assert response.status_code == 200
     data = response.get_json()
@@ -51,7 +51,7 @@ def test_hermes_status_not_found(monkeypatch):
         },
     )
 
-    response = client.get("/api/hermes/status")
+    response = client.get("/api/argos/status")
 
     assert response.status_code == 503
     data = response.get_json()

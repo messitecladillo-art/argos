@@ -10,8 +10,8 @@ from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 from starlette.testclient import TestClient
 
-from app.middleware.auth import AuthMiddleware
-from app.middleware.ratelimit import RateLimitMiddleware
+from argos.middleware.auth import AuthMiddleware
+from argos.middleware.ratelimit import RateLimitMiddleware
 
 
 # ── Test ASGI app factories ────────────────────────────────────
@@ -29,7 +29,7 @@ def _auth_app() -> Starlette:
     return Starlette(
         routes=[
             Route("/", _public_endpoint, methods=["GET"]),
-            Route("/api/hermes/status", _public_endpoint, methods=["GET"]),
+            Route("/api/argos/status", _public_endpoint, methods=["GET"]),
             Route("/api/agents", _protected_endpoint, methods=["GET", "POST"]),
             Route("/static/test.js", _public_endpoint, methods=["GET"]),
             Route("/mcp/test", _public_endpoint, methods=["GET"]),
@@ -52,7 +52,7 @@ class TestAuthMiddleware:
     def test_public_path_bypasses_auth(self, monkeypatch):
         monkeypatch.setenv("API_TOKEN", "secret")
         client = TestClient(_auth_app())
-        resp = client.get("/api/hermes/status")
+        resp = client.get("/api/argos/status")
         assert resp.status_code == 200
 
     def test_dashboard_bypasses_auth(self, monkeypatch):
@@ -151,7 +151,7 @@ class TestRateLimitMiddleware:
 class TestCORSMiddleware:
     def test_cors_headers_in_debug_mode(self, monkeypatch):
         monkeypatch.setenv("FLASK_DEBUG", "1")
-        from app.middleware.cors import cors_middleware
+        from argos.middleware.cors import cors_middleware
 
         app = Starlette(routes=[Route("/api/test", _public_endpoint, methods=["GET"])])
         app = cors_middleware(app)
@@ -166,7 +166,7 @@ class TestCORSMiddleware:
     def test_explicit_cors_origins_honored_in_production(self, monkeypatch):
         monkeypatch.setenv("FLASK_DEBUG", "0")
         monkeypatch.setenv("CORS_ORIGINS", "https://app.example.com,https://admin.example.com")
-        from app.middleware.cors import cors_middleware
+        from argos.middleware.cors import cors_middleware
 
         app = Starlette(routes=[Route("/api/test", _public_endpoint, methods=["GET"])])
         app = cors_middleware(app)
@@ -189,7 +189,7 @@ class TestCORSMiddleware:
     def test_production_no_cors_origins_blocks_all(self, monkeypatch):
         monkeypatch.setenv("FLASK_DEBUG", "0")
         monkeypatch.delenv("CORS_ORIGINS", raising=False)
-        from app.middleware.cors import cors_middleware
+        from argos.middleware.cors import cors_middleware
 
         app = Starlette(routes=[Route("/api/test", _public_endpoint, methods=["GET"])])
         app = cors_middleware(app)
@@ -205,7 +205,7 @@ class TestCORSMiddleware:
 class TestWebSocketAuth:
     def test_ws_auth_disabled_when_api_token_not_set(self, monkeypatch):
         monkeypatch.delenv("API_TOKEN", raising=False)
-        from app.asgi import _ws_authenticate
+        from argos.asgi import _ws_authenticate
         from unittest.mock import MagicMock
 
         ws = MagicMock()
@@ -215,7 +215,7 @@ class TestWebSocketAuth:
 
     def test_ws_auth_accepts_valid_x_api_key(self, monkeypatch):
         monkeypatch.setenv("API_TOKEN", "secret")
-        from app.asgi import _ws_authenticate
+        from argos.asgi import _ws_authenticate
         from unittest.mock import MagicMock
 
         ws = MagicMock()
@@ -225,7 +225,7 @@ class TestWebSocketAuth:
 
     def test_ws_auth_accepts_valid_query_token(self, monkeypatch):
         monkeypatch.setenv("API_TOKEN", "secret")
-        from app.asgi import _ws_authenticate
+        from argos.asgi import _ws_authenticate
         from unittest.mock import MagicMock
 
         ws = MagicMock()
@@ -235,7 +235,7 @@ class TestWebSocketAuth:
 
     def test_ws_auth_accepts_bearer_token(self, monkeypatch):
         monkeypatch.setenv("API_TOKEN", "secret")
-        from app.asgi import _ws_authenticate
+        from argos.asgi import _ws_authenticate
         from unittest.mock import MagicMock
 
         ws = MagicMock()
@@ -245,7 +245,7 @@ class TestWebSocketAuth:
 
     def test_ws_auth_rejects_wrong_token(self, monkeypatch):
         monkeypatch.setenv("API_TOKEN", "secret")
-        from app.asgi import _ws_authenticate
+        from argos.asgi import _ws_authenticate
         from unittest.mock import MagicMock
 
         ws = MagicMock()
@@ -255,7 +255,7 @@ class TestWebSocketAuth:
 
     def test_ws_auth_rejects_missing_token(self, monkeypatch):
         monkeypatch.setenv("API_TOKEN", "secret")
-        from app.asgi import _ws_authenticate
+        from argos.asgi import _ws_authenticate
         from unittest.mock import MagicMock
 
         ws = MagicMock()

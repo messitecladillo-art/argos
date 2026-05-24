@@ -4,10 +4,10 @@ from flask import Flask
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.controllers import model_configs as model_configs_controller
-from app.db.session import Base
-from app.models.store import RuntimeStore
-from app.services import model_configs as model_configs_service
+from argos.controllers import model_configs as model_configs_controller
+from argos.db.session import Base
+from argos.models.store import RuntimeStore
+from argos.services import model_configs as model_configs_service
 
 
 def _client(monkeypatch, tmp_path):
@@ -152,7 +152,7 @@ def test_update_preserves_masked_api_key(monkeypatch, tmp_path):
 
 def test_validate_payload_rejects_masked_key_without_existing(monkeypatch):
     """If no existing_api_key is provided and the payload key looks masked, raise."""
-    from app.services.model_configs import ModelConfigError, _validate_payload
+    from argos.services.model_configs import ModelConfigError, _validate_payload
 
     try:
         _validate_payload({
@@ -166,7 +166,7 @@ def test_validate_payload_rejects_masked_key_without_existing(monkeypatch):
 
 def test_validate_payload_preserves_existing_on_masked(monkeypatch):
     """When existing_api_key is provided and payload key is masked, use existing."""
-    from app.services.model_configs import _validate_payload
+    from argos.services.model_configs import _validate_payload
 
     result = _validate_payload(
         {"name": "Test", "model": "gpt-4", "base_url": "https://example.com/v1", "api_key": "sk-a...1234"},

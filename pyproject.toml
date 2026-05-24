@@ -3,7 +3,7 @@ requires = ["setuptools>=75", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "hermes-agent-team"
+name = "argos"
 version = "0.2.0"
 description = "Self-evolving multi-agent collaboration system — leader/specialist task orchestration with MCP, ACP, and Kanban"
 readme = "README.md"
@@ -48,6 +48,9 @@ dependencies = [
     "pydantic-settings>=2.0",
     # transitive dependencies worth pinning for safety
     "pyarrow>=17.0",
+    # CLI/TUI
+    "rich>=13.0",
+    "textual>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -60,27 +63,28 @@ windows = [
 ]
 # Full production deployment (include all optional deps)
 all = [
-    "hermes-agent-team[dev]",
+    "argos[dev]",
 ]
 
 [project.urls]
-Homepage = "https://github.com/liuwenbin/hermes-agent-team"
-Repository = "https://github.com/liuwenbin/hermes-agent-team"
-Issues = "https://github.com/liuwenbin/hermes-agent-team/issues"
+Homepage = "https://github.com/liuwenbin/argos"
+Repository = "https://github.com/liuwenbin/argos"
+Issues = "https://github.com/liuwenbin/argos/issues"
 
 # ── Entry points ──────────────────────────────────────────────────
 # The app is launched via uvicorn pointing at the ASGI factory:
-#   uvicorn app.asgi:create_asgi_app --factory --host 127.0.0.1 --port 5050
+#   uvicorn argos.asgi:create_asgi_app --factory --host 127.0.0.1 --port 5050
 # See run.py for the convenience launcher.
 
 [project.scripts]
-hermes-mgmt = "app.cli:main"
+argos-cli = "argos.cli:main"
+argos-tui = "argos.tui.app:main"
 
 [tool.setuptools.packages.find]
-include = ["app*", "tests*"]
+include = ["argos*", "tests*"]
 
 [tool.setuptools.package-data]
-app = ["templates/**", "static/**", "db/migrations/alembic.ini", "db/migrations/env.py", "db/migrations/script.py.mako", "db/migrations/versions/*.py"]
+argos = ["templates/**", "static/**", "db/migrations/alembic.ini", "db/migrations/env.py", "db/migrations/script.py.mako", "db/migrations/versions/*.py"]
 
 # ── pytest ────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
@@ -100,14 +104,14 @@ filterwarnings = [
 ]
 
 # ── Alembic ───────────────────────────────────────────────────────
-# Alembic reads its configuration from app/db/migrations/alembic.ini
-# which imports the database URL from app.config at runtime.
+# Alembic reads its configuration from argos/db/migrations/alembic.ini
+# which imports the database URL from argos.config at runtime.
 
 # ── Coverage ──────────────────────────────────────────────────────
 [tool.coverage.run]
-source = ["app"]
+source = ["argos"]
 omit = [
-    "app/db/migrations/versions/*",
+    "argos/db/migrations/versions/*",
     "*/tests/*",
 ]
 relative_files = true
@@ -131,7 +135,7 @@ python_version = "3.11"
 warn_unused_configs = true
 warn_redundant_casts = true
 ignore_missing_imports = true
-exclude = ["^app/db/migrations/versions/"]
+exclude = ["^argos/db/migrations/versions/"]
 
 # ── Ruff / Linting ────────────────────────────────────────────────
 [tool.ruff]

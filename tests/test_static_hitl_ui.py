@@ -4,7 +4,7 @@ from pathlib import Path
 
 
 def test_human_input_card_click_opens_answer_flow_instead_of_terminal():
-    source = Path("app/static/app.js").read_text(encoding="utf-8")
+    source = Path("argos/static/app.js").read_text(encoding="utf-8")
 
     assert "function openKanbanTask(link)" in source
     assert "kanbanTaskCanAnswer(link)" in source

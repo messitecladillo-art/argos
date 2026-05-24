@@ -67,11 +67,11 @@ mcp_servers:
 
 | 文件 | 作用 |
 | --- | --- |
-| `app/controllers/agent_mcps.py` | MCP REST API |
-| `app/services/mcp_installer.py` | MCP 列表、CRUD、测试、摘要 |
-| `app/services/profiles.py` | profile config.yaml 原子读写 |
-| `app/services/agents.py` | leader 创建时写入 `agent_bus`，删除 agent 时清理 MCP 记录 |
-| `app/mcp_server.py` | `list_workers()` 返回 `mcps` 摘要 |
+| `argos/controllers/agent_mcps.py` | MCP REST API |
+| `argos/services/mcp_installer.py` | MCP 列表、CRUD、测试、摘要 |
+| `argos/services/profiles.py` | profile config.yaml 原子读写 |
+| `argos/services/agents.py` | leader 创建时写入 `agent_bus`，删除 agent 时清理 MCP 记录 |
+| `argos/mcp_server.py` | `list_workers()` 返回 `mcps` 摘要 |
 | `tests/test_mcp_installer.py` | MCP 管理测试 |
 
 ## 4. API
@@ -163,7 +163,7 @@ stdio：
 
 ## 8. agent_bus
 
-创建 leader agent 时，`app/services/agents.py` 会：
+创建 leader agent 时，`argos/services/agents.py` 会：
 
 1. 调用 `profiles.attach_mcp_server(...)` 写入 `agent_bus`。
 2. 调用 `mcp_installer.upsert_builtin_agent_bus(...)` 写入 DB 记录。

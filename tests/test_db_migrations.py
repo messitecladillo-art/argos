@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, inspect, text
 
 
 def _alembic_cfg(db_path: str) -> Config:
-    cfg = Config(str(Path("app/db/migrations/alembic.ini").resolve()))
+    cfg = Config(str(Path("argos/db/migrations/alembic.ini").resolve()))
     cfg.set_main_option("sqlalchemy.url", f"sqlite:///{db_path}")
     return cfg
 
@@ -76,7 +76,7 @@ def test_pre_alembic_db_is_stamped(tmp_path):
     db_path = str(tmp_path / "pre_alembic.db")
     engine = _engine(db_path)
     # Simulate pre-Alembic schema by creating tables directly
-    from app.db.session import Base
+    from argos.db.session import Base
     Base.metadata.create_all(bind=engine)
 
     # Verify tables exist but no alembic_version

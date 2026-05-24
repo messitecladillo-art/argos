@@ -49,16 +49,16 @@ Kanban task 角色：
 
 | 文件 | 作用 |
 | --- | --- |
-| `app/services/kanban.py` | Hermes Kanban CLI 适配层 |
-| `app/services/kanban_sync.py` | Kanban 状态同步和 review 任务创建 |
-| `app/services/kanban_dispatch.py` | 项目内 Kanban dispatch worker |
-| `app/controllers/kanban.py` | Kanban 查询、归档、unblock、dispatch、设置 API |
-| `app/models/store/kanban.py` | 本地 Kanban task link 存储 |
-| `app/mcp_server.py` | Leader 可调用的团队协作 MCP 工具 |
+| `argos/services/kanban.py` | Hermes Kanban CLI 适配层 |
+| `argos/services/kanban_sync.py` | Kanban 状态同步和 review 任务创建 |
+| `argos/services/kanban_dispatch.py` | 项目内 Kanban dispatch worker |
+| `argos/controllers/kanban.py` | Kanban 查询、归档、unblock、dispatch、设置 API |
+| `argos/models/store/kanban.py` | 本地 Kanban task link 存储 |
+| `argos/mcp_server.py` | Leader 可调用的团队协作 MCP 工具 |
 
 ## 4. KanbanService
 
-`app/services/kanban.py` 当前通过 `subprocess` 调用 Hermes CLI，并统一加上 `--board <KANBAN_BOARD>`。
+`argos/services/kanban.py` 当前通过 `subprocess` 调用 Hermes CLI，并统一加上 `--board <KANBAN_BOARD>`。
 
 已封装能力：
 
@@ -81,7 +81,7 @@ Kanban task 角色：
 默认 board：
 
 ```text
-KANBAN_BOARD=hermes-agents-team
+KANBAN_BOARD=argos
 ```
 
 默认 workspace：
@@ -92,7 +92,7 @@ KANBAN_DEFAULT_WORKSPACE=scratch
 
 ## 5. 用户任务与 Worker 子任务
 
-用户提交任务后，`app/services/messages.py` 会创建：
+用户提交任务后，`argos/services/messages.py` 会创建：
 
 1. 本地 `user_task`。
 2. 分配给 leader profile 的父 Kanban task。
@@ -178,7 +178,7 @@ UI 列映射：
 
 | 配置 | 默认值 | 功能 |
 | --- | --- | --- |
-| `KANBAN_BOARD` | `hermes-agents-team` | 当前项目使用的 board slug |
+| `KANBAN_BOARD` | `argos` | 当前项目使用的 board slug |
 | `KANBAN_POLL_INTERVAL` | `2` | 同步轮询间隔，单位秒 |
 | `KANBAN_DEFAULT_WORKSPACE` | `scratch` | 创建 Kanban task 的默认 workspace |
 | `KANBAN_AUTO_DISPATCH` | `0` | 初始自动派发开关 |

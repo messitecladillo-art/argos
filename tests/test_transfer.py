@@ -9,10 +9,10 @@ import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from app.db.models import AgentMcpServerRecord, AgentRecord, AgentSkillInstallRecord, MessageRecord
-from app.db.session import Base
-from app.models.store import RuntimeStore
-from app.services import transfer
+from argos.db.models import AgentMcpServerRecord, AgentRecord, AgentSkillInstallRecord, MessageRecord
+from argos.db.session import Base
+from argos.models.store import RuntimeStore
+from argos.services import transfer
 
 
 @pytest.fixture()

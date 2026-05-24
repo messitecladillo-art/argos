@@ -14,10 +14,10 @@ import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from app.db import init_database
-from app.learning import trace_collector, memory_store, feedback_engine, CircuitBreaker
-from app.learning.memory import _seed_memory_id
-from app.models.store import store
+from argos.db import init_database
+from argos.learning import trace_collector, memory_store, feedback_engine, CircuitBreaker
+from argos.learning.memory import _seed_memory_id
+from argos.models.store import store
 
 
 def test_db_init():
@@ -86,7 +86,7 @@ def test_lancedb_retrieval():
 
 
 def test_vector_store_uses_plain_vectors():
-    from app.learning.embeddings import VectorStore
+    from argos.learning.embeddings import VectorStore
 
     class FakeBuilder:
         def __init__(self) -> None:
@@ -247,7 +247,7 @@ def test_circuit_breaker():
 
 
 def test_disabled_mode():
-    from app.learning.traces import TraceCollector
+    from argos.learning.traces import TraceCollector
     disabled = TraceCollector(enabled=False)
     assert disabled.task_started("x", "y", "z") is None
     print("[PASS] disabled collector is no-op")
@@ -257,7 +257,7 @@ def test_global_trace_collector_respects_learn_enabled():
     env = os.environ.copy()
     env["LEARN_ENABLED"] = "0"
     script = (
-        "import app.learning.traces as traces; "
+        "import argos.learning.traces as traces; "
         "print('enabled=' + str(traces.trace_collector.enabled))"
     )
     result = subprocess.run(
@@ -279,7 +279,7 @@ def test_stats_api():
 
 
 def test_safe_call():
-    from app.learning.embeddings import safe_call, safe_call_or
+    from argos.learning.embeddings import safe_call, safe_call_or
     cb = CircuitBreaker("test_safe", failure_threshold=2, window_sec=60, cooldown_sec=60)
 
     def ok(): return 42
@@ -292,7 +292,7 @@ def test_safe_call():
 
 
 def test_active_learning():
-    from app.learning import active_engine
+    from argos.learning import active_engine
     active_engine.init_app(store, memory_store)
 
     # Generate enough varied traces for pattern detection
@@ -343,7 +343,7 @@ def test_active_learning():
 
 
 def test_metrics():
-    from app.learning import metrics_collector
+    from argos.learning import metrics_collector
 
     # Reset for clean test
     metrics_collector._retrieval_total = 0
@@ -388,7 +388,7 @@ def test_metrics():
 
 def test_persistence_roundtrip():
     """Verify suggestions and experiments survive store reload."""
-    from app.learning import active_engine, ab_evaluator
+    from argos.learning import active_engine, ab_evaluator
     import uuid
 
     # Create test data
@@ -429,7 +429,7 @@ def test_persistence_roundtrip():
 
 
 def test_ab_evaluation():
-    from app.learning import ab_evaluator
+    from argos.learning import ab_evaluator
     # Clear stale state from other tests
     ab_evaluator._experiments.clear()
     store.experiments.clear()
@@ -475,7 +475,7 @@ def main():
     trace_collector.init_app(store)
     memory_store.init_app(store)
     feedback_engine.init_app(store, memory_store)
-    from app.learning import active_engine, ab_evaluator
+    from argos.learning import active_engine, ab_evaluator
     active_engine.init_app(store, memory_store)
     ab_evaluator.init_app(store)
     print()

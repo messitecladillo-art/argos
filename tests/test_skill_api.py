@@ -6,9 +6,9 @@ from pathlib import Path
 from flask import Flask
 from sqlalchemy import create_engine
 
-from app.controllers import agents as agents_controller
-from app.db.session import Base
-from app.models.store import RuntimeStore
+from argos.controllers import agents as agents_controller
+from argos.db.session import Base
+from argos.models.store import RuntimeStore
 from sqlalchemy.orm import sessionmaker
 
 

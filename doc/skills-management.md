@@ -54,11 +54,11 @@ Skills 存放在 Hermes profile 目录：
 
 | 文件 | 作用 |
 | --- | --- |
-| `app/controllers/agents.py` | Skills REST API，和 agent API 在同一个 blueprint 中 |
-| `app/services/skill_installer.py` | 安装、列表、查看、卸载、重新安装逻辑 |
-| `app/services/skill_frontmatter.py` | `SKILL.md` frontmatter 解析和序列化 |
-| `app/services/registry.py` | profile / skills 路径计算 |
-| `app/db/models.py` | `AgentSkillInstallRecord` |
+| `argos/controllers/agents.py` | Skills REST API，和 agent API 在同一个 blueprint 中 |
+| `argos/services/skill_installer.py` | 安装、列表、查看、卸载、重新安装逻辑 |
+| `argos/services/skill_frontmatter.py` | `SKILL.md` frontmatter 解析和序列化 |
+| `argos/services/registry.py` | profile / skills 路径计算 |
+| `argos/db/models.py` | `AgentSkillInstallRecord` |
 | `tests/test_skill_api.py` | Skills API 测试 |
 
 ## 4. API
@@ -132,7 +132,7 @@ Skills 存放在 Hermes profile 目录：
 
 ## 7. Agent 生命周期
 
-创建 agent 时，`app/services/agents.py` 会兜底创建：
+创建 agent 时，`argos/services/agents.py` 会兜底创建：
 
 ```text
 ~/.hermes/profiles/<profile_name>/skills/

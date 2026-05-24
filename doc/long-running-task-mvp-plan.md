@@ -53,18 +53,18 @@ review 任务不是简单“汇总任务”，而是 checkpoint：
 
 | 文件 | 作用 |
 | --- | --- |
-| `app/services/messages.py` | `send_user_task(...)` 创建用户任务和 leader 父 Kanban 任务 |
-| `app/mcp_server.py` | 暴露 `create_kanban_worker_tasks(...)` 等 MCP 工具 |
-| `app/services/kanban_sync.py` | 同步 Kanban 状态，创建 review 任务，投影完成/阻塞状态 |
-| `app/services/kanban_dispatch.py` | 项目内 Kanban dispatch worker |
-| `app/models/store/user_tasks.py` | 用户任务状态、轮次和阻塞状态 |
-| `app/models/store/delegations.py` | delegation / assignment 状态 |
-| `app/models/store/kanban.py` | 本地对象与 Kanban task 的映射 |
-| `app/db/migrations.py` | SQLite 轻量字段补齐 |
+| `argos/services/messages.py` | `send_user_task(...)` 创建用户任务和 leader 父 Kanban 任务 |
+| `argos/mcp_server.py` | 暴露 `create_kanban_worker_tasks(...)` 等 MCP 工具 |
+| `argos/services/kanban_sync.py` | 同步 Kanban 状态，创建 review 任务，投影完成/阻塞状态 |
+| `argos/services/kanban_dispatch.py` | 项目内 Kanban dispatch worker |
+| `argos/models/store/user_tasks.py` | 用户任务状态、轮次和阻塞状态 |
+| `argos/models/store/delegations.py` | delegation / assignment 状态 |
+| `argos/models/store/kanban.py` | 本地对象与 Kanban task 的映射 |
+| `argos/db/migrations.py` | SQLite 轻量字段补齐 |
 
 ## 4. 用户任务创建
 
-入口：`app/services/messages.py::send_user_task(...)`
+入口：`argos/services/messages.py::send_user_task(...)`
 
 当前行为：
 
@@ -75,7 +75,7 @@ review 任务不是简单“汇总任务”，而是 checkpoint：
 
 ## 5. Worker 子任务创建
 
-入口：`app/mcp_server.py::create_kanban_worker_tasks(...)`
+入口：`argos/mcp_server.py::create_kanban_worker_tasks(...)`
 
 当前行为：
 
@@ -92,7 +92,7 @@ Worker 子任务的 idempotency key 包含轮次和内容 hash，因此同一轮
 
 ## 6. Review 任务创建与完成
 
-入口：`app/services/kanban_sync.py`
+入口：`argos/services/kanban_sync.py`
 
 关键函数：
 

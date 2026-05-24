@@ -1,4 +1,4 @@
-from app.services.acp import (
+from argos.services.acp import (
     STUCK_HINT_SECONDS,
     _extract_selection,
     _is_non_interaction_text,

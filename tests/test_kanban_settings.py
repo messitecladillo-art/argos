@@ -4,10 +4,10 @@ from flask import Flask
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 
-from app.controllers import kanban as kanban_controller
-from app.db.models import SettingRecord
-from app.db.session import Base
-from app.services.settings import SettingsService
+from argos.controllers import kanban as kanban_controller
+from argos.db.models import SettingRecord
+from argos.db.session import Base
+from argos.services.settings import SettingsService
 
 
 def _session_local(tmp_path):
@@ -23,7 +23,7 @@ def _session_local(tmp_path):
 
 def test_settings_service_persists_kanban_auto_dispatch(monkeypatch, tmp_path):
     session_local = _session_local(tmp_path)
-    monkeypatch.setattr("app.db.repositories.SessionLocal", session_local)
+    monkeypatch.setattr("argos.db.repositories.SessionLocal", session_local)
     service = SettingsService()
 
     assert service.get_kanban_auto_dispatch_enabled() is False
@@ -38,7 +38,7 @@ def test_settings_service_persists_kanban_auto_dispatch(monkeypatch, tmp_path):
 
 def test_kanban_settings_api_get_put(monkeypatch, tmp_path):
     session_local = _session_local(tmp_path)
-    monkeypatch.setattr("app.db.repositories.SessionLocal", session_local)
+    monkeypatch.setattr("argos.db.repositories.SessionLocal", session_local)
     monkeypatch.setattr(kanban_controller, "settings_service", SettingsService())
     app = Flask(__name__)
     app.register_blueprint(kanban_controller.bp)
@@ -61,7 +61,7 @@ def test_kanban_settings_api_get_put(monkeypatch, tmp_path):
 
 def test_kanban_settings_api_rejects_non_boolean(monkeypatch, tmp_path):
     session_local = _session_local(tmp_path)
-    monkeypatch.setattr("app.db.repositories.SessionLocal", session_local)
+    monkeypatch.setattr("argos.db.repositories.SessionLocal", session_local)
     monkeypatch.setattr(kanban_controller, "settings_service", SettingsService())
     app = Flask(__name__)
     app.register_blueprint(kanban_controller.bp)

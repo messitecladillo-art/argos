@@ -3,8 +3,8 @@ from __future__ import annotations
 from collections import deque
 from itertools import count
 
-from app.models.store import RuntimeStore
-from app.services import registry
+from argos.models.store import RuntimeStore
+from argos.services import registry
 
 
 class FakePersistence:

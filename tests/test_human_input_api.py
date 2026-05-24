@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from flask import Flask
 
-from app.controllers import kanban as kanban_controller
-from app.models.store import RuntimeStore
+from argos.controllers import kanban as kanban_controller
+from argos.models.store import RuntimeStore
 
 
 def _agent(agent_id: str, profile_name: str, workspace_path: str | None = None) -> dict:

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from app.models.store import RuntimeStore
-from app.services.kanban_sync import KanbanSyncWorker, _format_review_body
+from argos.models.store import RuntimeStore
+from argos.services.kanban_sync import KanbanSyncWorker, _format_review_body
 
 
 def _agent(agent_id: str, profile_name: str, role: str, workspace_path: str | None = None) -> dict:

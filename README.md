@@ -28,15 +28,16 @@
 - SOUL.md 人设编辑与重新生成
 - 生产级安全中间件：API Token 鉴权、CORS、滑动窗口速率限制
 - 自进化学习系统：执行追踪、记忆库、主动学习引擎、A/B 评估
-- 健康检查端点 `/api/hermes/status`（DB 连接 / Hermes CLI / 环境变量）
-- 管理 CLI：`hermes-mgmt check|backup|info|migrate`
+- 健康检查端点 `/api/argos/status`（DB 连接 / Hermes CLI / 环境变量）
+- 管理 CLI：`argos-cli check|backup|info|migrate`（基于 rich 美化终端输出）
+- 终端 UI 仪表盘：`argos-tui`（基于 Textual，实时展示 Agent 状态 / 事件 / Kanban）
 - Docker 支持：多阶段构建、非 root 用户、内置健康检查
 - 密钥管理：.env 加载 + Docker secrets + API Key 脱敏
 
 ## 目录结构
 
 ```
-app/             Flask 应用
+argos/           Argos 应用
   asgi.py        ASGI 入口，挂载 Flask + MCP Server + WebSocket
   cli.py         管理命令行工具（check / backup / info / migrate）
   config.py      环境变量与路径配置
@@ -46,6 +47,7 @@ app/             Flask 应用
   middleware/    安全中间件（鉴权 / CORS / 速率限制 / 错误处理）
   models/        运行时状态存储 + 持久化桥接
   services/      业务逻辑（Agent 管理 / 模型配置 / 密钥管理 / 技能安装）
+  tui/           终端 UI 仪表盘（Textual，Agent 状态 / 事件 / Kanban）
 data/            SQLite 数据库（运行时生成，已 gitignore）
 doc/             架构 / 设计 / 管理文档
 tests/           pytest 测试（168 项）
@@ -54,6 +56,7 @@ docker-compose.yml 容器编排配置
 manage.py        管理 CLI 入口
 pyproject.toml   项目配置（构建 / pytest / mypy / ruff）
 run.py           本地开发启动入口
+run_tui.py       终端 UI 启动入口
 ```
 
 ## 快速开始
@@ -79,12 +82,12 @@ pip install -r requirements.txt
 |------|--------|------|
 | `HERMES_HOME` | `~/.hermes` | Hermes profiles 根目录 |
 | `AGENT_TEAM_WORKSPACE_ROOT` | `~/agent_team` | Agent 工作区根目录 |
-| `DATABASE_URL` | `sqlite:///data/hermes_agent_team.db` | 数据库连接串 |
+| `DATABASE_URL` | `sqlite:///data/argos.db` | 数据库连接串 |
 | `HERMES_AGENTS_MCP_URL` | `http://127.0.0.1:5050/mcp/` | MCP Bus 地址 |
 | `PORT` | `5050` | HTTP 服务端口 |
 | `FLASK_DEBUG` | `0` | 调试日志开关（不启用自动 reload） |
 | `AUTO_START_AGENTS` | `1` | 项目启动时自动启动所有已就绪 Agent；设为 `0` 可关闭 |
-| `KANBAN_BOARD` | `hermes-agents-team` | Hermes Kanban board 名称 |
+| `KANBAN_BOARD` | `argos` | Hermes Kanban board 名称 |
 | `KANBAN_POLL_INTERVAL` | `2` | Kanban 状态同步轮询间隔（秒） |
 | `KANBAN_DEFAULT_WORKSPACE` | `scratch` | Kanban 任务默认 workspace |
 | `KANBAN_AUTO_DISPATCH` | `0` | 首次无持久化设置时，自动 Dispatch 开关的默认值 |
@@ -120,25 +123,37 @@ python run.py
 
 ```bash
 # 构建镜像
-docker build -t hermes-agent-team .
+docker build -t argos .
 
 # 使用 docker-compose
 cp .env.example .env     # 编辑 .env 填入实际配置
 docker-compose up -d
 ```
 
-Docker 健康检查自动访问 `/api/hermes/status`，`docker-compose ps` 可查看状态。
+Docker 健康检查自动访问 `/api/argos/status`，`docker-compose ps` 可查看状态。
 
 ### 7. 管理 CLI
 
 ```bash
 python manage.py check      # 检查 Hermes CLI 和数据库状态
 python manage.py backup     # 备份 SQLite 数据库
-python manage.py info        # 显示当前配置信息
-python manage.py migrate     # 数据库升级到最新版本
+python manage.py info       # 显示当前配置信息
+python manage.py migrate    # 数据库升级到最新版本
 ```
 
-### 8. 运行测试
+所有 CLI 命令均使用 `rich` 美化终端输出（表格 / 面板 / 图标 / 彩色状态）。
+
+### 8. 终端 UI 仪表盘
+
+```bash
+python run_tui.py           # 启动终端仪表盘
+# 或通过 console script：
+argos-tui
+```
+
+基于 `textual` 构建，实时展示 Agent 运行状态、事件日志、Kanban 任务流转。支持键盘快捷键操作。
+
+### 9. 运行测试
 
 ```bash
 pytest

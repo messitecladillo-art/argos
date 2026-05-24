@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from flask import Flask
 
-from app.controllers import agents as agents_controller
-from app.models.store import RuntimeStore
+from argos.controllers import agents as agents_controller
+from argos.models.store import RuntimeStore
 
 
 def _client(monkeypatch, tmp_path):

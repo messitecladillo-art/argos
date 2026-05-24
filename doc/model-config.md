@@ -48,7 +48,7 @@ class ModelConfigRecord(TimestampMixin, Base):
 
 ## 3. 写入 profile
 
-应用模型配置时，`app/services/profiles.py::apply_model_config(...)` 只更新 profile `config.yaml` 的 `model` 节点：
+应用模型配置时，`argos/services/profiles.py::apply_model_config(...)` 只更新 profile `config.yaml` 的 `model` 节点：
 
 ```yaml
 model:
@@ -64,9 +64,9 @@ model:
 
 | 文件 | 作用 |
 | --- | --- |
-| `app/controllers/model_configs.py` | 模型配置 REST API |
-| `app/services/model_configs.py` | CRUD、应用到 Agent、读取当前模型、连通性测试 |
-| `app/services/profiles.py` | 读写 profile `config.yaml` 和模型摘要 |
+| `argos/controllers/model_configs.py` | 模型配置 REST API |
+| `argos/services/model_configs.py` | CRUD、应用到 Agent、读取当前模型、连通性测试 |
+| `argos/services/profiles.py` | 读写 profile `config.yaml` 和模型摘要 |
 | `tests/test_model_config_api.py` | 模型配置 API 测试 |
 
 ## 5. API

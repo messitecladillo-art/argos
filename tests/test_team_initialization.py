@@ -6,12 +6,12 @@ from flask import Flask
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import sessionmaker
 
-from app.controllers import agents as agents_controller
-from app.db.models import AgentRecord, EventRecord, KanbanTaskLinkRecord, MessageRecord, UserTaskRecord
-from app.db.session import Base
-from app.models.store import RuntimeStore
-from app.services import team_initialization
-from app.services.kanban import KanbanError
+from argos.controllers import agents as agents_controller
+from argos.db.models import AgentRecord, EventRecord, KanbanTaskLinkRecord, MessageRecord, UserTaskRecord
+from argos.db.session import Base
+from argos.models.store import RuntimeStore
+from argos.services import team_initialization
+from argos.services.kanban import KanbanError
 
 
 def _agent(agent_id: str, profile_name: str, workspace: Path) -> dict:

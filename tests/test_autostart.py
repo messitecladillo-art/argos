@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import importlib
 
-from app.models.store import RuntimeStore
-from app.services import autostart
+from argos.models.store import RuntimeStore
+from argos.services import autostart
 
 
 def _agent(agent_id: str, readiness_status: str = "ready", runtime_status: str = "stopped") -> dict:
@@ -67,7 +67,7 @@ def test_start_ready_agents_on_boot_can_be_disabled(monkeypatch):
 
 def test_auto_start_agents_env_defaults_on(monkeypatch):
     monkeypatch.delenv("AUTO_START_AGENTS", raising=False)
-    import app.config as config
+    import argos.config as config
 
     importlib.reload(config)
 

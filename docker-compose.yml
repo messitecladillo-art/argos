@@ -1,10 +1,10 @@
 version: "3.9"
 
 services:
-  hermes-agent-team:
+  argos:
     build: .
-    image: hermes-agent-team:latest
-    container_name: hermes-agent-team
+    image: argos:latest
+    container_name: argos
     restart: unless-stopped
     ports:
       - "${PORT:-5050}:5050"
@@ -16,7 +16,7 @@ services:
       - PORT=5050
       - FLASK_DEBUG=0
     healthcheck:
-      test: ["CMD", "curl", "-sf", "http://127.0.0.1:5050/api/hermes/status"]
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:5050/api/argos/status"]
       interval: 30s
       timeout: 5s
       start_period: 15s

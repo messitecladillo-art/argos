@@ -171,7 +171,7 @@ Leader review 可以：
 
 ## MCP 工具
 
-当前 MCP server 定义在 `app/mcp_server.py`，暴露以下工具：
+当前 MCP server 定义在 `argos/mcp_server.py`，暴露以下工具：
 
 | 工具 | 说明 |
 |---|---|
@@ -211,7 +211,7 @@ Leader review 可以：
 
 ## 持久化
 
-SQLite 表由 `app/db/models.py` 定义，启动时通过 `Base.metadata.create_all` 创建；SQLite 额外通过 `app/db/migrations.py` 补齐长时任务新增列。
+SQLite 表由 `argos/db/models.py` 定义，启动时通过 `Base.metadata.create_all` 创建；SQLite 额外通过 `argos/db/migrations.py` 补齐长时任务新增列。
 
 主要表：
 
@@ -237,12 +237,12 @@ SQLite 表由 `app/db/models.py` 定义，启动时通过 `Base.metadata.create_
 |---|---|---|
 | `HERMES_HOME` | `~/.hermes` | Hermes profiles 根目录。 |
 | `AGENT_TEAM_WORKSPACE_ROOT` | `~/agent_team` | Agent 工作区根目录。 |
-| `DATABASE_URL` | `sqlite:///data/hermes_agent_team.db` | 数据库连接串。 |
+| `DATABASE_URL` | `sqlite:///data/argos.db` | 数据库连接串。 |
 | `HERMES_AGENTS_MCP_URL` | `http://127.0.0.1:5050/mcp/` | 写入 Leader profile 的团队 MCP 地址。 |
 | `PORT` | `5050` | Web 服务端口。 |
 | `FLASK_DEBUG` | `0` | 日志级别开关，不启用 reload。 |
 | `AUTO_START_AGENTS` | `1` | 启动项目时自动启动 ready Agent。 |
-| `KANBAN_BOARD` | `hermes-agents-team` | 使用的 Hermes Kanban board。 |
+| `KANBAN_BOARD` | `argos` | 使用的 Hermes Kanban board。 |
 | `KANBAN_POLL_INTERVAL` | `2` | Kanban 同步轮询间隔。 |
 | `KANBAN_DEFAULT_WORKSPACE` | `scratch` | 默认 Kanban workspace。 |
 | `KANBAN_AUTO_DISPATCH` | `0` | 默认是否开启项目内自动 dispatch。 |

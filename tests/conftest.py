@@ -20,15 +20,15 @@ os.environ["DATABASE_URL"] = f"sqlite:///{_temp_db}"
 os.environ["LEARN_EMBED_PROVIDER"] = "dummy"  # no Ollama needed for tests
 os.environ["FLASK_DEBUG"] = "1"  # suppress SECRET_KEY warning in tests
 
-from app.db import init_database  # noqa: E402
-from app.learning import (  # noqa: E402
+from argos.db import init_database  # noqa: E402
+from argos.learning import (  # noqa: E402
     ab_evaluator,
     active_engine,
     feedback_engine,
     memory_store,
     trace_collector,
 )
-from app.models.store import store  # noqa: E402
+from argos.models.store import store  # noqa: E402
 
 init_database()
 store.load_persisted_state()

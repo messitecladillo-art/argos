@@ -2,8 +2,8 @@ from __future__ import annotations
 
 import time
 
-from app.models.store import RuntimeStore
-from app.services.kanban_dispatch import KanbanDispatchWorker
+from argos.models.store import RuntimeStore
+from argos.services.kanban_dispatch import KanbanDispatchWorker
 
 
 def _agent(agent_id: str, profile_name: str, role: str = "leader") -> dict:
